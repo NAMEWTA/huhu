@@ -1102,12 +1102,18 @@ export class SshManager {
     return shell;
   }
 
-  async openShell(hostId: string, size: { cols: number; rows: number } = { cols: 80, rows: 24 }, expected?: Conn, onEnd?: () => void, integrate = false): Promise<ShellInfo> {
+  async openShell(hostId: string, size: { cols: number; rows: number } = { cols: 80, rows: 24 }, expected?: Conn, onEnd?: () => void, integrate = false, command?: string): Promise<ShellInfo> {
     const conn = expected ?? this.conns.get(hostId);
     if (!conn || conn.hostId !== hostId || this.conns.get(conn.slot) !== conn) throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
     const pty = { term: "xterm-256color", cols: size.cols, rows: size.rows };
     const integrated = integrate ? await openIntegratedShell(conn.target, pty) : undefined;
-    const channel = integrated?.channel ?? (await new Promise<ClientChannel>((resolve, reject) => conn.target.shell(pty, (err, ch) => (err ? reject(new HuhuError("SSH_DISCONNECTED", `打开 Shell 失败：${err.message}`)) : resolve(ch)))));
+    const channel = integrated?.channel ?? (await new Promise<ClientChannel>((resolve, reject) => {
+      const opened = (error: Error | undefined, stream: ClientChannel) => error
+        ? reject(new HuhuError("SSH_DISCONNECTED", `打开 Shell 失败：${error.message}`))
+        : resolve(stream);
+      if (command) conn.target.exec(command, { pty }, opened);
+      else conn.target.shell(pty, opened);
+    }));
     if (this.conns.get(conn.slot) !== conn) {
       channel.close();
       throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
@@ -1130,6 +1136,24 @@ export class SshManager {
     });
     this.audit({ hostId, action: "shell", result: "ok", detail: id });
     return this.info(rec);
+  }
+
+  async openToolShell(hostId: string, shellId: string, connectionId: string, command: string, signal: AbortSignal): Promise<ShellInfo> {
+    signal.throwIfAborted();
+    const parent = this.shells.get(shellId);
+    const connection = this.runningShellConnection(hostId, shellId);
+    if (!parent || !connection || this.fileOrigins.get(connection)?.connectionId !== connectionId) throw new HuhuError("SSH_DISCONNECTED", "服务器工具的原分栏已关闭");
+    let childId: string | undefined;
+    const closeChild = () => { if (childId) this.closeShell(childId); };
+    const shell = await this.openShell(hostId, undefined, connection, () => parent.closers.delete(closeChild), false, command);
+    childId = shell.id;
+    if (parent.state !== "running" || signal.aborted) {
+      closeChild();
+      signal.throwIfAborted();
+      throw new HuhuError("SSH_DISCONNECTED", "服务器工具的原分栏已关闭");
+    }
+    parent.closers.add(closeChild);
+    return shell;
   }
 
   private info(r: ShellRec): ShellInfo {

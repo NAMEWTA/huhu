@@ -86,10 +86,12 @@ test("A11 native server tools keep the original shell and query the actual Docke
 
 test("Workbench monitors a saved panel in the background and controls the active Pane separately", async () => {
   let reads = 0;
+  let terminated = 0;
   const server = await startFakeSsh({
     onExec(command) {
       if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
       if (command === PROCESS_LIST) return { stdout: "42 monitor-fixture" };
+      if (command.endsWith("kill -TERM 42")) { terminated++; return { code: 0 }; }
       if (command === CONTAINER_LIST) return { stderr: "permission denied", code: 1 };
       if (command === IMAGE_LIST) return { stdout: "abcdef123456|monitor/fixture:stable|10MB" };
       if (command !== LINUX_SAMPLE) return;
@@ -162,7 +164,16 @@ test("Workbench monitors a saved panel in the background and controls the active
     await expect(sidebar.getByRole("status")).toHaveText(/正在采样/);
     await sidebar.getByRole("button", { name: "服务器工具", exact: true }).click();
     const tools = page.getByRole("dialog", { name: "服务器工具" });
-    await expect(tools.getByText(/monitor-fixture/)).toBeVisible();
+    await expect(tools.getByText("monitor-fixture", { exact: false })).toBeVisible();
+    await tools.getByRole("button", { name: "终止进程 monitor-fixture 42" }).click();
+    const confirmation = page.getByRole("dialog", { name: "确认终止进程" });
+    await expect(confirmation).toContainText("PID 42");
+    expect(terminated).toBe(0);
+    await confirmation.getByRole("button", { name: "取消", exact: true }).click();
+    expect(terminated).toBe(0);
+    await tools.getByRole("button", { name: "终止进程 monitor-fixture 42" }).click();
+    await confirmation.getByRole("button", { name: "确认终止", exact: true }).click();
+    await expect.poll(() => terminated).toBe(1);
     await tools.getByRole("button", { name: "容器" }).click();
     await expect(tools.getByRole("alert")).toHaveText("当前账户没有读取权限");
     await tools.getByRole("button", { name: "镜像" }).click();

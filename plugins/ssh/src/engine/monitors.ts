@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { errors, HuhuError, type PeriodicRunContext, type PeriodicRunOutcome, type PlanSummary } from "@huhu/contracts";
 import type { Client } from "ssh2";
 import type { z } from "zod";
-import type { MonitorHost, MonitorPanel, MonitorPanelChange, MonitorPanelRevision, MonitorPanelRun, MonitorPoint, MonitorSession, MonitorSessionChange, MonitorSessionOpen, SaveMonitorPanel, SessionInterval } from "../shared/monitoring.js";
+import type { MonitorHost, MonitorPanel, MonitorPanelChange, MonitorPanelRevision, MonitorPanelRun, MonitorPanelSudo, MonitorPoint, MonitorSession, MonitorSessionChange, MonitorSessionOpen, SaveMonitorPanel, SessionInterval } from "../shared/monitoring.js";
 import type { MonitorConnection, SshManager } from "./manager.js";
 import type { MonitorPanels, MonitorPanelScope } from "./monitor-panels.js";
 import type { MonitorPlans } from "./monitor-plans.js";
@@ -32,6 +32,7 @@ type Binding = {
   elevated?: boolean;
   panelId?: string;
   source?: Source;
+  connection?: MonitorConnection;
   release?: () => void;
   dial?: AbortController;
   acquire?: () => MonitorConnection;
@@ -242,6 +243,24 @@ export class Monitors {
     });
   }
 
+  changeDashboardSudo(input: z.infer<typeof MonitorPanelSudo>) {
+    return this.serial(async () => {
+      this.assertOpen();
+      this.panels.require(input);
+      const run = this.dashboards.get(input.id);
+      const binding = run?.bindings.find(({ host }) => host.hostId === input.hostId);
+      if (!run || run.state === "stopped" || !binding) throw errors.notFound("此主机没有运行中的监控");
+      if (Boolean(binding.elevated) === input.sudo) return this.dashboard(input.id);
+      this.unbindSource(binding);
+      binding.elevated = input.sudo;
+      delete binding.host.latest;
+      delete binding.host.platform;
+      this.gap(binding);
+      if (binding.connection) this.bindSource(binding, binding.connection);
+      return this.dashboard(input.id);
+    });
+  }
+
   private continueDashboard(run: Dashboard): void {
     run.state = "running";
     for (const binding of run.bindings) {
@@ -301,7 +320,7 @@ export class Monitors {
   private view(binding: Binding): MonitorHost {
     const { host, source } = binding;
     this.trim(binding);
-    return { ...host, history: reduceHistory(host.history), interval: source ? this.period(source) : undefined, subscribers: source?.users.size ?? 0 };
+    return { ...host, ...(binding.elevated && { sudo: true }), history: reduceHistory(host.history), interval: source ? this.period(source) : undefined, subscribers: source?.users.size ?? 0 };
   }
 
   private dial(binding: Binding) {
@@ -342,18 +361,24 @@ export class Monitors {
       delete host.latest;
       delete host.platform;
     }
+    binding.connection = connection;
+    const off = connection.onClose(() => this.disconnect(binding, "disconnected"));
+    binding.release = () => {
+      off();
+      connection.release();
+    };
+    this.bindSource(binding, connection);
+  }
+
+  private bindSource(binding: Binding, connection: MonitorConnection) {
+    const { host } = binding;
     const elevated = binding.elevated ?? false;
     const key = JSON.stringify([connection.id, elevated]);
     const source = this.sources.get(key) ?? { id: connection.id, key, elevated, client: connection.client, users: new Set<Binding>() };
     this.sources.set(key, source);
     source.users.add(binding);
     binding.source = source;
-    const off = connection.onClose(() => this.disconnect(binding, "disconnected"));
-    binding.release = () => {
-      off();
-      connection.release();
-    };
-    Object.assign(host, { connectionId: source.id, state: source.failure?.phase ?? "sampling", message: source.failure?.message, prompt: undefined, platform: source.platform });
+    Object.assign(host, { connectionId: source.id, state: binding.enabled ? source.failure?.phase ?? "sampling" : "paused", message: source.failure?.message, prompt: undefined, platform: source.platform });
     this.schedule(source);
     if (binding.panelId) this.plans?.wake(binding.panelId);
   }
@@ -397,17 +422,21 @@ export class Monitors {
     binding.enabled = false;
     binding.dial?.abort();
     delete binding.dial;
-    const source = binding.source;
-    if (source) {
-      source.users.delete(binding);
-      delete binding.source;
-      if (!source.users.size) this.sources.delete(source.key);
-      this.schedule(source);
-    }
+    this.unbindSource(binding);
+    delete binding.connection;
     binding.release?.();
     delete binding.release;
     this.gap(binding);
     Object.assign(binding.host, { state, prompt: undefined, message: state === "disconnected" ? "原 SSH 连接或分栏已关闭" : undefined });
+  }
+
+  private unbindSource(binding: Binding) {
+    const source = binding.source;
+    if (!source) return;
+    source.users.delete(binding);
+    delete binding.source;
+    if (!source.users.size) this.sources.delete(source.key);
+    this.schedule(source);
   }
 
   private gap(binding: Binding) {
