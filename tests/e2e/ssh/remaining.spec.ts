@@ -726,6 +726,7 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     await expect(run).toBeVisible();
     await expect(firstPane).toHaveAttribute("data-session-id", originalPanes[0]!.sessionId!);
   } finally {
+    await page.evaluate(() => localStorage.removeItem("huhu.ssh.device-preferences.v1")).catch(() => undefined);
     await fixture.close();
     await other.close();
     await target.close();
