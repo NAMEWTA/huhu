@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { isHuhuError, MCP_ENTRY_KINDS, type McpEntryKind, type McpExternalRoute, type McpSessionPrincipal, type McpSource, type McpSourceCatalog } from "@huhu/contracts";
+import { errors, isHuhuError, MCP_ENTRY_KINDS, type McpEntryKind, type McpExternalRoute, type McpSessionPrincipal, type McpSource, type McpSourceCatalog } from "@huhu/contracts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { CallToolResultSchema, ErrorCode, GetPromptResultSchema, McpError, PromptListChangedNotificationSchema, ReadResourceResultSchema, ResourceListChangedNotificationSchema, ToolListChangedNotificationSchema, type CallToolResult, type ContentBlock, type GetPromptResult, type ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -127,6 +127,9 @@ export class McpSourceRuntime implements ExternalMcpTools {
         return client;
       } catch (error) {
         await close();
+        if (source.configuration.transport === "stdio" && error instanceof Error && "code" in error && error.code === "ENOENT") {
+          throw errors.invalidInput("找不到 MCP stdio 程序或工作目录");
+        }
         throw error;
       }
     })();

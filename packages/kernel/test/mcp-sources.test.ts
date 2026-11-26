@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { errors } from "@huhu/contracts";
+import { errors, type McpSource, type McpSourceDeletePreview } from "@huhu/contracts";
 import { Vault, exportPackage } from "@huhu/vault";
 import { unzipSync } from "fflate";
 import { afterEach, expect, test, vi } from "vitest";
@@ -76,6 +76,10 @@ async function fixture(directory: string, readOnly = false, options: { localRoot
     externalMcpTools: () => lifecycle.getService<ExternalMcpTools>(MCP_SOURCES_SERVICE),
     mcpSignal: () => service?.signal ?? AbortSignal.abort(),
     mcpRecovery: { directory, generation: () => "fixture-generation" },
+  }).catch(async (error: unknown) => {
+    await plugins.disposeAll();
+    await vault.close();
+    throw error;
   });
   const close = async () => {
     if (closed) return;
@@ -379,7 +383,7 @@ test("one HTTP entry matches exact same-name tools across stdio, Streamable HTTP
   cleanup.push(() => streamable.close());
   const sse = await localUpstream("sse");
   cleanup.push(() => sse.close());
-  const resources = await localUpstream("streamable-http", { resourcesOnly: true });
+  const resources = await localUpstream("streamable-http", { advertise: "resources" });
   cleanup.push(() => resources.close());
   const f = await fixture(directory);
   const { source: local } = await addStdio(f, directory);
@@ -552,6 +556,107 @@ const remoteConfig = (url: string, kind: "none" | "oauth" = "none") => ({
   transport: "streamable-http", url, headers: {}, authentication: { kind },
 });
 
+test.each([
+  ["resources", ["resources/list", "resources/templates/list"], [{ kind: "resource", publicKey: "mcp-source://resources/fixture://docs/readme" }]],
+  ["prompts", ["prompts/list"], [{ kind: "prompt", publicKey: "prompts__review" }]],
+  ["none", [], []],
+] as const)("a %s-only probe succeeds with zero tools and requests only advertised directories", async (advertise, methods, entries) => {
+  const upstream = await localUpstream("streamable-http", { advertise });
+  cleanup.push(() => upstream.close());
+  const f = await fixture(root());
+  const source = await f.call<Source>("mcp.sources.create", {
+    displayName: advertise, namespace: advertise, configuration: remoteConfig(upstream.url),
+  });
+  expect(await f.call("mcp.sources.check", sourceRef(source))).toMatchObject({ state: "ready", diagnostic: null, toolCount: 0 });
+  expect(upstream.requests).toEqual(["initialize", "notifications/initialized", ...methods]);
+  expect(await f.call("mcp.sources.get", { sourceId: source.sourceId })).toMatchObject({ source, diagnostic: null, checkedAt: expect.any(String) });
+  const catalog = await f.call<Catalog>("mcp.catalog.list", { sourceId: source.sourceId });
+  expect(catalog.entries.map(({ kind, publicKey }) => ({ kind, publicKey }))).toEqual(entries);
+});
+
+test("missing stdio executable and rejected static HTTP authentication keep their source and distinct diagnostics", async () => {
+  const directory = root();
+  const upstream = await localUpstream("streamable-http", { authorization: "Bearer expected" });
+  cleanup.push(() => upstream.close());
+  const f = await fixture(directory, false, credentialHost());
+  const missing = await f.call<Source>("mcp.sources.create", {
+    displayName: "Missing", namespace: "missing", configuration: { transport: "stdio", command: path.join(directory, "absent-executable"), args: ["local-test-arg"], environment: {} },
+  });
+  await approve(f, missing);
+  expect(await f.call("mcp.sources.deletePreview", sourceRef(missing))).toMatchObject({ entries: [], hasExecutionApproval: true, clearsLocalCredential: false });
+  const remote = await f.call<Source>("mcp.sources.create", {
+    displayName: "Rejected", namespace: "rejected", configuration: remoteConfig(upstream.url),
+  });
+  const { source: bound } = await f.call<{ source: Source }>("mcp.credentials.put", {
+    ...sourceRef(remote), account: "fixture", header: "Authorization", value: "Bearer wrong-fixture-token",
+  });
+  for (const [source, state, diagnostic] of [
+    [missing, "offline", "找不到 MCP stdio 程序或工作目录"],
+    [bound, "auth-required", "上游拒绝了认证"],
+  ] as const) {
+    expect(await f.call("mcp.sources.check", sourceRef(source))).toMatchObject({ state, diagnostic, toolCount: 0 });
+    expect(await f.call("mcp.diagnostics.get", { sourceId: source.sourceId })).toMatchObject({ source, diagnostic, checkedAt: expect.any(String) });
+    expect(await f.call("mcp.catalog.list", { sourceId: source.sourceId })).toMatchObject({ entries: [] });
+  }
+  expect(upstream.rejections).toEqual([{ method: "initialize", authorization: "Bearer wrong-fixture-token" }]);
+  expect(upstream.requests).toEqual([]);
+});
+
+test.each([["roots", "listing roots"], ["elicitation", "form elicitation"]] as const)("P7 reports a peer that requires %s", async (requires, label) => {
+  const upstream = await localUpstream("streamable-http", { requires });
+  cleanup.push(() => upstream.close());
+  const f = await fixture(root());
+  const source = await f.call<Source>("mcp.sources.create", {
+    displayName: requires, namespace: requires, configuration: remoteConfig(upstream.url),
+  });
+  expect(await f.call("mcp.sources.check", sourceRef(source))).toMatchObject({
+    state: "incompatible", diagnostic: `上游需要 Huhu 未提供的 MCP 客户端能力（${label}）`, toolCount: 0,
+  });
+  expect(upstream.requests).toEqual(["initialize", "notifications/initialized", "tools/list"]);
+  expect(await f.call("mcp.catalog.list", { sourceId: source.sourceId })).toMatchObject({ entries: [] });
+});
+
+test("deletion preview uses saved public routes and clears only the target credential and policy", async () => {
+  const directory = root();
+  const credentials = credentialHost();
+  const upstream = await localUpstream("streamable-http");
+  cleanup.push(() => upstream.close());
+  let f = await fixture(directory, false, credentials);
+  async function add(namespace: string) {
+    const source = await f.call<Source>("mcp.sources.create", { displayName: namespace, namespace, configuration: remoteConfig(upstream.url) });
+    const { source: bound } = await f.call<{ source: McpSource }>("mcp.credentials.put", {
+      ...sourceRef(source), account: namespace, header: "Authorization", value: `Bearer synthetic-${namespace}`,
+    });
+    await f.call("mcp.sources.check", sourceRef(bound));
+    await exposure(f, bound, "echo", true);
+    return f.call<McpSource>("mcp.sources.setEnabled", { ...sourceRef(bound), enabled: true });
+  }
+  const first = await add("first");
+  const second = await add("second");
+  const previous = await f.call<McpSourceDeletePreview>("mcp.sources.deletePreview", sourceRef(first));
+  await exposure(f, second, "echo", false);
+  expect(await f.invoke("mcp.sources.delete", { ...sourceRef(first), expectedPolicyRevision: previous.policyRevision })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  await f.call("mcp.sources.check", sourceRef(second));
+  await exposure(f, second, "echo", true);
+  await f.close();
+  f = await fixture(directory, false, credentials);
+  expect(await f.call("mcp.catalog.list", { sourceId: first.sourceId })).toMatchObject({ entries: [] });
+  const preview = await f.call<McpSourceDeletePreview>("mcp.sources.deletePreview", sourceRef(first));
+  expect(preview).toEqual({ policyRevision: previous.policyRevision + 2, entries: [{ kind: "tool", publicKey: "first__echo" }], hasExecutionApproval: false, clearsLocalCredential: true });
+  f.setPublishing(true);
+  const rpc = await f.client();
+  expect((await rpc("tools/list")).result?.tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: "first__echo" }), expect.objectContaining({ name: "second__echo" })]));
+  await f.call("mcp.sources.delete", { ...sourceRef(first), expectedPolicyRevision: preview.policyRevision });
+  expect((await rpc("tools/list")).result?.tools?.map(({ name }) => name)).toEqual(["vault_info", "second__echo"]);
+  expect((await rpc("tools/call", { name: "first__echo" })).error?.data?.code).toBe("CAPABILITY_NOT_FOUND");
+  expect((await rpc("tools/call", { name: "second__echo" })).result).toBeDefined();
+  expect(upstream.admissions.at(-1)?.authorization).toBe("Bearer synthetic-second");
+  const definitions = path.join(directory, ".huhu/module-credentials");
+  const saved = readdirSync(definitions).map((name) => readFileSync(path.join(definitions, name), "utf8")).join("\n");
+  expect(saved).not.toContain(first.sourceId);
+  expect(saved).toContain(second.sourceId);
+}, 15_000);
+
 test("two accounts on a single target remain isolated and changing target or removing credentials invalidates their sessions", async () => {
   const directory = root();
   const ends = await localUpstream("streamable-http", { authorize: (value) => /^Bearer synthetic-(a|b|next)$/.test(value ?? "") });
@@ -601,7 +706,7 @@ test("P7 reports unsupported peer versions and required client sampling without 
   const directory = root();
   const definition = path.join(directory, "version.json");
   writeFileSync(definition, JSON.stringify({ protocolVersion: "2026-07-28" }));
-  const sampling = await localUpstream("streamable-http", { requiresSampling: true });
+  const sampling = await localUpstream("streamable-http", { requires: "sampling" });
   cleanup.push(() => sampling.close());
   const f = await fixture(directory);
   const future = (await addStdio(f, directory, "future", definition)).source;
@@ -729,4 +834,84 @@ test("SDK OAuth PKCE login, state rejection, cancellation, expiry, refresh coale
   expect(await f.call("mcp.oauth.status", { attemptId: late.attemptId })).toMatchObject({ state: "cancelled" });
   await expect(fetch(oldCallback)).rejects.toThrow();
   expect(provider.exchanges).toBe(1);
+}, 20_000);
+
+test("two OAuth identities at one issuer refresh independently and rotation rejects stale refresh and callback", async () => {
+  function holdRefresh() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => { resolve = done; });
+    return { promise, resolve };
+  }
+  let aliceRefresh = holdRefresh();
+  const provider = await loopbackOAuth({ beforeRefresh: async (subject) => {
+    if (subject === "alice") await aliceRefresh.promise;
+  } });
+  cleanup.push(() => provider.stop());
+  const f = await fixture(root(), false, credentialHost());
+  const readSource = async (source: Source) => (await f.call<{ source: Source }>("mcp.sources.get", { sourceId: source.sourceId })).source;
+  async function begin(source: Source, subject: string) {
+    const login = await f.call<{ attemptId: string; authorizationUrl: string }>("mcp.oauth.begin", { ...sourceRef(source), account: subject });
+    const authorization = new URL(login.authorizationUrl);
+    authorization.searchParams.set("fixture_subject", subject);
+    const response = await fetch(authorization, { redirect: "manual" });
+    expect(response.status).toBe(302);
+    return { ...login, callback: response.headers.get("location")! };
+  }
+  async function add(namespace: string, subject: string) {
+    const source = await f.call<Source>("mcp.sources.create", {
+      displayName: namespace, namespace, configuration: remoteConfig(provider.url, "oauth"),
+    });
+    const login = await begin(source, subject);
+    expect((await fetch(login.callback)).status).toBe(200);
+    const bound = await readSource(source);
+    await f.call("mcp.sources.check", sourceRef(bound));
+    await exposure(f, bound, "echo", true);
+    return f.call<Source>("mcp.sources.setEnabled", { ...sourceRef(bound), enabled: true });
+  }
+  const first = await add("first_oauth", "alice");
+  const second = await add("second_oauth", "bob");
+  f.setPublishing(true);
+  const rpc = await f.client();
+  expect((await rpc("tools/list")).result?.tools).toHaveLength(3);
+  const invoke = (source: Source) => rpc("tools/call", { name: `${source.namespace}__echo`, arguments: {} });
+  expect((await invoke(first)).result?.structuredContent).toEqual({ subject: "alice" });
+  expect((await invoke(second)).result?.structuredContent).toEqual({ subject: "bob" });
+
+  let now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+  try {
+    now += 31_000;
+    const firstCalls = Promise.all([invoke(first), invoke(first)]);
+    await vi.waitFor(() => expect(provider.refreshSubjects).toEqual(["alice"]));
+    const secondCalls = await Promise.all([invoke(second), invoke(second)]);
+    expect(secondCalls.map(({ result }) => result?.structuredContent)).toEqual([{ subject: "bob" }, { subject: "bob" }]);
+    expect(provider.refreshSubjects).toEqual(["alice", "bob"]);
+    aliceRefresh.resolve();
+    expect((await firstCalls).map(({ result }) => result?.structuredContent)).toEqual([{ subject: "alice" }, { subject: "alice" }]);
+    expect(provider.refreshSubjects).toEqual(["alice", "bob"]);
+    expect(new Set(provider.calls.filter(({ subject }) => subject === "alice").map(({ token }) => token)).size).toBe(2);
+
+    aliceRefresh = holdRefresh();
+    now += 31_000;
+    const staleCall = invoke(first);
+    await vi.waitFor(() => expect(provider.refreshSubjects).toEqual(["alice", "bob", "alice"]));
+    const pending = await begin(first, "stale");
+    const rotated = await begin(first, "carol");
+    expect(await f.call("mcp.oauth.status", { attemptId: pending.attemptId })).toMatchObject({ state: "cancelled" });
+    const abandoned = await fetch(pending.callback).catch(() => null);
+    expect(abandoned?.ok ?? false).toBe(false);
+    expect((await fetch(rotated.callback)).status).toBe(200);
+    expect(provider.exchanges).toBe(3);
+    aliceRefresh.resolve();
+    expect((await staleCall).error?.data?.code).toBe("VERSION_CONFLICT");
+    expect((await invoke(first)).result?.structuredContent).toEqual({ subject: "carol" });
+    expect((await invoke(second)).result?.structuredContent).toEqual({ subject: "bob" });
+    expect(provider.calls.map(({ subject }) => subject)).toEqual(["alice", "bob", "bob", "bob", "alice", "alice", "carol", "bob"]);
+    expect(provider.refreshSubjects).toEqual(["alice", "bob", "alice", "bob"]);
+    expect(await f.call("mcp.sources.get", { sourceId: first.sourceId })).toMatchObject({ credential: { account: "carol", state: "configured" } });
+    expect(await f.call("mcp.sources.get", { sourceId: second.sourceId })).toMatchObject({ credential: { account: "bob", state: "configured" } });
+  } finally {
+    aliceRefresh.resolve();
+    clock.mockRestore();
+  }
 }, 20_000);

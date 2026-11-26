@@ -5,10 +5,13 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-export async function loopbackOAuth() {
+export async function loopbackOAuth(options: { beforeRefresh?: (subject: string) => Promise<void> } = {}) {
   const clients = new Map<string, string>();
-  const proofs = new Map<string, { challenge: string; client: string }>();
-  const tokens = new Set<string>();
+  const proofs = new Map<string, { challenge: string; client: string; subject: string }>();
+  const subjects = new Map<string, string>();
+  const tokens = new Map<string, string>();
+  const refreshSubjects: string[] = [];
+  const calls: { subject: string; token: string }[] = [];
   let issued = 0;
   let refreshes = 0;
   let exchanges = 0;
@@ -38,7 +41,7 @@ export async function loopbackOAuth() {
       const redirect = clients.get(client);
       if (!redirect || redirect !== url.searchParams.get("redirect_uri") || url.searchParams.get("code_challenge_method") !== "S256") return json({ error: "invalid_request" }, 400);
       const code = randomUUID();
-      proofs.set(code, { challenge: url.searchParams.get("code_challenge") ?? "", client });
+      proofs.set(code, { challenge: url.searchParams.get("code_challenge") ?? "", client, subject: url.searchParams.get("fixture_subject") ?? "fixture" });
       const callback = new URL(redirect);
       callback.searchParams.set("code", code);
       callback.searchParams.set("state", url.searchParams.get("state") ?? "");
@@ -54,26 +57,34 @@ export async function loopbackOAuth() {
         const verifier = form.get("code_verifier") ?? "";
         if (!proof || proof.client !== client || proof.challenge !== createHash("sha256").update(verifier).digest("base64url")) return json({ error: "invalid_grant" }, 400);
         proofs.delete(code);
+        subjects.set(client, proof.subject);
         exchanges++;
       } else {
-        if (form.get("grant_type") !== "refresh_token" || form.get("refresh_token") !== "synthetic-refresh-" + client) {
+        const subject = subjects.get(client);
+        if (subject === undefined || form.get("grant_type") !== "refresh_token" || form.get("refresh_token") !== "synthetic-refresh-" + client) {
           return json({ error: "invalid_grant" }, 400);
         }
         refreshes++;
+        refreshSubjects.push(subject);
+        await options.beforeRefresh?.(subject);
       }
       const token = "synthetic-access-" + ++issued;
-      tokens.add(token);
+      tokens.set(token, subjects.get(client)!);
       return json({ access_token: token, token_type: "Bearer", refresh_token: "synthetic-refresh-" + client, expires_in: 30 });
     }
     if (url.pathname === "/mcp") {
       const token = request.headers.authorization?.slice("Bearer ".length) ?? "";
-      if (!tokens.has(token)) {
+      const subject = tokens.get(token);
+      if (subject === undefined) {
         return response.writeHead(401, { "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"` }).end();
       }
       const mcp = new Server({ name: "oauth-fixture", version: "1" }, { capabilities: { tools: {} } });
       const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
       mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [{ name: "echo", inputSchema: { type: "object" } }] }));
-      mcp.setRequestHandler(CallToolRequestSchema, async () => ({ content: [{ type: "text", text: "authorized" }] }));
+      mcp.setRequestHandler(CallToolRequestSchema, async () => {
+        calls.push({ subject, token });
+        return { content: [{ type: "text", text: "authorized" }], structuredContent: { subject } };
+      });
       await mcp.connect(transport);
       try { await transport.handleRequest(request, response); }
       finally { await mcp.close(); }
@@ -81,10 +92,15 @@ export async function loopbackOAuth() {
     }
     response.writeHead(404).end();
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => { server.off("error", reject); resolve(); });
+  });
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
     url: origin + "/mcp",
+    calls,
+    refreshSubjects,
     get refreshes() { return refreshes; },
     get exchanges() { return exchanges; },
     async stop() {

@@ -48,8 +48,8 @@ export class GroupStdioTransport implements Transport {
     child.once("exit", () => this.beginClose());
     return new Promise((resolve, reject) => {
       child.once("spawn", resolve);
-      child.on("error", () => {
-        reject(new Error("MCP stdio process could not start"));
+      child.on("error", (error: NodeJS.ErrnoException) => {
+        reject(Object.assign(new Error("MCP stdio process could not start"), { code: error.code }));
         this.beginClose();
       });
     });
