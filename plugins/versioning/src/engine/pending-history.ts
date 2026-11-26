@@ -175,6 +175,7 @@ export class PendingHistory {
 
   private failed(id: string, title: string): void {
     try {
+      // oxlint-disable-next-line huhu-scheduling/no-direct-notification-fallback -- 报告编辑器已保存版本的历史收尾失败。
       this.notify(`ntf-history-${id}`, title);
     } catch {
       // A failed notification store must not interrupt close or a committed editor save.

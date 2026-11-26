@@ -462,6 +462,7 @@ function main(file) {
   }
 
   const startup = setTimeout(() => stop("thread startup is unconfirmed"), 20_000);
+  // oxlint-disable-next-line huhu-scheduling/no-private-periodic-timer -- 子进程执行期间监控工作区授权撤回，随子进程退出清理。
   const approvalWatch = workspace ? setInterval(() => {
     if (!workspaceApproved()) stop("workspace write approval changed");
   }, 250) : undefined;

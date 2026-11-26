@@ -613,6 +613,7 @@ export function registerMessageCache(
       for (const localMessageId of pending) {
         assertCurrent();
         try {
+          // oxlint-disable-next-line huhu-scheduling/no-direct-notification-fallback -- 已持久化的收件事件按邮件 ID 递送，手动和计划同步共用。
           notify({ id: noticeId(localMessageId), module: "mail", title: "收到新邮件" });
         } catch {
           failed.push(localMessageId);

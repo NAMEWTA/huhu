@@ -385,7 +385,7 @@ test("P7 来源详情显示上游所需的未支持客户端能力", async () =>
   const { page, close } = await openApp();
   let upstream: Awaited<ReturnType<typeof localUpstream>> | undefined;
   try {
-    upstream = await localUpstream("streamable-http", { requiresSampling: true });
+    upstream = await localUpstream("streamable-http", { requires: "sampling" });
     await gateway(page);
     const panel = page.getByTestId("gateway-mcp-sources");
     await panel.getByRole("button", { name: "添加服务" }).click();
@@ -407,6 +407,144 @@ test("P7 来源详情显示上游所需的未支持客户端能力", async () =>
       await close();
     } finally {
       await upstream?.close();
+    }
+  }
+});
+
+test("桌面与获邀 Web 窄窗和大字号下显示来源、删除影响和诊断，键盘可取消并恢复焦点", async () => {
+  test.setTimeout(60_000);
+  const secret = "Bearer delete-preview-fixture";
+  const { app, page: desktop, close } = await openApp({ HUHU_MCP_DELETE_TEST_AUTH: secret });
+  let browser: Browser | undefined;
+  const upstreams: Awaited<ReturnType<typeof localUpstream>>[] = [];
+  let appearance: string | null | undefined;
+  try {
+    await engineReady(desktop);
+    appearance = await desktop.evaluate(() => localStorage.getItem("huhu.appearance"));
+    await call(desktop, "settings.update", { patch: { appearance: { fontSize: 18 } } });
+    await desktop.reload();
+    await gateway(desktop);
+
+    const upstream = await localUpstream("streamable-http", { authorization: secret });
+    upstreams.push(upstream);
+    const empty = await localUpstream("streamable-http", { advertise: "none" });
+    upstreams.push(empty);
+    const incompatible = await localUpstream("streamable-http", { requires: "roots" });
+    upstreams.push(incompatible);
+    const register = (namespace: string, displayName: string, url: string, authorized = false) => call<Source>(desktop, "mcp.sources.create", {
+      namespace, displayName, configuration: { transport: "streamable-http", url, headers: {}, authentication: authorized
+        ? { kind: "environment", name: "HUHU_MCP_DELETE_TEST_AUTH", header: "Authorization" } : { kind: "none" } },
+    });
+    const target = await register("remove_source", "待删除来源", upstream.url, true);
+    const other = await register("keep_source", "保留来源", upstream.url, true);
+    for (const source of [target, other]) {
+      expect(await call(desktop, "mcp.sources.check", sourceRef(source))).toMatchObject({ state: "ready", toolCount: 1 });
+      const { catalogRevision, policyRevision } = await call<Catalog>(desktop, "mcp.catalog.list", {});
+      await call(desktop, "mcp.policy.update", { expectedCatalogRevision: catalogRevision, expectedPolicyRevision: policyRevision,
+        choices: [{ sourceId: source.sourceId, upstreamIdentity: "echo", selected: true }] });
+      await call(desktop, "mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
+    }
+    await register("empty_source", "无能力来源", empty.url);
+    await register("denied_source", "拒绝认证来源", upstream.url);
+    await register("roots_source", "协议不兼容来源", incompatible.url);
+    await call(desktop, "gateway.mcp.update", { enabled: true });
+    const { token } = await call<{ token: string }>(desktop, "gateway.tokens.create", { name: "Delete preview fixture" });
+    const rpc = await openClient(desktop, token);
+    expect((await rpc("tools/list")).result.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "remove_source__echo" }), expect.objectContaining({ name: "keep_source__echo" }),
+    ]));
+    const tool = (namespace: string) => ({ name: namespace + "__echo", arguments: { value: namespace } });
+    for (const source of [target, other]) {
+      expect((await rpc("tools/call", tool(source.namespace))).result.structuredContent.value).toBe(source.namespace);
+    }
+
+    await call(desktop, "web.share.start", { mode: "local", port: 0 });
+    const { links: [invite] } = await call<{ links: string[] }>(desktop, "web.invitations.create", {});
+    browser = await chromium.launch();
+    const web = await browser.newPage({ viewport: { width: 430, height: 680 } });
+    await web.goto(invite!);
+    await web.getByRole("button", { name: "能力网关", exact: true }).first().click();
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0]!;
+      window.setSize(960, 720);
+      window.webContents.setZoomFactor(1.15);
+    });
+
+    for (const page of [desktop, web]) {
+      const panel = page.getByTestId("gateway-mcp-sources");
+      const table = panel.getByRole("table", { name: "外部 MCP 服务列表" });
+      const scroll = panel.getByRole("region", { name: "滚动查看外部 MCP 服务" });
+      await expect.poll(() => page.locator("html").evaluate((html) => getComputedStyle(html).getPropertyValue("--font-size").trim())).toBe("18px");
+      await expect(table.getByRole("columnheader")).toHaveText(["服务", "传输与地址", "连接状态", "认证", "最近检查 / 目录"]);
+      await scroll.focus();
+      await page.keyboard.press("ArrowRight");
+      await expect.poll(() => scroll.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+      const lastHeader = table.getByRole("columnheader", { name: /最近检查/ });
+      await lastHeader.scrollIntoViewIfNeeded();
+      await expect(lastHeader).toBeInViewport();
+      await expect(panel.getByRole("button", { name: "添加服务" })).toBeEnabled();
+
+      const detail = panel.getByTestId("mcp-source-detail");
+      for (const [name, diagnostic] of [
+        ["无能力来源", "检查成功 · 发现 0 个工具"],
+        ["拒绝认证来源", "上游拒绝了认证"],
+        ["协议不兼容来源", "上游需要 Huhu 未提供的 MCP 客户端能力（listing roots）"],
+      ]) {
+        await table.getByRole("button", { name: `查看 ${name}` }).click();
+        const check = detail.getByRole("button", { name: "检查连接" });
+        await check.scrollIntoViewIfNeeded();
+        await expect(check).toBeInViewport({ ratio: 1 });
+        await check.click();
+        await expect(panel.getByRole("status").filter({ hasText: diagnostic })).toBeVisible();
+      }
+
+      await table.getByRole("button", { name: "查看 待删除来源" }).click();
+      const trigger = detail.getByRole("button", { name: "删除", exact: true });
+      await trigger.click();
+      const dialog = page.getByRole("dialog", { name: "删除 MCP 服务" });
+      const cancel = dialog.getByRole("button", { name: "取消", exact: true });
+      const confirm = dialog.getByRole("button", { name: "确认删除" });
+      await expect(cancel).toBeFocused();
+      await expect(dialog.getByRole("list", { name: "将撤下的公开条目" }).getByRole("listitem")).toHaveText("工具 · remove_source__echo");
+      await expect(dialog).toContainText("本机凭据：无绑定");
+      await expect(dialog).not.toContainText(/keep_source__echo|HUHU_MCP_DELETE_TEST_AUTH|delete-preview-fixture/);
+      await expect.poll(() => dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      await expect(confirm).toBeEnabled();
+      await page.keyboard.press("Tab");
+      await expect(confirm).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(cancel).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(trigger).toBeFocused();
+      await expect(table.getByRole("button", { name: "查看 待删除来源" })).toBeVisible();
+    }
+
+    const panel = web.getByTestId("gateway-mcp-sources");
+    await panel.getByTestId("mcp-source-detail").getByRole("button", { name: "删除", exact: true }).click();
+    await web.getByRole("dialog", { name: "删除 MCP 服务" }).getByRole("button", { name: "确认删除" }).click();
+    for (const page of [desktop, web]) {
+      const table = page.getByRole("table", { name: "外部 MCP 服务列表" });
+      await expect(table.getByRole("button", { name: "查看 待删除来源" })).toHaveCount(0);
+      await expect(table.getByRole("button", { name: "查看 保留来源" })).toBeVisible();
+    }
+    expect((await rpc("tools/list")).result.tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: "keep_source__echo" })]));
+    expect((await rpc("tools/list")).result.tools).not.toContainEqual(expect.objectContaining({ name: "remove_source__echo" }));
+    const received = upstream.calls.length;
+    expect((await rpc("tools/call", tool(target.namespace))).error.data.code).toBe("CAPABILITY_NOT_FOUND");
+    expect(upstream.calls).toHaveLength(received);
+    expect((await rpc("tools/call", tool(other.namespace))).result.structuredContent.value).toBe(other.namespace);
+    expect(upstream.admissions.at(-1)?.authorization).toBe(secret);
+  } finally {
+    try {
+      await browser?.close();
+      if (appearance !== undefined && !desktop.isClosed()) await desktop.evaluate((cached) => {
+        if (cached === null) localStorage.removeItem("huhu.appearance");
+        else localStorage.setItem("huhu.appearance", cached);
+      }, appearance);
+    } finally {
+      try { await close(); }
+      finally { await Promise.all(upstreams.map((upstream) => upstream.close())); }
     }
   }
 });

@@ -13,6 +13,7 @@ export interface DataTableColumn<T> {
 
 export interface DataTableProps<T> {
   label: string;
+  scrollLabel?: string;
   columns: readonly DataTableColumn<T>[];
   rows: readonly T[];
   rowKey(row: T): string;
@@ -34,7 +35,7 @@ export interface DataTableProps<T> {
 const ROW_H = 41;
 
 /** 数据表（design-system.md DataTable）：TanStack Table 管列与列宽，行数超过 200 用 react-virtual 只渲染可见行；吸顶表头、hover / 选中、↑↓ 移动、Enter 打开。仍然是语义化的 <table>。 */
-export function DataTable<T>({ label, columns, rows, rowKey, onOpen, selectedKey = null, onSelect, rowTestId, rowAttrs, empty, virtualizeAfter = 200, height = 480 }: DataTableProps<T>) {
+export function DataTable<T>({ label, scrollLabel, columns, rows, rowKey, onOpen, selectedKey = null, onSelect, rowTestId, rowAttrs, empty, virtualizeAfter = 200, height = 480 }: DataTableProps<T>) {
   const defs = useMemo<ColumnDef<T>[]>(() => columns.map((c) => ({ id: c.id, header: c.header, size: c.width ?? 160, minSize: 60, meta: { className: c.className, cell: c.cell } })), [columns]);
   const table = useReactTable<T>({ data: rows as T[], columns: defs, getCoreRowModel: getCoreRowModel(), getRowId: (r) => rowKey(r), columnResizeMode: "onChange", enableColumnResizing: true });
   const scroller = useRef<HTMLDivElement>(null);
@@ -76,7 +77,8 @@ export function DataTable<T>({ label, columns, rows, rowKey, onOpen, selectedKey
   };
 
   return (
-    <div ref={scroller} className="hu-data-table-scroll" style={virtual ? { maxHeight: height } : undefined} data-virtual={virtual || undefined}>
+    <div ref={scroller} className="hu-data-table-scroll" style={virtual ? { maxHeight: height } : undefined} data-virtual={virtual || undefined}
+      role={scrollLabel ? "region" : undefined} aria-label={scrollLabel} tabIndex={scrollLabel ? 0 : undefined}>
       <table className="hu-table hu-data-table" aria-label={label} aria-rowcount={body.length + 1} style={{ width: table.getTotalSize(), minWidth: "100%" }}>
         <colgroup>
           {table.getFlatHeaders().map((h) => (

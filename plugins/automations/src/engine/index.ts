@@ -419,6 +419,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       if (!stateFiles.readOnly) void scans.recover().catch(() => undefined);
       if (!stateFiles.readOnly) void svc.reconcileTerminals().catch(() => undefined);
     };
+    // oxlint-disable-next-line huhu-scheduling/no-private-periodic-timer -- Automations 计划端口拥有唯一的周期计划检查。
     const timer = opts.schedule === false ? undefined : setInterval(check, 5_000);
     if (timer) check();
     const checkDeadlinesAndObservations = () => {
@@ -427,6 +428,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       void observations.tick();
       void periodic.tick().catch(() => undefined);
     };
+    // oxlint-disable-next-line huhu-scheduling/no-private-periodic-timer -- Automations 计划端口检查截止时刻与观察计划。
     const observationTimer = opts.schedule === false ? undefined : setInterval(checkDeadlinesAndObservations, 1_000);
     if (observationTimer) checkDeadlinesAndObservations();
     return () => {

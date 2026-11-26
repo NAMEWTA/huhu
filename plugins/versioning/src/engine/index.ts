@@ -71,7 +71,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     return value;
   };
   const historyPath = (context: CapabilityContext, rel: string) => (external(context) ? assertToolPath(files.root, rel, true) : rel);
-  const pending = new PendingHistory(files, api.vault.stateDir, history, opts.debounceMs ?? DEBOUNCE_MS, (id, title) => opts.notifyHistoryFailure?.(id, title));
+  const pending = new PendingHistory(files, api.vault.stateDir, history, opts.debounceMs ?? DEBOUNCE_MS, (id, title) => {
+    // oxlint-disable-next-line huhu-scheduling/no-direct-notification-fallback -- 将历史收尾错误交给宿主报告。
+    opts.notifyHistoryFailure?.(id, title);
+  });
   api.provide("versioningHistory", { saved: (rel: string, bytes: Uint8Array) => pending.observe(rel, "edit", bytes) });
   api.events.subscribe((e) => {
     if (e.type === "vault.fileChanged") {
