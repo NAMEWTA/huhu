@@ -205,10 +205,18 @@ test("server tools use only read-only commands on the selected Pane", { timeout:
       if (command === CONTAINER_LIST || command === IMAGE_LIST) return { stderr: "docker: not found", code: 127 };
     });
     let restricted = false;
+    let imageReady = false;
+    let imageClosed = false;
+    let holdImages = false;
     const b = await f.host("Tool B", "linux", (command) => {
       if (command === PROCESS_LIST) return { stdout: "31\t102\ttool-b" };
       if (command === CONTAINER_LIST) return restricted ? { stderr: "permission denied", code: 1 } : { stdout: "abcdef123456|fixture-b|fixture/image|running" };
       if (command === IMAGE_LIST) return { stdout: "abcdef123456|fixture/image:stable|10MB\nabcdef123456|fixture/image:latest|10MB\nmalformed row" };
+    }, (command, _channel, session) => {
+      if (!holdImages || command !== IMAGE_LIST) return false;
+      session.once("close", () => { imageClosed = true; });
+      imageReady = true;
+      return true;
     });
     const left = await shell(client, a.id);
     const right = await shell(client, b.id);
@@ -229,6 +237,14 @@ test("server tools use only read-only commands on the selected Pane", { timeout:
     ] });
     restricted = true;
     expect(await read(b.id, right, "containers")).toMatchObject({ state: "denied", rows: [] });
+    holdImages = true;
+    const request = new AbortController();
+    const pending = client.call("ssh.monitor.tools.read", { hostId: b.id, shellId: right, tool: "images" }, { ...opts, signal: request.signal }).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(imageReady).toBe(true));
+    request.abort();
+    expect(await pending).toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(imageClosed).toBe(true), { timeout: 3000 });
+    expect(await read(a.id, left, "processes")).toMatchObject({ state: "ready" });
     await client.call("ssh.disconnect", { hostId: a.id }, opts);
     await expect(read(a.id, left, "processes")).rejects.toMatchObject({ code: "SSH_DISCONNECTED" });
     expect(await client.call("ssh.shells.list", { hostId: b.id })).toContainEqual(expect.objectContaining({ id: right, state: "running" }));
