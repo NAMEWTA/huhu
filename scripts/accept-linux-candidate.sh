@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Run one final candidate acceptance in a fresh display and Secret Service session.
 set -euo pipefail
-mode=${1:?usage: accept-linux-candidate.sh tasks|workspace|credentials|native|web|rule|tools-web|git|web-terminal|package|gateway|close|external-agent|dashboard APPIMAGE SHA256 GIT_SHA CODEX [LINUX_PROBE]}
+mode=${1:?usage: accept-linux-candidate.sh tasks|workspace|credentials|native|web|rule|tools-web|git|web-terminal|package|ssh|gateway|close|external-agent|dashboard APPIMAGE SHA256 GIT_SHA CODEX [LINUX_PROBE]}
 artifact=$(realpath -e "${2:?AppImage required}")
 artifact_sha=${3:?SHA-256 required}
 candidate_commit=${4:?full Git SHA required}
 provider=$(realpath -e "${5:?pinned Codex required}")
-case "$mode" in tasks|workspace|credentials|native|web|rule|tools-web|git|web-terminal|package|gateway|close|external-agent|dashboard) ;; *) exit 64 ;; esac
+case "$mode" in tasks|workspace|credentials|native|web|rule|tools-web|git|web-terminal|package|ssh|gateway|close|external-agent|dashboard) ;; *) exit 64 ;; esac
 [[ $(uname -sm) == 'Linux x86_64' ]]
 [[ $(git rev-parse HEAD) == "$candidate_commit" ]]
 [[ -z $(git status --porcelain) ]]
@@ -21,7 +21,7 @@ if [[ "$mode" == native ]]; then
 fi
 browser_cache=${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}
 if [[ "$mode" == close || "$mode" == external-agent || "$mode" == workspace || "$mode" == web ]]; then expected_tests=2; fi
-if [[ "$mode" == package ]]; then expected_tests=5; fi
+if [[ "$mode" == package ]]; then expected_tests=6; fi
 if [[ "$mode" == web-terminal ]]; then expected_tests=3; fi
 node_binary=$(node -p 'process.execPath')
 playwright_cli=$(realpath -e node_modules/@playwright/test/cli.js)
@@ -93,6 +93,9 @@ env -i PATH="$(dirname "$node_binary"):/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-
       credentials)
         export HUHU_PACKAGED_CREDENTIAL_ACCEPTANCE=1
         xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json -c playwright.packaged.config.ts -g "CLI 与 HTTP MCP" ;;
+      ssh)
+        export HUHU_PACKAGED_SSH_ACCEPTANCE=1
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json -c playwright.packaged.config.ts -g "打包后：SSH 连接回环主机、读回测试文件并在退出后回收" ;;
     esac
   '
 
