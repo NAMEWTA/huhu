@@ -160,6 +160,7 @@ export function keyTypeOf(key: Buffer): string {
 
 /** 连接管理：逐跳连接、逐跳主机密钥确认、认证、Exec、审计。 */
 export class SshManager {
+  private disposed = false;
   private conns = new Map<string, Conn>();
   private reconnectTimers = new Map<string, NodeJS.Timeout>();
   private shells = new Map<string, ShellRec>();
@@ -264,6 +265,7 @@ export class SshManager {
   }
 
   private update(status: ConnectionStatus, slot?: string) {
+    if (this.disposed) return;
     const attempt = this.attempts.get(status.attemptId);
     const key = slot ?? attempt?.slot ?? status.hostId;
     const route = status.route ?? attempt?.route;
@@ -447,6 +449,7 @@ export class SshManager {
   }
 
   private begin(hostId: string, signal?: AbortSignal, requirePromptId = false, expectedTarget?: string, quick?: Attempt["quick"], reconnectRoute?: string, owner?: { slot: string; purpose: NonNullable<Attempt["purpose"]> }) {
+    if (this.disposed) throw new HuhuError("SSH_DISCONNECTED", "SSH 连接所属 Vault 已关闭");
     const slot = owner?.slot ?? hostId;
     this.cancelReconnect(slot);
     const running = this.connecting.get(slot);
@@ -477,7 +480,10 @@ export class SshManager {
     const opened: Client[] = [];
     let stage: { hop: number; server: HostKeyPrompt["server"] } | undefined;
     const closeOpened = () => {
-      for (const client of [...opened].reverse()) client.end();
+      for (const client of opened.toReversed()) {
+        if (this.disposed) client.destroy();
+        else client.end();
+      }
     };
     signal.addEventListener("abort", closeOpened, { once: true });
     try {
@@ -525,6 +531,7 @@ export class SshManager {
       return { attemptId, connection };
     } catch (e) {
       closeOpened();
+      if (this.disposed) throw e;
       this.audit({ hostId, action: "connect", result: "failed", detail: e instanceof HuhuError ? e.code : "error" });
       if (current()) {
         if (stage) this.trace(attempt, stage.hop, "failed");
@@ -752,7 +759,10 @@ export class SshManager {
     const owners = new Set<ForwardOwner>();
     const cleanup = () => {
       if (this.forwardDials.get(identity) === dial) this.forwardDials.delete(identity);
-      for (const client of [...opened].reverse()) client.end();
+      for (const client of opened.toReversed()) {
+        if (this.disposed) client.destroy();
+        else client.end();
+      }
     };
     const attempt: Attempt = {
       id: newId("cap").replace("cap", "att"),
@@ -815,6 +825,7 @@ export class SshManager {
       };
       const publishKey = (prompt: HostKeyPrompt, reason: "first" | "changed") => {
         if (attempt.publicProbe) return;
+        if (this.disposed || signal.aborted) return;
         this.d.publish("ssh.hostKeyPrompt", { attemptId, hostId: h.id, hop, fingerprint: prompt.fingerprint, keyType: prompt.keyType, reason });
       };
       const currentTarget = () => {
@@ -1212,7 +1223,10 @@ export class SshManager {
     for (const shell of this.shells.values()) {
       if (this.shellConnections.get(shell) === connection) this.endShell(shell);
     }
-    for (const client of connection.clients.toReversed()) client.end();
+    for (const client of connection.clients.toReversed()) {
+      if (this.disposed) client.destroy();
+      else client.end();
+    }
     const { hostId, attemptId } = connection;
     if (this.statuses.get(slot)?.attemptId === attemptId) this.update({ hostId, attemptId, state: "disconnected" }, slot);
   }
@@ -1232,7 +1246,7 @@ export class SshManager {
     const status = this.statuses.get(slot);
     if (status) {
       this.statuses.delete(slot);
-      this.d.publish("ssh.connectionChanged", { hostId: status.hostId, state: "disconnected" });
+      if (!this.disposed) this.d.publish("ssh.connectionChanged", { hostId: status.hostId, state: "disconnected" });
     }
   }
 
@@ -1298,15 +1312,17 @@ export class SshManager {
   }
 
   disposeAll(): void {
-    for (const hostId of this.reconnectTimers.keys()) this.cancelReconnect(hostId);
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const slot of this.reconnectTimers.keys()) this.cancelReconnect(slot);
     for (const draft of this.drafts) draft.abort();
     for (const { abort } of this.connecting.values()) abort.abort();
     for (const { abort } of this.forwardDials.values()) abort.abort();
-    for (const id of Array.from(this.conns.keys())) this.drop(id);
-    for (const [hostId, session] of this.quick) {
-      this.statuses.delete(hostId);
-      if (session.shellId) this.shells.delete(session.shellId);
-    }
+    for (const { controller } of this.transferring.values()) controller.abort();
+    for (const slot of this.conns.keys()) this.drop(slot);
+    this.attempts.clear();
+    this.statuses.clear();
+    this.shells.clear();
     this.quick.clear();
   }
 

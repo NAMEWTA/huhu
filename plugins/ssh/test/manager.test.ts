@@ -37,6 +37,7 @@ function setup(password = "pw", unavailable = false, deviceProxy = false, shareC
   const commands = deviceProxy ? new DeviceProxies({ localRoot: root, localVaultInstanceId: "fixture-vault" }) : undefined;
   const prompts: { hop: number; reason: string; attemptId: string; fingerprint: string }[] = [];
   let mgr!: SshManager;
+  const changes = vi.fn();
   const secretCalls: string[] = [];
   mgr = new SshManager({
     hosts,
@@ -49,6 +50,7 @@ function setup(password = "pw", unavailable = false, deviceProxy = false, shareC
       await connect({ password });
     },
     publish: (type, payload) => {
+      if (type === "ssh.connectionChanged") changes(payload);
       if (type === "ssh.hostKeyPrompt") {
         const p = payload as { hop: number; reason: string; attemptId: string; fingerprint: string };
         prompts.push(p);
@@ -63,7 +65,7 @@ function setup(password = "pw", unavailable = false, deviceProxy = false, shareC
     mgr.disposeAll();
   });
   const add = (port: number, over: Partial<SshHostProfile> = {}) => hosts.save({ name: `h${port}`, host: "127.0.0.1", port, user: "u", jumpHostIds: [], tags: [], connectTimeoutSec: 5, ...over });
-  return { root, hosts, mgr, prompts, add, secretCalls, commands };
+  return { root, hosts, mgr, prompts, add, secretCalls, commands, changes };
 }
 const until = async (c: () => boolean, ms = 3000) => {
   const end = Date.now() + ms;
@@ -91,6 +93,29 @@ describe("主机配置", () => {
 });
 
 describe("连接与主机密钥", () => {
+  test("disposing an SSH generation drops old prompts and suppresses late status events", async () => {
+    const server = await startFakeSsh({ keyboardResponse: "one-time answer" });
+    const { mgr, add, changes } = setup();
+    closers.push(server.close);
+    const host = add(server.port);
+    const pending = mgr.connect(host.id).catch((error: unknown) => error);
+    const current = () => mgr.connectionStatuses()[0];
+    await expect.poll(() => current()?.state).toBe("waiting");
+    const first = current();
+    if (first?.state !== "waiting") throw new Error("missing host key");
+    expect(mgr.decide(first.attemptId, 0, true, first.prompt.promptId)).toBe(true);
+    await expect.poll(() => current()?.state).toBe("auth-waiting");
+    const auth = current();
+    if (auth?.state !== "auth-waiting") throw new Error("missing interactive authentication");
+    changes.mockClear();
+    mgr.disposeAll();
+    expect(mgr.decideAuthentication(auth.attemptId, 0, auth.authPrompt.promptId, ["one-time answer"])).toBe(false);
+    expect(await pending).toMatchObject({ code: "SSH_DISCONNECTED" });
+    await expect.poll(() => server.closed()).toBe(1);
+    expect(mgr.connectionStatuses()).toEqual([]);
+    expect(changes).not.toHaveBeenCalled();
+  });
+
   test("a file view dials an unconnected host and releases only its own transport", async () => {
     const server = await startFakeSsh();
     const { mgr, add } = setup();
