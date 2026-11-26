@@ -95,8 +95,14 @@ test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效"
     const fixture = await openApp();
     const { page } = fixture;
     const call = <T>(capability: string, input?: unknown) => desktopCall<T>(page, capability, input);
+    let originalPreferences: [string, string | null][] = [];
     try {
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      originalPreferences = await page.evaluate(async () => {
+        const { vaultId } = await window.huhuHost.engine();
+        return ["huhu.ssh.device-preferences.v1", `huhu.ssh.startup.v1.${vaultId}`]
+          .map((key): [string, string | null] => [key, localStorage.getItem(key)]);
+      });
       const configure = (name: string, port: number) => call<{ hostId: string }>("ssh.hosts.configure", {
         name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
         credentials: [{ purpose: "password", action: "replace", value: "pw" }],
@@ -146,6 +152,12 @@ test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效"
       expect((await view())?.panes[0]?.sessionId).not.toBe(shell);
       expect(restored.conns).toHaveLength(2);
     } finally {
+      if (originalPreferences.length) await page.evaluate((preferences) => {
+        for (const [key, value] of preferences) {
+          if (value === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, value);
+        }
+      }, originalPreferences).catch(() => undefined);
       await fixture.close();
     }
   } finally {
@@ -375,16 +387,19 @@ test("A12 SSH navigation and recording settings apply to their own UI and can be
   }
 });
 
-test("SSH preferences apply to workspace, terminal, file views and transfer queue", async () => {
+test("H10.2 文件表列宽可拖动、键盘调整、重载并恢复，SSH 设置应用到运行视图", async () => {
   const password = randomUUID();
   const server = await startFakeSsh({ password });
   server.fs.files.set("/home/test/.hidden", Buffer.from("hidden"));
   server.fs.files.set("/home/test/a-small", Buffer.from("small"));
   server.fs.files.set("/home/test/z-large", Buffer.alloc(450));
   const fixture = await openApp();
+  const preferenceKey = "huhu.ssh.device-preferences.v1";
+  let before: string | null | undefined;
   try {
     const { page } = fixture;
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    before = await page.evaluate((key) => localStorage.getItem(key), preferenceKey);
     const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
       name: "布局回环",
       host: "127.0.0.1",
@@ -513,6 +528,22 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await expect(remoteTable.getByRole("columnheader", { name: "权限", exact: true })).toHaveCount(0);
     const visibleFiles = await remoteTable.getByRole("button", { name: /^(z-large|a-small)$/ }).allTextContents();
     expect(visibleFiles).toEqual(["z-large", "a-small"]);
+    const nameWidth = remoteTable.getByRole("separator", { name: "调整“名称”列宽" });
+    const nameHeader = remoteTable.getByRole("columnheader", { name: "名称", exact: true });
+    await expect(nameWidth).toHaveAttribute("aria-valuenow", "200");
+    const originalWidth = (await nameHeader.boundingBox())!.width;
+    await nameWidth.press("ArrowRight");
+    await expect(nameWidth).toHaveAttribute("aria-valuenow", "208");
+    await nameWidth.scrollIntoViewIfNeeded();
+    const handle = (await nameWidth.boundingBox())!;
+    const x = Math.round(handle.x + handle.width / 2);
+    const y = Math.round(handle.y + handle.height / 2);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 32, y, { steps: 4 });
+    await page.mouse.up();
+    await expect(nameWidth).toHaveAttribute("aria-valuenow", "240");
+    await expect.poll(async () => (await nameHeader.boundingBox())!.width - originalWidth).toBeCloseTo(40);
     await remoteTable.getByRole("button", { name: "下载 z-large", exact: true }).click();
     await expect(run.getByTestId("files-save-to")).toHaveValue("/tmp/z-large");
     await run.getByTestId("files-panel").getByRole("button", { name: "取消", exact: true }).click();
@@ -526,12 +557,17 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await expect(run).toHaveAttribute("data-generation", "1");
     await expect(terminal).toHaveAttribute("data-state", "open");
     await expect(scale).toHaveAttribute("data-font", "system");
+    await expect(nameWidth).toHaveAttribute("aria-valuenow", "240");
     await run.getByRole("button", { name: "打开独立双栏" }).click();
     const fileWorkspace = page.getByTestId("ssh-file-workspace");
     const independent = fileWorkspace.getByTestId("ssh-independent-files");
     await expect(independent.locator(".ssh-file-columns > section").first().getByRole("table", { name: "远端目录项目" })).toBeVisible();
     await independent.getByRole("button", { name: "交换左右位置" }).click();
-    await expect(independent.locator(".ssh-file-columns > section").last().getByRole("table", { name: "远端目录项目" })).toBeVisible();
+    const remoteFiles = independent.locator(".ssh-file-columns > section").last();
+    const independentWidth = remoteFiles.getByRole("separator", { name: "调整“名称”列宽" });
+    await expect(independentWidth).toHaveAttribute("aria-valuenow", "240");
+    await remoteFiles.getByRole("button", { name: "恢复默认列宽" }).click();
+    await expect(independentWidth).toHaveAttribute("aria-valuenow", "200");
     await fileWorkspace.getByRole("button", { name: "返回 SSH", exact: true }).click();
     await expect(fileWorkspace).toBeHidden();
     await expect(run).toBeVisible();
@@ -539,8 +575,10 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await page.getByRole("button", { name: "本地终端", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "启动环境" })).toHaveValue(localShell!.id);
   } finally {
-    // Device preferences live in the shared Playwright userData; later specs expect the defaults (links enabled).
-    await fixture.page.evaluate(() => window.localStorage.removeItem("huhu.ssh.device-preferences.v1")).catch(() => undefined);
+    if (before !== undefined) await fixture.page.evaluate(({ key, saved }) => {
+      if (saved === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, saved);
+    }, { key: preferenceKey, saved: before }).catch(() => undefined);
     await fixture.close();
     await server.close();
   }

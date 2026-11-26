@@ -6,6 +6,10 @@ import { validTerminalPattern } from "@huhu/ui";
 
 export const terminalLineHeights = { normal: 1, roomy: 1.25 } as const;
 export const terminalScrollbackChoices = [1000, 5000, 10000] as const;
+export const fileColumnDefaults = { name: 200, size: 88, mtime: 160, mode: 96 };
+export type FileColumn = keyof typeof fileColumnDefaults;
+export const fileColumnLimits = { min: 64, max: 640 };
+const fileColumn = z.enum(["name", "size", "mtime", "mode"]);
 export const sshNavigation = {
   workspaces: "工作区",
   files: "独立文件会话",
@@ -61,6 +65,7 @@ const schema = z.object({
   filePathMode: z.enum(["input", "breadcrumbs"]),
   showFileTree: z.boolean(),
   hiddenFileColumns: z.array(z.enum(["size", "mtime", "mode"])),
+  fileColumnWidths: z.partialRecord(fileColumn, z.int().min(fileColumnLimits.min).max(fileColumnLimits.max)),
   downloadDirectory: z.string().max(4096).regex(/^(?:$|\/(?!\/)[^\p{Cc}]*|[A-Za-z]:[\\/][^\p{Cc}]*)$/u),
   initialRemoteDirectory: z.string().max(4096).regex(/^(?:$|\/[^\p{Cc}]*)$/u),
   followShellDirectory: z.boolean(),
@@ -102,6 +107,7 @@ export const deviceDefaults: DevicePreferences = {
   filePathMode: "input",
   showFileTree: false,
   hiddenFileColumns: [],
+  fileColumnWidths: {},
   downloadDirectory: "",
   initialRemoteDirectory: "",
   followShellDirectory: true,
@@ -153,6 +159,10 @@ export function saveDevicePreferences(patch: Partial<DevicePreferences>) {
   window.localStorage.setItem(KEY, JSON.stringify(next));
   window.dispatchEvent(new Event(EVENT));
   return next;
+}
+
+export function saveFileColumnWidth(column: FileColumn, width: number) {
+  return saveDevicePreferences({ fileColumnWidths: { ...read().fileColumnWidths, [column]: width } });
 }
 
 export function lastWorkspace(vaultId: string) {

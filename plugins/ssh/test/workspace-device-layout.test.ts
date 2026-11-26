@@ -2,7 +2,7 @@
 import { afterEach, expect, test } from "vitest";
 import type { ConnectionHop, ConnectionStatus } from "../src/shared/trust.js";
 import { paneCount, resizeSplit, splitPaneAt, workspaceTree, type SplitTree, type WorkspaceRunPane } from "../src/shared/workspace.js";
-import { deviceDefaults, saveDevicePreferences, type DevicePreferences } from "../src/ui/device-preferences.js";
+import { deviceDefaults, fileColumnDefaults, saveDevicePreferences, saveFileColumnWidth, type DevicePreferences } from "../src/ui/device-preferences.js";
 import { groupWorkspaceTabs } from "../src/ui/workspace-tab-groups.js";
 import { defaultStartupPreferences, readStartupPreferences, restoredRuns, saveStartupPreferences } from "../src/ui/startup-preferences.js";
 import type { WorkspaceRun } from "../src/shared/workspace.js";
@@ -113,6 +113,16 @@ test("关键词、复制和输入设置可保存，旧记录使用原来默认�
   expect(() => saveDevicePreferences({ terminalHighlightRules: [{ ...next.terminalHighlightRules[0]!, pattern: "[", mode: "regex" }] })).toThrow();
   expect(JSON.parse(localStorage.getItem(preferenceKey)!)).toEqual(next);
   expect(saveDevicePreferences({ terminalHighlightRules: [] }).terminalHighlightRules).toEqual([]);
+});
+
+test("文件列宽按列保存，拒绝越界且恢复宽度不改变隐藏列或排序", () => {
+  saveDevicePreferences({ fileSort: "size", hiddenFileColumns: ["mode"] });
+  expect(saveFileColumnWidth("name", fileColumnDefaults.name + 40).fileColumnWidths).toEqual({ name: 240 });
+  expect(saveFileColumnWidth("mtime", 250).fileColumnWidths).toEqual({ name: 240, mtime: 250 });
+  expect(() => saveFileColumnWidth("name", 12)).toThrow();
+  expect(() => saveFileColumnWidth("size", 641)).toThrow();
+  expect(JSON.parse(localStorage.getItem(preferenceKey)!).fileColumnWidths).toEqual({ name: 240, mtime: 250 });
+  expect(saveDevicePreferences({ fileColumnWidths: {} })).toMatchObject({ fileColumnWidths: {}, fileSort: "size", hiddenFileColumns: ["mode"] });
 });
 
 const pane = (name: string, phase: WorkspaceRunPane["phase"] = "ready"): WorkspaceRunPane => ({
