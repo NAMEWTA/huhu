@@ -37,7 +37,7 @@ import { ForwardRuns } from "./forward-runs.js";
 import { MonitorPanels, type MonitorPanelScope } from "./monitor-panels.js";
 import { MonitorPlans, monitorForPlan } from "./monitor-plans.js";
 import { Monitors } from "./monitors.js";
-import { readMonitorTool } from "./monitor-tools.js";
+import { openContainerShell, readContainerLogs, readMonitorTool, terminateMonitorProcess } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
 import { authorizedResourceRoute, boundSshRoutes, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, readResourceRoute, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
 import { connectionIdentity } from "./workspace-target.js";
@@ -263,6 +263,13 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return readMonitorTool(manager, input, context.signal);
     }),
   );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorProcessTerminate, (context, input) => terminateMonitorProcess(manager, input, context.signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorContainerLogs, (context, input) => readContainerLogs(manager, input, context.signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorContainerShell, (context, input) => openContainerShell(manager, input, context.signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelSudo, (context, input) => {
+    context.signal.throwIfAborted();
+    return monitors.changeDashboardSudo(input);
+  }));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (context, { id }) => (desktopMonitor(context) ? monitors.get(id) : publicMonitors.get(context, id))));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionList, (context) => publicMonitors.list(desktopMonitor(context) ? undefined : context)));
   api.defineCapability(
@@ -832,7 +839,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     bindCapability(sshCapabilityDescriptors.fileSessionsOpen, (context, input) => {
       if ("attemptId" in input) return publicFiles.open(context, input);
       if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("打开外部 SSH 文件会话需要原连接和意图键");
-      return files.open(input);
+      return "independent" in input ? files.openIndependent(input.hostId, context.signal) : files.open(input);
     }),
   );
   api.defineCapability(
@@ -1068,7 +1075,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.shellsOpen, (context, input) => {
-      if (isWorkbenchCaller(context.caller)) return manager.openShell(input.hostId, { cols: input.cols, rows: input.rows });
+      if (isWorkbenchCaller(context.caller)) return manager.openWorkbenchShell(input.hostId, { cols: input.cols, rows: input.rows }, context.signal);
       if (!("attemptId" in input)) throw errors.invalidInput("打开外部 SSH 终端需要连接和意图键");
       return publicShells.open(context, input);
     }),

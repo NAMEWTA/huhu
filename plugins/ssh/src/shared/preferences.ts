@@ -5,6 +5,7 @@ export const ConnectionPreferences = z.strictObject({
   keepaliveIntervalSec: z.int().min(0).max(3600).nullable(),
   keepaliveCountMax: z.int().min(0).max(1000).nullable(),
   autoReconnect: z.boolean().default(false),
+  shareConnections: z.boolean().default(true),
 });
 export type ConnectionPreferences = z.infer<typeof ConnectionPreferences>;
 export const TransferPreferences = z.strictObject({ parallel: z.int().min(1).max(8) });
@@ -15,7 +16,7 @@ export type RecordingPreferences = z.infer<typeof RecordingPreferences>;
 export const VaultPreferences = z.strictObject({ connection: ConnectionPreferences, transfer: TransferPreferences, recording: RecordingPreferences.default(defaultRecordingPreferences) });
 export type VaultPreferences = z.infer<typeof VaultPreferences>;
 export const defaultVaultPreferences: VaultPreferences = {
-  connection: { connectTimeoutSec: 20, keepaliveIntervalSec: null, keepaliveCountMax: null, autoReconnect: false },
+  connection: { connectTimeoutSec: 20, keepaliveIntervalSec: null, keepaliveCountMax: null, autoReconnect: false, shareConnections: true },
   transfer: { parallel: 2 },
   recording: defaultRecordingPreferences,
 };

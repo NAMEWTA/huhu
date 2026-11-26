@@ -334,6 +334,11 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
                 <li key={hostId} data-testid="ssh-monitor-host">
                   <h3>{hostName(hostId)}</h3>
                   {reading ? <MonitorMetrics host={reading} details={expanded} /> : <p role="status">未开始</p>}
+                  {desktop && reading && run?.state !== "stopped" && (
+                    <Button disabled={busy} aria-pressed={Boolean(reading.sudo)} onClick={() => void call("ssh.monitor.panels.sudo", {
+                      ...revision(current), hostId, sudo: !reading.sudo,
+                    })}>监控 sudo {hostName(hostId)}</Button>
+                  )}
                   {desktop && reading?.prompt && <Button onClick={() => setTrust(hostId)}>核对主机指纹</Button>}
                   {desktop && run?.state === "running" && reading && ["disconnected", "failed", "denied", "unsupported", "missing"].includes(reading.state) && (
                     <Button disabled={busy} onClick={() => command("retry", hostId)}>

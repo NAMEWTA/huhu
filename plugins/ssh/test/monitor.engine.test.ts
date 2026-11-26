@@ -31,10 +31,11 @@ async function fixture() {
   return {
     client: clientFor(),
     webCall: (capability: string, input: unknown = {}) => engine.dispatcher.call("web:monitor-fixture", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
-    async host(name: string, platform: "linux" | "windows", tools?: FakeSshOptions["onExec"]) {
+    async host(name: string, platform: "linux" | "windows", tools?: FakeSshOptions["onExec"], interactive?: FakeSshOptions["onInteractiveExec"]) {
       let reads = 0;
       let denied = false;
       const server = await startFakeSsh({
+        ...(interactive && { onInteractiveExec: interactive }),
         onExec(command) {
           if (command === PLATFORM_COMMAND) return platform === "linux" ? { stdout: "Linux" } : { stderr: "command not found", code: 127 };
           const reply = tools?.(command);
@@ -119,6 +120,55 @@ async function updatePlan(client: EngineClient, { planId, revision }: PlanSummar
   expect(result.outcome).toBe("completed");
   return result.plan;
 }
+
+test("tool actions and dashboard sudo stay on the selected original transport", { timeout: 20_000 }, async () => {
+  const f = await fixture();
+  try {
+    const seenA: string[] = [];
+    const seenB: string[] = [];
+    const containerId = "abcdef123456";
+    const a = await f.host("Action A", "linux", (command) => {
+      seenA.push(command);
+      if (command.startsWith("actual=")) return { code: command.includes("[ \"$actual\" = 'fixture' ]") ? 0 : 3 };
+      if (command === `docker logs --tail 100 -- ${containerId}`) return { stdout: "from A", stderr: "stderr from A" };
+      if (command === `docker exec ${containerId} sh -c :`) return { code: 0 };
+      if (command.startsWith("sudo -n --")) return { stdout: "memory 8192 4096\n" };
+    }, (command, channel) => {
+      if (command !== `docker exec -it ${containerId} sh`) return false;
+      seenA.push(command);
+      channel.write("container A ready");
+      return true;
+    });
+    const b = await f.host("Action B", "linux", (command) => { seenB.push(command); return undefined; });
+    const { client } = f;
+    const source = await shell(client, a.id);
+    const other = await shell(client, b.id);
+    const target = { hostId: a.id, shellId: source };
+    await expect(client.call("ssh.monitor.tools.process.terminate", { ...target, pid: 55, name: "stale name" }, opts)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    expect(await client.call("ssh.monitor.tools.process.terminate", { ...target, pid: 55, name: "fixture" }, opts)).toEqual({ ok: true });
+    expect(await client.call("ssh.monitor.tools.container.logs", { ...target, containerId })).toEqual({ stdout: "from A", stderr: "stderr from A" });
+    const child = await client.call<{ id: string }>("ssh.monitor.tools.container.shell", { ...target, containerId }, opts);
+    expect(a.server.conns).toHaveLength(1);
+    expect(seenA).toContain(`docker exec -it ${containerId} sh`);
+    expect(seenB).toEqual([]);
+    const dashboard = await panel(client, { name: "scoped sudo", note: "", hostIds: [a.id, b.id], interval: 2, retention: 15 });
+    await change(client, dashboard, "start");
+    await expect.poll(async () => (await readPanel(client, dashboard.id))?.hosts.every(({ connectionId }) => connectionId)).toBe(true);
+    const result = await client.call<MonitorPanelRun>("ssh.monitor.panels.sudo", { id: dashboard.id, expectedRevision: dashboard.revision, hostId: a.id, sudo: true }, opts);
+    expect(result.hosts.find(({ hostId }) => hostId === a.id)?.sudo).toBe(true);
+    expect(result.hosts.find(({ hostId }) => hostId === b.id)?.sudo).toBeUndefined();
+    await expect.poll(() => seenA.some((command) => command.startsWith("sudo -n --"))).toBe(true);
+    expect(seenB.some((command) => command.startsWith("sudo -n --"))).toBe(false);
+    expect(a.server.conns).toHaveLength(1);
+    await client.call("ssh.shells.close", { id: source }, opts);
+    expect(await client.call("ssh.shells.list")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: child.id, state: "ended" }),
+      expect.objectContaining({ id: other, state: "running" }),
+    ]));
+  } finally {
+    await f.close();
+  }
+});
 
 test("server tools use only read-only commands on the selected Pane", { timeout: 20_000 }, async () => {
   const f = await fixture();

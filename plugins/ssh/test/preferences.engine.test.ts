@@ -7,6 +7,8 @@ import { boot } from "../../../apps/engine/src/boot.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import { defaultVaultPreferences, type UpdateVaultPreferences, type VaultPreferencesSnapshot } from "../src/shared/preferences.js";
+import type { FileSession } from "../src/shared/files.js";
+import type { WorkspaceRun } from "../src/shared/workspace.js";
 import type { ConnectionStatus } from "../src/shared/trust.js";
 import { startFakeSsh } from "./fake-server.js";
 
@@ -32,7 +34,7 @@ test("SSH default settings are revisioned per Vault and drive the next handshake
   try {
     const client = await open("primary", true);
     expect(await get(client)).toEqual({ revision: null, values: defaultVaultPreferences });
-    const connection = { connectTimeoutSec: 1, keepaliveIntervalSec: 0, keepaliveCountMax: 0, autoReconnect: false };
+    const connection = { connectTimeoutSec: 1, keepaliveIntervalSec: 0, keepaliveCountMax: 0, autoReconnect: false, shareConnections: false };
     const saved = await update(client, null, { section: "connection", values: connection });
     const outcomes = await Promise.allSettled([3, 4].map((parallel) => update(client, saved.revision, { section: "transfer", values: { parallel } })));
     expect(outcomes.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
@@ -127,6 +129,27 @@ test("saved auto-reconnect and recording preferences change subsequent transport
     await client.call("ssh.disconnect", { hostId }, write);
     await expect.poll(async () => (await live())?.state).toBe("disconnected");
     expect(server.conns).toHaveLength(2);
+
+    const saved = await client.call<VaultPreferencesSnapshot>("ssh.settings.get");
+    await save(saved.revision, { section: "connection", values: { ...saved.values.connection, shareConnections: false } });
+    const workspace = await client.call<WorkspaceRun>("ssh.workspace.runs.start", { name: "isolated recovery", layout: { kind: "one" }, panes: [{ hostId }] }, write);
+    const readPane = async () => (await client.call<WorkspaceRun[]>("ssh.workspace.runs.list")).find(({ id }) => id === workspace.id)?.panes[0];
+    await expect.poll(async () => (await readPane())?.phase).toBe("ready");
+    const oldShell = (await readPane())!.sessionId!;
+    const oldFiles = await client.call<FileSession>("ssh.fileSessions.open", { hostId, shellId: oldShell }, write);
+    expect(server.conns).toHaveLength(3);
+    server.conns[2]!.end();
+    await expect.poll(async () => {
+      const pane = await readPane();
+      return pane?.phase === "ready" && pane.sessionId !== oldShell;
+    }).toBe(true);
+    const newFiles = await client.call<FileSession>("ssh.fileSessions.open", { hostId, shellId: (await readPane())!.sessionId! }, write);
+    expect(newFiles.connectionId).not.toBe(oldFiles.connectionId);
+    expect(await client.call<FileSession[]>("ssh.fileSessions.list")).toContainEqual(expect.objectContaining({ fileSessionId: oldFiles.fileSessionId, state: "disconnected" }));
+    expect(server.conns).toHaveLength(4);
+    server.conns[3]!.end();
+    await expect.poll(async () => (await readPane())?.phase).toBe("ended");
+    expect(server.conns).toHaveLength(4);
   } finally {
     await engine.shutdown();
     await server.close();

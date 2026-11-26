@@ -62,6 +62,9 @@ import {
   MonitorSessionOpen,
   MonitorToolRequest,
   MonitorToolResult,
+  MonitorPanelSudo,
+  MonitorContainerTarget,
+  MonitorProcessTarget,
   SaveMonitorPanel,
 } from "../shared/monitoring.js";
 
@@ -265,6 +268,35 @@ export const sshCapabilityDescriptors = {
     idempotency: "handler",
     input: z.union([OwnedMonitorTool, MonitorToolRequest]),
     output: MonitorToolResult,
+  }),
+  monitorProcessTerminate: defineCapabilityDescriptor({
+    plugin: "ssh", desktopOnly: true, exposable: false, defaultExposed: false,
+    name: "ssh.monitor.tools.process.terminate",
+    title: "终止原分栏服务器上的进程",
+    description: "核对进程名及 PID 后发送 SIGTERM。",
+    scope: "execute", risk: "high", input: MonitorProcessTarget, output: Ok,
+  }),
+  monitorContainerLogs: defineCapabilityDescriptor({
+    plugin: "ssh", desktopOnly: true, exposable: false, defaultExposed: false,
+    name: "ssh.monitor.tools.container.logs",
+    title: "读取原分栏容器日志",
+    description: "按容器 ID 读取最近日志，限制条数与输出字节。",
+    scope: "read", risk: "high", input: MonitorContainerTarget,
+    output: z.object({ stdout: z.string(), stderr: z.string() }),
+  }),
+  monitorContainerShell: defineCapabilityDescriptor({
+    plugin: "ssh", desktopOnly: true, exposable: false, defaultExposed: false,
+    name: "ssh.monitor.tools.container.shell",
+    title: "打开原分栏容器终端",
+    description: "在原 SSH 连接中打开容器的交互 sh。",
+    scope: "execute", risk: "high", input: MonitorContainerTarget, output: Shell,
+  }),
+  monitorPanelSudo: defineCapabilityDescriptor({
+    plugin: "ssh", desktopOnly: true, exposable: false, defaultExposed: false,
+    name: "ssh.monitor.panels.sudo",
+    title: "切换监控面板主机 sudo",
+    description: "仅切换当前面板的此主机采样权限。",
+    scope: "write", risk: "high", input: MonitorPanelSudo, output: MonitorPanelRun.nullable(),
   }),
   monitorSessionOpen: defineCapabilityDescriptor({
     ...resource,
@@ -860,7 +892,7 @@ export const sshCapabilityDescriptors = {
     scope: "execute",
     risk: "high",
     idempotency: "handler",
-    input: z.union([OpenOwnedFiles, z.strictObject({ hostId: z.string(), shellId: z.string().optional(), attached: z.boolean().default(false) }), z.strictObject({ fromFileSessionId: z.uuid() })]),
+    input: z.union([OpenOwnedFiles, z.strictObject({ hostId: z.string(), independent: z.literal(true) }), z.strictObject({ hostId: z.string(), shellId: z.string().optional(), attached: z.boolean().default(false) }), z.strictObject({ fromFileSessionId: z.uuid() })]),
     output: FileSession,
   }),
   fileSessionsList: defineCapabilityDescriptor({

@@ -92,16 +92,17 @@ function FilePropertiesForm({ value, submit, busy }: { value: FileProperties; bu
   );
 }
 
-export function FilePropertiesDialog({ session, path, onClose, onSaved }: { session: FileSession; path: string; onClose: () => void; onSaved: () => void }) {
+export function FilePropertiesDialog({ session, path, onClose, onSaved, sudoSignal, sudoSessionId }: { session: FileSession; path: string; sudoSignal?: AbortSignal; sudoSessionId?: string | undefined; onClose: () => void; onSaved: () => void }) {
   const engine = useEngine();
   const { fileSessionId } = session;
+  const capability = sudoSignal ? "ssh.fileSessions.sudo" : "ssh.fileSessions";
   const [value, setValue] = useState<FileProperties>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
   useEffect(() => {
     const abort = new AbortController();
-    void engine.call<FileProperties>("ssh.fileSessions.properties", { fileSessionId, path }, { signal: abort.signal }).then(
+    void engine.call<FileProperties>(capability + ".properties", { fileSessionId, path, ...(sudoSessionId && { sudoSessionId }) }, { signal: sudoSignal ? AbortSignal.any([abort.signal, sudoSignal]) : abort.signal }).then(
       (result) => {
         if (!abort.signal.aborted) setValue(result);
       },
@@ -110,18 +111,19 @@ export function FilePropertiesDialog({ session, path, onClose, onSaved }: { sess
       },
     );
     return () => abort.abort();
-  }, [engine, fileSessionId, path, reload]);
+  }, [engine, fileSessionId, path, reload, capability, sudoSignal, sudoSessionId]);
   async function submit(update: FileAttributes | { destination: string }) {
     if (!value || busy || session.state !== "ready") return;
-    const input = { fileSessionId, path: value.path, expectedRevision: value.revision };
+    const input = { fileSessionId, path: value.path, expectedRevision: value.revision, ...(sudoSessionId && { sudoSessionId }) };
+    const options = { write: true, ...(sudoSignal && { signal: sudoSignal }) };
     setBusy(true);
     setError(undefined);
     try {
       if ("destination" in update) {
-        await engine.call("ssh.fileSessions.moveEntry", { ...input, destination: update.destination }, { write: true });
+        await engine.call(capability + ".moveEntry", { ...input, destination: update.destination }, options);
         onClose();
       } else {
-        setValue(await engine.call<FileProperties>("ssh.fileSessions.changeProperties", { ...input, change: update }, { write: true }));
+        setValue(await engine.call<FileProperties>(capability + ".changeProperties", { ...input, change: update }, options));
       }
       onSaved();
     } catch (failure) {
@@ -133,7 +135,7 @@ export function FilePropertiesDialog({ session, path, onClose, onSaved }: { sess
   return (
     <Dialog
       open
-      title="远端文件属性"
+      title={sudoSignal ? "sudo 文件属性" : "远端文件属性"}
       description={path}
       error={error ?? null}
       onClose={() => {

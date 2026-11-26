@@ -4,6 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
+import type { VaultPreferencesSnapshot } from "../../../plugins/ssh/src/shared/preferences.js";
 import type { WorkspaceRun, WorkspaceTemplate } from "../../../plugins/ssh/src/shared/workspace.js";
 import type { FileDocument, FileSession } from "../../../plugins/ssh/src/shared/files.js";
 import type { TransferBatch, TransferBatchRequest, TransferJob, TransferQueue } from "../../../plugins/ssh/src/shared/transfers.js";
@@ -46,6 +47,46 @@ async function configureLoopback(page: Page, name: string, port: number, passwor
   expect(result.ok, result.error?.message).toBe(true);
   return result.data;
 }
+
+test("A12 disabling connection sharing isolates same-host workspace shells", async () => {
+  const password = randomUUID();
+  const server = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    await openWorkspace(page);
+    const { hostId } = await configureLoopback(page, "独立连接回环", server.port, password);
+    const { data: preferences } = await sshCall<VaultPreferencesSnapshot>(page, "ssh.settings.get");
+    expect((await sshCall(page, "ssh.settings.update", {
+      expectedRevision: preferences.revision,
+      change: { section: "connection", values: { ...preferences.values.connection, shareConnections: false } },
+    })).ok).toBe(true);
+    const runs = [];
+    for (const name of ["独立甲", "独立乙"]) {
+      const run = await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name, layout: { kind: "one" }, panes: [{ hostId }] });
+      expect(run.ok).toBe(true);
+      runs.push(run.data);
+      await page.getByRole("button", { name: new RegExp(name + ".*代次 1") }).click();
+      const pane = page.getByTestId("ssh-workspace-run-pane");
+      if (name === "独立甲") await pane.getByRole("button", { name: "信任并连接" }).click();
+      await expect(pane).toHaveAttribute("data-phase", "ready");
+    }
+    const current = (await sshCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).data;
+    const files = await Promise.all(runs.map(({ id }) => {
+      const pane = current.find((run) => run.id === id)!.panes[0]!;
+      return sshCall<FileSession>(page, "ssh.fileSessions.open", { hostId, shellId: pane.sessionId });
+    }));
+    expect(files.every(({ ok }) => ok)).toBe(true);
+    expect(files[0]!.data.connectionId).not.toBe(files[1]!.data.connectionId);
+    expect(server.conns).toHaveLength(2);
+    expect((await sshCall(page, "ssh.workspace.runs.close", { id: runs[0]!.id })).ok).toBe(true);
+    await expect.poll(() => server.closed()).toBe(1);
+    await expect(page.getByTestId("ssh-workspace-run-pane")).toHaveAttribute("data-phase", "ready");
+  } finally {
+    await fixture.close();
+    await server.close();
+  }
+});
 
 test("A06 dragging and keyboard resizing a running workspace retain the original shells", async () => {
   const password = randomUUID();

@@ -230,9 +230,11 @@ export class Transfers {
     if (rec.job.state !== "failed" || rec.job.errorCode === "VERSION_CONFLICT") throw errors.invalidInput("当前任务需要重新发起并核对目标");
     if (this.liveCount() >= LIVE_LIMIT) throw errors.invalidInput("传输队列已满");
     for (const origin of [rec.job.source, rec.job.target]) {
-      if (origin.kind === "remote" && !this.sessions.hasOriginalConnection(origin.session)) {
+      if (origin.kind !== "remote") continue;
+      if (!this.sessions.hasOriginalConnection(origin.session)) {
         throw new HuhuError("SSH_DISCONNECTED", "原连接已断开，请从新文件会话重新发起");
       }
+      if (origin.sudoSessionId) this.sessions.sudoSource(origin.fileSessionId, origin);
     }
     delete rec.job.errorCode;
     delete rec.job.message;
@@ -297,6 +299,9 @@ export class Transfers {
   private origin(input: TransferEndpoint, directory = false): TransferOrigin {
     if (input.kind === "local") return { kind: "local", path: directory ? localTree(input.path).path([]) : localTransferFile(input.path).path };
     const session = this.sessions.get(input.fileSessionId);
+    if (input.sudoSessionId && !input.sudo) throw errors.invalidInput("此传输未启用 sudo");
+    if (input.sudo && (this.owned || session.source === "external")) throw errors.permissionDenied("本机 SSH 文件 sudo 传输");
+    if (input.sudoSessionId) this.sessions.sudoSource(input.fileSessionId, input);
     if (session.state !== "ready") throw new HuhuError("SSH_DISCONNECTED", "传输的原连接已断开");
     return { ...input, session };
   }
@@ -369,10 +374,11 @@ export class Transfers {
 
   private withTree<T>(origin: TransferOrigin, signal: AbortSignal, use: (tree: TransferTree, active: AbortSignal) => Promise<T>): Promise<T> {
     if (origin.kind === "local") return use(localTree(origin.path), signal);
-    return this.manager.withSftp(this.source(origin, signal), "transfer.directory", origin.path, (channel, active) => use(remoteTree(channel, origin.path), active), { signal });
+    return this.manager.withSftp(this.source(origin, signal), "transfer.directory", origin.path, (channel, active) => use(remoteTree(channel, origin.path), active), { signal, elevated: origin.sudo === true });
   }
 
   private source(origin: Extract<TransferOrigin, { kind: "remote" }>, signal: AbortSignal) {
+    if (origin.sudoSessionId) return this.sessions.sudoSource(origin.fileSessionId, origin);
     return origin.session.source === "external" ? this.sessions.source(origin) : { ...origin.session, signal };
   }
 
@@ -407,6 +413,7 @@ export class Transfers {
     return this.manager.withSftp(this.source(origin, signal), "transfer", origin.path, (channel, active) => use(remoteTransferFile(channel, origin.path), active), {
       signal,
       timeoutMs: 30 * 60_000,
+      elevated: origin.sudo === true,
     });
   }
 

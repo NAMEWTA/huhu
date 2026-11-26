@@ -59,7 +59,7 @@ export const ConnectionHop = ConnectionHost.extend({
 });
 export type ConnectionHop = z.infer<typeof ConnectionHop>;
 
-const connection = { hostId: z.string(), attemptId: z.string(), source: z.literal("external").optional(), route: z.array(ConnectionHop).optional(), connectionId: z.string().optional() };
+const connection = { hostId: z.string(), attemptId: z.string(), source: z.literal("external").optional(), purpose: z.enum(["pane", "shell", "files"]).optional(), route: z.array(ConnectionHop).optional(), connectionId: z.string().optional() };
 export const ConnectionStatus = z.discriminatedUnion("state", [
   z.object({ ...connection, state: z.enum(["connecting", "connected", "disconnected"]) }),
   z.object({ ...connection, state: z.enum(["waiting", "key-changed"]), prompt: HostKeyPrompt, workspace: z.literal(true).optional() }),

@@ -26,12 +26,12 @@ import type { MonitorPanel, MonitorPanelRun } from "../src/shared/monitoring.js"
 import type { ForwardRule, ForwardRun } from "../src/shared/forwarding.js";
 import { WorkspaceRun, type WorkspaceTemplate } from "../src/shared/workspace.js";
 import type { ProxyProfile, ProxyRouting } from "../src/shared/outbound-proxy.js";
-import type { TransferJob, TransferQueue } from "../src/shared/transfers.js";
+import type { TransferBatch, TransferJob, TransferQueue } from "../src/shared/transfers.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 import { ownedArchiveFixture } from "./owned-archive-fixture.js";
 import { privilegedSftpCommand } from "../src/engine/privileged-sftp.js";
 import { localPosixCommand } from "./shell-relay-fixture.js";
-import type { FileDocument, FileSession } from "../src/shared/files.js";
+import type { FileDocument, FileProperties, FileSession } from "../src/shared/files.js";
 
 const hostGet = "ssh.resources.host.get";
 const probeStart = "ssh.resources.connection.start";
@@ -92,9 +92,105 @@ test("privileged SFTP uses sudo on just the original file binding and keeps file
     await f.desktop("ssh.fileSessions.sudo.save", { ...input, text, expectedVersion: document.version });
     expect(await f.desktop<FileDocument>("ssh.fileSessions.sudo.read", input)).toMatchObject({ text, mode: "600" });
     expect(execFileSync("sudo", ["-n", "stat", "-c", "%u:%a", "--", secret], { encoding: "utf8" }).trim()).toBe("0:600");
+    const props = await f.desktop<FileProperties>("ssh.fileSessions.sudo.properties", input);
+    const changed = await f.desktop<FileProperties>("ssh.fileSessions.sudo.changeProperties", { ...input, expectedRevision: props.revision, change: { mode: "640" } });
+    expect(changed.mode).toBe("640");
+    const moved = path.join(root, "renamed.txt");
+    await f.desktop("ssh.fileSessions.sudo.moveEntry", { ...input, expectedRevision: changed.revision, destination: moved });
+    const local = path.join(root, "downloads");
+    await mkdir(local);
+    await f.desktop("ssh.fileSessions.localList", { fileSessionId: original.fileSessionId, parts: [], root: local });
+    const remote = { kind: "remote", fileSessionId: original.fileSessionId, path: root, sudo: true };
+    const target = { kind: "local", path: local };
+    const run = await f.desktop<TransferBatch>("ssh.transfers.startBatch", { source: remote, target, names: ["renamed.txt"], localFileSessionId: original.fileSessionId });
+    await expect.poll(async () => (await f.desktop<TransferQueue>("ssh.transfers.list")).batches.find(({ batchId }) => batchId === run.batchId)?.state).toBe("completed");
+    expect(await readFile(path.join(local, "renamed.txt"), "utf8")).toBe(text);
+    const movedProps = await f.desktop<FileProperties>("ssh.fileSessions.sudo.properties", { ...input, path: moved });
+    await f.desktop("ssh.fileSessions.sudo.delete", { ...input, path: moved, expectedRevision: movedProps.revision });
+    expect(await readdir(root)).not.toContain("renamed.txt");
     await f.desktop("ssh.fileSessions.close", { fileSessionId: original.fileSessionId });
     await expect(f.desktop("ssh.fileSessions.sudo.read", input)).rejects.toThrow("NOT_FOUND");
     expect(first.server.conns).toHaveLength(1);
+  } finally {
+    await f.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("privileged SFTP consumes a password once and pins batch work to that authenticated channel", { timeout: 20_000 }, async (ctx) => {
+  if (process.platform !== "linux" || spawnSync("sudo", ["-n", "true"]).status !== 0 || spawnSync("test", ["-x", "/usr/lib/openssh/sftp-server"]).status !== 0) {
+    ctx.skip("requires OpenSSH sftp-server and a privileged Linux fixture");
+    return;
+  }
+  const f = await fixture();
+  const root = await mkdtemp(path.join(tmpdir(), "huhu-sudo-challenge-"));
+  const password = "fixture sudo " + randomUUID();
+  let answers = 0;
+  let authentications = 0;
+  try {
+    const file = path.join(root, "secret.txt");
+    const output = path.join(root, "out");
+    const seed = path.join(root, "seed");
+    await mkdir(output);
+    await writeFile(seed, "sudo challenge SFTP");
+    execFileSync("sudo", ["-n", "install", "-m", "600", seed, file]);
+    const host = await f.host("interactive sudo", [], {
+      noSftp: true,
+      onInteractiveExec(command, channel) {
+        if (command === privilegedSftpCommand) {
+          channel.exit(1);
+          channel.end();
+          return true;
+        }
+        const prompt = /huhu-sudo-[a-f0-9-]+:/u.exec(command)?.[0];
+        const ready = /huhu-ready-[a-f0-9-]+:/u.exec(command)?.[0];
+        if (!prompt || !ready) return false;
+        expect(command).not.toContain(password);
+        authentications++;
+        channel.once("data", (input: Buffer) => {
+          answers++;
+          if (input.toString() !== password + "\n") {
+            channel.stderr.write(prompt);
+            return;
+          }
+          localPosixCommand(channel, privilegedSftpCommand);
+          channel.stderr.write(ready);
+        });
+        channel.stderr.write(prompt);
+        return true;
+      },
+    });
+    await f.desktop("ssh.connect", { hostId: host.hostId, background: true });
+    const live = async () => (await f.desktop<ConnectionStatus[]>("ssh.connections.status")).find(({ hostId }) => hostId === host.hostId);
+    await expect.poll(async () => (await live())?.state).toBe("waiting");
+    const waiting = await live();
+    if (waiting?.state !== "waiting") throw new Error("Missing fingerprint");
+    await f.desktop("ssh.hostKey.decide", { attemptId: waiting.attemptId, hop: 0, promptId: waiting.prompt.promptId, accept: true });
+    await expect.poll(async () => (await live())?.state).toBe("connected");
+    const { fileSessionId } = await f.desktop<FileSession>("ssh.fileSessions.open", { hostId: host.hostId });
+    expect(await f.desktop("ssh.fileSessions.sudo.probe", { fileSessionId })).toEqual({ available: false });
+    await expect(f.desktop("ssh.fileSessions.sudo.authenticate", { fileSessionId, password: "incorrect fixture" })).rejects.toThrow("PERMISSION_DENIED");
+    const { sudoSessionId } = await f.desktop<{ sudoSessionId: string }>("ssh.fileSessions.sudo.authenticate", { fileSessionId, password });
+    const scope = { fileSessionId, sudoSessionId };
+    expect(await f.desktop("ssh.fileSessions.sudo.read", { ...scope, path: file })).toMatchObject({ text: "sudo challenge SFTP" });
+    await f.desktop("ssh.fileSessions.localList", { fileSessionId, parts: [], root: output });
+    const batch = await f.desktop<TransferBatch>("ssh.transfers.startBatch", {
+      source: { kind: "remote", ...scope, sudo: true, path: root }, target: { kind: "local", path: output }, names: ["secret.txt"], localFileSessionId: fileSessionId,
+    });
+    await expect.poll(async () => (await f.desktop<TransferQueue>("ssh.transfers.list")).batches.find(({ batchId }) => batchId === batch.batchId)?.state).toBe("completed");
+    expect(await readFile(path.join(output, "secret.txt"), "utf8")).toBe("sudo challenge SFTP");
+    await writeFile(path.join(output, "upload.txt"), "same authenticated channel");
+    const upload = await f.desktop<TransferBatch>("ssh.transfers.startBatch", {
+      source: { kind: "local", path: output }, target: { kind: "remote", ...scope, sudo: true, path: root }, names: ["upload.txt"], localFileSessionId: fileSessionId,
+    });
+    await expect.poll(async () => (await f.desktop<TransferQueue>("ssh.transfers.list")).batches.find(({ batchId }) => batchId === upload.batchId)?.state).toBe("completed");
+    expect(execFileSync("sudo", ["-n", "stat", "-c", "%u:%a", "--", path.join(root, "upload.txt")], { encoding: "utf8" }).trim()).toBe("0:600");
+    expect(authentications).toBe(2);
+    expect(answers).toBe(2);
+    await f.desktop("ssh.fileSessions.sudo.close", scope);
+    await expect(f.desktop("ssh.fileSessions.sudo.read", { ...scope, path: file })).rejects.toThrow("PERMISSION_DENIED");
+    expect(JSON.stringify(await f.desktop("ssh.audit.list"))).not.toContain(password);
+    expect((await live())?.state).toBe("connected");
   } finally {
     await f.close();
     await rm(root, { recursive: true, force: true });

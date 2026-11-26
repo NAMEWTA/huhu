@@ -113,6 +113,17 @@ test("A09 desktop sudo SFTP edits an actual root-owned file and leaves the shell
     expect(execFileSync("sudo", ["-n", "cat", "--", target], { encoding: "utf8" })).toBe("新内容");
     expect(execFileSync("sudo", ["-n", "stat", "-c", "%u:%a", "--", target], { encoding: "utf8" }).trim()).toBe("0:600");
     await editor.getByRole("button", { name: "关闭编辑" }).click();
+    await sudo.getByRole("button", { name: "sudo 属性与移动" }).click();
+    const props = page.getByRole("dialog", { name: "sudo 文件属性" });
+    const moved = path.join(vault, "sudo-renamed.txt");
+    await props.getByLabel("移动到（远端绝对路径）").fill(moved);
+    await props.getByRole("button", { name: "移动项目" }).click();
+    await expect(props).toHaveCount(0);
+    expect(execFileSync("sudo", ["-n", "cat", "--", moved], { encoding: "utf8" })).toBe("新内容");
+    await sudo.getByLabel("sudo 文件路径").fill(moved);
+    await sudo.getByRole("button", { name: "sudo 删除项目" }).click();
+    await page.getByRole("dialog", { name: "确认 sudo 删除" }).getByRole("button", { name: "确认删除" }).click();
+    await expect.poll(() => existsSync(moved)).toBe(false);
     await sudo.getByRole("button", { name: "退出 sudo 文件操作" }).click();
     await expect(sudo.getByRole("button", { name: "检查 sudo 文件权限" })).toBeVisible();
     await expect(run.getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
@@ -367,6 +378,32 @@ test("A07 独立 Web 文件会话按路径前进和返回，保留桌面来源�
       await fixture.close();
       await server.close();
     }
+  }
+});
+
+test("A07 从未连接主机打开独立文件管理并单独释放原连接", async () => {
+  const password = randomUUID();
+  const server = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    server.fs.files.set("/home/test/independent.txt", Buffer.from("independent file"));
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await desktopCall(page, "ssh.hosts.configure", {
+      name: "文件直开回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: password }],
+    });
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "打开独立文件管理", exact: true }).click();
+    await page.getByTestId("hostkey-dialog").getByRole("button", { name: "信任并连接" }).click();
+    await expect(page.getByText("independent.txt", { exact: true })).toBeVisible();
+    expect(server.conns).toHaveLength(1);
+    expect(await desktopCall(page, "ssh.shells.list")).toEqual([]);
+    await page.getByRole("button", { name: "关闭独立文件视图" }).click();
+    await expect.poll(() => server.closed()).toBe(1);
+  } finally {
+    await fixture.close();
+    await server.close();
   }
 });
 

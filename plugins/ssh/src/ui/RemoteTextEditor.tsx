@@ -7,7 +7,7 @@ import { EDIT_MAX_BYTES, type FileDocument, type FileSession } from "../shared/f
 const editable = (text: string) => text.replace(/\r\n|\r/g, "\n");
 const externalEditor = () => (globalThis as { huhuHost?: { sshExternalEditor?: SshExternalEditorHost } }).huhuHost?.sshExternalEditor;
 
-export function RemoteTextEditor({ session, initial, onClose, sudoSignal }: { session: FileSession; initial: FileDocument; onClose: () => void; sudoSignal?: AbortSignal }) {
+export function RemoteTextEditor({ session, initial, onClose, sudoSignal, sudoSessionId }: { session: FileSession; initial: FileDocument; onClose: () => void; sudoSignal?: AbortSignal; sudoSessionId?: string | undefined }) {
   const engine = useEngine();
   const field = useRef<HTMLTextAreaElement>(null);
   const external = sudoSignal ? undefined : externalEditor();
@@ -110,7 +110,7 @@ export function RemoteTextEditor({ session, initial, onClose, sudoSignal }: { se
       const saved = await engine.call<Omit<FileDocument, "text">>(
         sudoSignal ? "ssh.fileSessions.sudo.save" : "ssh.fileSessions.document.save",
         {
-          fileSessionId: session.fileSessionId,
+          fileSessionId: session.fileSessionId, ...(sudoSessionId && { sudoSessionId }),
           path: document.path,
           text: draft,
           expectedVersion: document.version,
@@ -135,7 +135,7 @@ export function RemoteTextEditor({ session, initial, onClose, sudoSignal }: { se
     try {
       setRemote(await engine.call<FileDocument>(
         sudoSignal ? "ssh.fileSessions.sudo.read" : "ssh.fileSessions.document.open",
-        { fileSessionId: session.fileSessionId, path: document.path },
+        { fileSessionId: session.fileSessionId, ...(sudoSessionId && { sudoSessionId }), path: document.path },
         sudoSignal ? { signal: sudoSignal } : {},
       ));
     } catch (error) {

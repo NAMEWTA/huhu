@@ -30,13 +30,14 @@ const dialogTitle: Record<DirectoryDialog["kind"], string> = {
   "delete-group": "删除主机分组",
 };
 
-export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onConnect, onWorkspace, onRoute, onCreate, onImport, onHostAction, onQuickConnect, onChanged }: {
+export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onConnect, onFiles, onWorkspace, onRoute, onCreate, onImport, onHostAction, onQuickConnect, onChanged }: {
   directory: Directory | undefined;
   hosts: Host[];
   statuses: ReadonlyMap<string, ConnectionStatus>;
   onBack(): void;
   onOpen(host: Host): void;
   onConnect(host: Host): void;
+  onFiles(host: Host): void;
   onWorkspace(ids: string[], temporary: boolean): void;
   onRoute?: ((ids: string[]) => void) | undefined;
   onCreate?: (() => void) | undefined;
@@ -283,6 +284,7 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
                     <Popover.Portal>
                       <Popover.Content className="ssh-directory-actions" align="end" sideOffset={4} collisionPadding={8} aria-label={`${host.name}的操作`}>
                         <Button variant="ghost" disabled={!one} onClick={menuAction(() => onOpen(host))}>详情</Button>
+                        <Button variant="ghost" disabled={!one || !isManagedHost(host)} onClick={menuAction(() => onFiles(host))}>打开独立文件管理</Button>
                         <Button variant="ghost" disabled={!menuManaged || menuIds.length > MAX_WORKSPACE_PANES || one && openConnection} onClick={menuAction(() => one ? onConnect(host) : onWorkspace(menuIds, true))}>连接</Button>
                         <Button variant="ghost" disabled={busy} onClick={menuAction(() => open("move-hosts", menuIds))}>移动分组</Button>
                         <Button variant="ghost" disabled={busy} onClick={menuAction(() => { void organize({ type: "hosts.pin", hostIds: menuIds, pinned: pin }); })}>

@@ -39,6 +39,8 @@ export const MonitorPanelChange = z.discriminatedUnion("action", [
   MonitorPanelRevision.extend({ action: z.literal("retry"), hostId: z.string().min(1), ...planRevision }),
 ]);
 
+export const MonitorPanelSudo = MonitorPanelRevision.extend({ hostId: z.string().min(1), sudo: z.boolean() });
+
 const CpuPercent = z.number().min(0).max(100);
 const NetworkRate = z.object({ received: z.number().nonnegative(), sent: z.number().nonnegative() });
 export const MonitorSample = z.object({
@@ -57,6 +59,7 @@ export type MonitorPoint = z.infer<typeof MonitorPoint>;
 export const MonitorHost = z.object({
   hostId: z.string(),
   connectionId: z.string().optional(),
+  sudo: z.boolean().optional(),
   state: z.enum(["connecting", "trust", "sampling", "running", "paused", "stopped", "disconnected", "unsupported", "denied", "failed", "missing"]),
   platform: z.enum(["linux", "windows"]).optional(),
   prompt: HostKeyPrompt.optional(),
@@ -83,3 +86,11 @@ export const MonitorToolResult = z.object({
   rows: z.array(z.object({ id: z.string(), name: z.string(), detail: z.string().optional() })).max(64),
 });
 export type MonitorToolResult = z.infer<typeof MonitorToolResult>;
+
+export const MonitorProcessTarget = MonitorSessionOpen.omit({ interval: true }).extend({
+  pid: z.int().min(2).max(4194304),
+  name: z.string().min(1).max(120).regex(/^[^\p{Cc}]+$/u),
+});
+export const MonitorContainerTarget = MonitorSessionOpen.omit({ interval: true }).extend({
+  containerId: z.string().regex(/^[a-f0-9]{12,64}$/u),
+});

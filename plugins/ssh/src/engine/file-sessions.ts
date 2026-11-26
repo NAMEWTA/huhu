@@ -5,7 +5,8 @@ import { errors, HuhuError } from "@huhu/contracts";
 import type { Client } from "ssh2";
 import type { z } from "zod";
 import type { DirectoryFollowState, FileAttributes, FileDirectory, FileEntry, FileOrigin, FileSession, PreparedFileDirectory } from "../shared/files.js";
-import type { SshManager, SftpSource } from "./manager.js";
+import type { PrivilegedFileLease, SshManager, SftpSource } from "./manager.js";
+import { openPrivilegedSftp } from "./privileged-sftp.js";
 import { changeProperties, createEntry, documentPath, list, moveEntry, openDocument, properties, saveDocument, searchNames } from "./sftp.js";
 
 type Navigation = { follow?: { id: string; path: string; revision: number; expires: number } };
@@ -15,7 +16,8 @@ type OwnedOrigin = {
   origin: z.infer<typeof FileOrigin> & { shellId?: string };
   directory?: { state(): DirectoryFollowState; follow(revision: number, path: string): Promise<boolean> };
 };
-type Binding = { session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController; navigation?: Navigation; owned?: OwnedOrigin };
+type SudoScope = { sudoSessionId?: string | undefined };
+type Binding = { sudo?: { id: string; lifetime: AbortController; lease?: PrivilegedFileLease }; closeConnection?: () => void; session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController; navigation?: Navigation; owned?: OwnedOrigin };
 
 export class FileSessions {
   private readonly bindings = new Map<string, Binding>();
@@ -35,14 +37,27 @@ export class FileSessions {
     return session;
   }
 
+  async openIndependent(hostId: string, signal: AbortSignal): Promise<FileSession> {
+    if (this.disposed) throw errors.notFound("文件会话所属的 Vault 已关闭");
+    const { origin, close } = await this.manager.openFileConnection(hostId, signal);
+    if (this.disposed || signal.aborted) {
+      close();
+      signal.throwIfAborted();
+      throw errors.notFound("文件会话所属的 Vault 已关闭");
+    }
+    const session: FileSession = { ...origin, fileSessionId: randomUUID(), state: "ready" };
+    this.bindings.set(session.fileSessionId, { session, detached: true, controller: new AbortController(), closeConnection: close });
+    return session;
+  }
+
   get(id: string): FileSession {
     const { session, owned } = this.lookup(id);
-    const ready = owned ? !owned.signal.aborted : this.manager.fileOrigin(session.hostId)?.connectionId === session.connectionId;
+    const ready = owned ? !owned.signal.aborted : this.manager.hasFileConnection(session.hostId, session.connectionId);
     return { ...session, state: ready ? "ready" : "disconnected" };
   }
 
   hasOriginalConnection(session: FileSession): boolean {
-    if (session.source !== "external") return this.manager.fileOrigin(session.hostId)?.connectionId === session.connectionId;
+    if (session.source !== "external") return this.manager.hasFileConnection(session.hostId, session.connectionId);
     const owned = this.bindings.get(session.fileSessionId)?.owned;
     return owned?.origin.connectionId === session.connectionId && !owned.signal.aborted;
   }
@@ -81,6 +96,49 @@ export class FileSessions {
     return { ...session, signal: controller.signal };
   }
 
+  async authenticateSudo(id: string, password: string, request: AbortSignal) {
+    const binding = this.lookup(id);
+    if (binding.owned) throw errors.permissionDenied("本机 SSH 文件 sudo");
+    if (binding.sudo && !binding.sudo.lifetime.signal.aborted) throw errors.invalidInput("此文件会话已有活动的 sudo 口令会话");
+    const { hostId, connectionId } = binding.session;
+    const client = this.manager.boundTransport(hostId, connectionId);
+    const state: NonNullable<Binding["sudo"]> = { id: randomUUID(), lifetime: new AbortController() };
+    binding.sudo = state;
+    const signal = AbortSignal.any([binding.controller.signal, state.lifetime.signal]);
+    const authSignal = AbortSignal.any([signal, request, AbortSignal.timeout(15_000)]);
+    try {
+      const opening = openPrivilegedSftp(client, signal, { password, signal: authSignal });
+      password = "";
+      const channel = await opening;
+      channel.once("close", () => state.lifetime.abort());
+      authSignal.throwIfAborted();
+      state.lease = { channel, lifetime: state.lifetime, tail: Promise.resolve() };
+      return { sudoSessionId: state.id };
+    } catch (error) {
+      state.lifetime.abort();
+      if (binding.sudo === state) delete binding.sudo;
+      request.throwIfAborted();
+      if (error instanceof HuhuError) throw error;
+      throw new HuhuError("PERMISSION_DENIED", "未能完成一次性 sudo 认证", { retryable: false });
+    }
+  }
+
+  closeSudo(id: string, sudoSessionId: string) {
+    const binding = this.bindings.get(id);
+    if (binding?.sudo?.id !== sudoSessionId) return;
+    binding.sudo.lifetime.abort();
+    delete binding.sudo;
+  }
+
+  sudoSource(id: string, scope: SudoScope): SftpSource {
+    const binding = this.lookup(id);
+    if (binding.owned) throw errors.permissionDenied("本机 SSH 文件 sudo");
+    if (!scope.sudoSessionId) return this.source({ fileSessionId: id });
+    const lease = binding.sudo?.id === scope.sudoSessionId ? binding.sudo.lease : undefined;
+    if (!lease || lease.lifetime.signal.aborted) throw new HuhuError("PERMISSION_DENIED", "此 sudo 会话已结束，请重新认证并发起操作", { retryable: false });
+    return { ...binding.session, signal: binding.controller.signal, privileged: lease };
+  }
+
   remoteClient(id: string, request: AbortSignal) {
     const { controller, owned } = this.lookup(id);
     if (!owned) throw errors.notFound("外部 SSH 文件会话");
@@ -92,6 +150,7 @@ export class FileSessions {
     if (attached && binding?.detached) return;
     binding?.controller.abort();
     this.bindings.delete(id);
+    binding?.closeConnection?.();
   }
 
   dispose(): void {
@@ -154,21 +213,21 @@ export class FileSessions {
     return !binding.detached && this.manager.followDirectory(binding.session, follow.revision, follow.path);
   }
 
-  properties(id: string, path: string, signal: AbortSignal) {
-    return this.manager.withSftp(this.source({ fileSessionId: id }), "properties", path, (channel) => properties(channel, path), { signal });
+  properties(id: string, path: string, signal: AbortSignal, sudo?: SudoScope) {
+    return this.manager.withSftp(sudo ? this.sudoSource(id, sudo) : this.source({ fileSessionId: id }), "properties", path, (channel) => properties(channel, path), { signal, elevated: Boolean(sudo) });
   }
 
-  changeProperties(id: string, path: string, revision: string, change: FileAttributes, signal: AbortSignal, beforeWrite?: () => void) {
+  changeProperties(id: string, path: string, revision: string, change: FileAttributes, signal: AbortSignal, beforeWrite?: () => void, sudo?: SudoScope) {
     const { session } = this.lookup(id);
     return this.manager.withSftp(
-      this.source({ fileSessionId: id }),
+      sudo ? this.sudoSource(id, sudo) : this.source({ fileSessionId: id }),
       "attributes",
       path,
       async (channel, active) => {
         const abs = await documentPath(channel, path);
         return this.writeEntry(session, abs, () => changeProperties(channel, path, revision, change, active, beforeWrite));
       },
-      { signal },
+      { signal, elevated: Boolean(sudo) },
     );
   }
 
@@ -177,19 +236,19 @@ export class FileSessions {
     return { ok: true as const };
   }
 
-  async moveEntry(id: string, path: string, revision: string, destination: string, signal: AbortSignal, beforeWrite?: () => void) {
-    await this.manager.withSftp(this.source({ fileSessionId: id }), "move", path, (channel, active) => moveEntry(channel, path, revision, destination, active, beforeWrite), { signal });
+  async moveEntry(id: string, path: string, revision: string, destination: string, signal: AbortSignal, beforeWrite?: () => void, sudo?: SudoScope) {
+    await this.manager.withSftp(sudo ? this.sudoSource(id, sudo) : this.source({ fileSessionId: id }), "move", path, (channel, active) => moveEntry(channel, path, revision, destination, active, beforeWrite), { signal, elevated: Boolean(sudo) });
     return { ok: true as const };
   }
 
-  readDocument(id: string, file: string, signal: AbortSignal, elevated = false) {
-    return this.manager.withSftp(this.source({ fileSessionId: id }), "document.open", file, (channel, active) => openDocument(channel, file, active), { signal, elevated });
+  readDocument(id: string, file: string, signal: AbortSignal, sudo?: SudoScope) {
+    return this.manager.withSftp(sudo ? this.sudoSource(id, sudo) : this.source({ fileSessionId: id }), "document.open", file, (channel, active) => openDocument(channel, file, active), { signal, elevated: Boolean(sudo) });
   }
 
-  writeDocument(id: string, file: string, text: string, version: string, signal: AbortSignal, beforeWrite?: () => void, elevated = false) {
+  writeDocument(id: string, file: string, text: string, version: string, signal: AbortSignal, beforeWrite?: () => void, sudo?: SudoScope) {
     const { session } = this.lookup(id);
     return this.manager.withSftp(
-      this.source({ fileSessionId: id }),
+      sudo ? this.sudoSource(id, sudo) : this.source({ fileSessionId: id }),
       "document.save",
       file,
       async (channel, active) => {
@@ -199,7 +258,7 @@ export class FileSessions {
           return saveDocument(channel, abs, text, version, active, beforeWrite);
         });
       },
-      { signal, elevated },
+      { signal, elevated: Boolean(sudo) },
     );
   }
 

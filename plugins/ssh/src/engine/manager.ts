@@ -67,6 +67,7 @@ export interface SshDeps {
 }
 
 interface Conn {
+  slot: string;
   hostId: string;
   attemptId: string;
   routeIdentity: string;
@@ -74,8 +75,11 @@ interface Conn {
   target: Client;
   route: ConnectionHop[];
   reconnected: boolean;
+  onLoss?: (route: string) => void;
 }
 type Attempt = {
+  slot?: string;
+  purpose?: "pane" | "shell" | "files";
   id: string;
   hostId: string;
   signal: AbortSignal;
@@ -101,7 +105,8 @@ type Attempt = {
 };
 export type KeyboardPrompt = { promptId: string; hop: number; serverHostId: string; instructions: string; prompts: { label: string; echo: boolean }[] };
 type DialResult = { attemptId: string; connection: Conn };
-export type SftpSource = string | { hostId: string; connectionId: string; fileSessionId: string; signal: AbortSignal; externalClient?: Client };
+export type PrivilegedFileLease = { channel: SFTPWrapper; lifetime: AbortController; tail: Promise<void> };
+export type SftpSource = string | { hostId: string; connectionId: string; fileSessionId: string; signal: AbortSignal; externalClient?: Client; privileged?: PrivilegedFileLease };
 type ForwardOwner = (status: ConnectionStatus) => void;
 type ForwardDial = {
   id: string;
@@ -155,6 +160,7 @@ export function keyTypeOf(key: Buffer): string {
 
 /** 连接管理：逐跳连接、逐跳主机密钥确认、认证、Exec、审计。 */
 export class SshManager {
+  private disposed = false;
   private conns = new Map<string, Conn>();
   private reconnectTimers = new Map<string, NodeJS.Timeout>();
   private shells = new Map<string, ShellRec>();
@@ -167,7 +173,7 @@ export class SshManager {
   private borrowedForwards = new WeakMap<Conn, Set<ForwardOwner>>();
   private statuses = new Map<string, ConnectionStatus>();
   private execs = new Map<string, ExecRun>();
-  /** 正在传输（上传/下载）的主机：同一主机同时只传一个文件。 */
+  /** 每台 SSH 传输连接同一时间仅运行一个旧入口文件传输。 */
   private transferring = new Map<string, { controller: AbortController; fileSessionId?: string }>();
   private known: KnownHosts;
 
@@ -230,7 +236,8 @@ export class SshManager {
   }
 
   hasWorkbenchConnection(hostId: string): boolean {
-    return this.isConnected(hostId) || this.connecting.has(hostId);
+    return [...this.conns.values()].some((connection) => connection.hostId === hostId)
+      || [...this.connecting.values()].some(({ attempt }) => attempt.hostId === hostId);
   }
 
   connectionStatuses(): ConnectionStatus[] {
@@ -257,9 +264,13 @@ export class SshManager {
     return this.known.removeAuthority(authority, revision, signal);
   }
 
-  private update(status: ConnectionStatus) {
-    const route = status.route ?? this.attempts.get(status.attemptId)?.route;
-    this.statuses.set(status.hostId, route ? { ...status, route: [...route] } : status);
+  private update(status: ConnectionStatus, slot?: string) {
+    if (this.disposed) return;
+    const attempt = this.attempts.get(status.attemptId);
+    const key = slot ?? attempt?.slot ?? status.hostId;
+    const route = status.route ?? attempt?.route;
+    const purpose = attempt?.purpose ?? this.statuses.get(key)?.purpose;
+    this.statuses.set(key, { ...status, ...(route && { route: [...route] }), ...(purpose && { purpose }) });
     const state = status.state === "key-changed" ? "failed" : status.state === "auth-waiting" ? "waiting" : status.state;
     this.d.publish("ssh.connectionChanged", { hostId: status.hostId, state });
   }
@@ -270,7 +281,7 @@ export class SshManager {
     const last = step.timeline.at(-1);
     const timeline = last?.stage === stage ? step.timeline : [...step.timeline.slice(-63), { stage, at: this.d.now().toISOString() }];
     attempt.route[hop] = { ...step, stage, timeline, ...(auth && { auth }) };
-    if (this.statuses.get(attempt.hostId)?.attemptId === attempt.id) this.update({ hostId: attempt.hostId, attemptId: attempt.id, state: "connecting" });
+    if (this.statuses.get(attempt.slot ?? attempt.hostId)?.attemptId === attempt.id) this.update({ hostId: attempt.hostId, attemptId: attempt.id, state: "connecting" });
   }
 
   /** 只消费当前连接和跳的待答项。旧调用者使用唯一 attemptId + hop。 */
@@ -437,24 +448,26 @@ export class SshManager {
     return true;
   }
 
-  private begin(hostId: string, signal?: AbortSignal, requirePromptId = false, expectedTarget?: string, quick?: Attempt["quick"], reconnectRoute?: string) {
-    this.cancelReconnect(hostId);
-    const running = this.connecting.get(hostId);
+  private begin(hostId: string, signal?: AbortSignal, requirePromptId = false, expectedTarget?: string, quick?: Attempt["quick"], reconnectRoute?: string, owner?: { slot: string; purpose: NonNullable<Attempt["purpose"]> }) {
+    if (this.disposed) throw new HuhuError("SSH_DISCONNECTED", "SSH 连接所属 Vault 已关闭");
+    const slot = owner?.slot ?? hostId;
+    this.cancelReconnect(slot);
+    const running = this.connecting.get(slot);
     if (running) {
       if (!expectedTarget) running.direct = true;
       return running;
     }
     const abort = new AbortController();
-    const attempt: Attempt = { id: newId("cap").replace("cap", "att"), hostId, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal, requirePromptId, ...(expectedTarget && { expectedTarget }), ...(quick && { quick }), ...(reconnectRoute && { reconnectRoute }) };
+    const attempt: Attempt = { id: newId("cap").replace("cap", "att"), hostId, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal, requirePromptId, ...owner, ...(expectedTarget && { expectedTarget }), ...(quick && { quick }), ...(reconnectRoute && { reconnectRoute }) };
     const promise = Promise.resolve()
       .then(() => this.doConnect(attempt))
       .finally(() => {
-        this.connecting.delete(hostId);
+        if (this.connecting.get(slot)?.attempt === attempt) this.connecting.delete(slot);
         this.attempts.delete(attempt.id);
         delete attempt.quick;
       });
     const created = { attempt, abort, promise, direct: !expectedTarget, workspaces: 0 };
-    this.connecting.set(hostId, created);
+    this.connecting.set(slot, created);
     this.attempts.set(attempt.id, attempt);
     this.update({ hostId, attemptId: attempt.id, state: "connecting" });
     return created;
@@ -462,17 +475,21 @@ export class SshManager {
 
   private async doConnect(attempt: Attempt): Promise<DialResult> {
     const { hostId, id: attemptId, signal } = attempt;
-    const current = () => this.statuses.get(hostId)?.attemptId === attemptId;
+    const slot = attempt.slot ?? hostId;
+    const current = () => this.statuses.get(slot)?.attemptId === attemptId;
     const opened: Client[] = [];
     let stage: { hop: number; server: HostKeyPrompt["server"] } | undefined;
     const closeOpened = () => {
-      for (const client of [...opened].reverse()) client.end();
+      for (const client of opened.toReversed()) {
+        if (this.disposed) client.destroy();
+        else client.end();
+      }
     };
     signal.addEventListener("abort", closeOpened, { once: true });
     try {
       const hosts = attempt.quick ? [attempt.quick.host] : await this.d.hosts.list();
       if (!hosts.some((host) => host.id === hostId)) {
-        if (current()) this.statuses.delete(hostId);
+        if (current()) this.statuses.delete(slot);
         throw errors.notFound("SSH 主机不存在");
       }
       const chain = this.route(hostId, hosts);
@@ -484,7 +501,7 @@ export class SshManager {
       if (outbound) attempt.outbound = outbound;
       const routeIdentity = this.routeIdentity(chain, outbound);
       if (attempt.reconnectRoute && attempt.reconnectRoute !== routeIdentity) throw new HuhuError("VERSION_CONFLICT", "原 SSH 路由已变更，自动重连已停止");
-      const existing = this.conns.get(hostId);
+      const existing = this.conns.get(slot);
       if (existing?.routeIdentity === routeIdentity) {
         existing.attemptId = attemptId;
         existing.reconnected = false;
@@ -492,30 +509,33 @@ export class SshManager {
         this.update({ hostId, attemptId, state: "connected", route: existing.route, ...(connectionId && { connectionId }) });
         return { attemptId: "existing", connection: existing };
       }
-      this.drop(hostId);
+      this.drop(slot);
       attempt.route = [];
       const client = await this.dialChain(chain, attempt, opened, (hop, host) => {
         stage = { hop, server: describeHost(host) };
       });
       if (signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 连接已取消");
-      const connection = { hostId, attemptId, routeIdentity, clients: opened, target: client, route: [...attempt.route], reconnected: attempt.reconnectRoute !== undefined };
-      this.conns.set(hostId, connection);
+      const connection: Conn = { slot, hostId, attemptId, routeIdentity, clients: opened, target: client, route: [...attempt.route], reconnected: attempt.reconnectRoute !== undefined };
+      this.conns.set(slot, connection);
       const connectionId = newId("cap");
       this.fileOrigins.set(connection, { connectionId, hostId, name: target.name, host: target.host, user: target.user, port: target.port });
       connection.target.on("close", () => {
-        if (this.conns.get(hostId) !== connection) return;
-        this.drop(hostId);
-        if (!isQuickHost(hostId) && !connection.reconnected && this.d.connectionPreferences?.().autoReconnect) this.scheduleReconnect(hostId, routeIdentity);
+        if (this.conns.get(slot) !== connection) return;
+        this.drop(slot);
+        if (isQuickHost(hostId) || connection.reconnected || !this.d.connectionPreferences?.().autoReconnect) return;
+        if (attempt.purpose) connection.onLoss?.(routeIdentity);
+        else this.scheduleReconnect(hostId, routeIdentity);
       });
       this.audit({ hostId, action: "connect", result: "ok", detail: `${target.user}@${target.host}:${target.port}（${chain.length - 1} 个跳板）` });
       this.update({ hostId, attemptId, state: "connected", connectionId });
       return { attemptId, connection };
     } catch (e) {
       closeOpened();
+      if (this.disposed) throw e;
       this.audit({ hostId, action: "connect", result: "failed", detail: e instanceof HuhuError ? e.code : "error" });
       if (current()) {
         if (stage) this.trace(attempt, stage.hop, "failed");
-        if (attempt.changed) this.update({ hostId, attemptId, state: "key-changed", prompt: attempt.changed, ...(this.connecting.get(hostId)?.workspaces && { workspace: true as const }) });
+        if (attempt.changed) this.update({ hostId, attemptId, state: "key-changed", prompt: attempt.changed, ...(this.connecting.get(attempt.slot ?? hostId)?.workspaces && { workspace: true as const }) });
         else this.update({ hostId, attemptId, state: "failed", message: e instanceof HuhuError ? e.message : "SSH 连接失败", ...stage });
       }
       throw e;
@@ -656,9 +676,9 @@ export class SshManager {
   }
 
   monitorPane(hostId: string, shellId: string): MonitorConnection {
-    const conn = this.conns.get(hostId);
     const shell = this.shells.get(shellId);
-    if (!conn || !shell || shell.state !== "running" || this.shellConnections.get(shell) !== conn) throw new HuhuError("SSH_DISCONNECTED", "此分栏的原 SSH 连接已关闭");
+    const conn = this.runningShellConnection(hostId, shellId);
+    if (!conn || !shell) throw new HuhuError("SSH_DISCONNECTED", "此分栏的原 SSH 连接已关闭");
     return {
       id: this.fileOrigins.get(conn)!.connectionId,
       client: conn.target,
@@ -672,8 +692,8 @@ export class SshManager {
   }
 
   boundTransport(hostId: string, connectionId: string): Client {
-    const connection = this.conns.get(hostId);
-    if (!connection || this.fileOrigins.get(connection)?.connectionId !== connectionId) throw new HuhuError("SSH_DISCONNECTED", "请选择仍然在线的原 SSH 连接");
+    const connection = this.findConnection(hostId, connectionId);
+    if (!connection) throw new HuhuError("SSH_DISCONNECTED", "请选择仍然在线的原 SSH 连接");
     return connection.target;
   }
 
@@ -739,7 +759,10 @@ export class SshManager {
     const owners = new Set<ForwardOwner>();
     const cleanup = () => {
       if (this.forwardDials.get(identity) === dial) this.forwardDials.delete(identity);
-      for (const client of [...opened].reverse()) client.end();
+      for (const client of opened.toReversed()) {
+        if (this.disposed) client.destroy();
+        else client.end();
+      }
     };
     const attempt: Attempt = {
       id: newId("cap").replace("cap", "att"),
@@ -771,7 +794,7 @@ export class SshManager {
     return dial;
   }
 
-  private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown, preferences: Omit<ConnectionPreferences, "autoReconnect">): Promise<void> {
+  private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown, preferences: Omit<ConnectionPreferences, "autoReconnect" | "shareConnections">): Promise<void> {
     const { id: attemptId, hostId, signal } = attempt;
     return new Promise((resolve, reject) => {
       let timer: NodeJS.Timeout | undefined;
@@ -802,6 +825,7 @@ export class SshManager {
       };
       const publishKey = (prompt: HostKeyPrompt, reason: "first" | "changed") => {
         if (attempt.publicProbe) return;
+        if (this.disposed || signal.aborted) return;
         this.d.publish("ssh.hostKeyPrompt", { attemptId, hostId: h.id, hop, fingerprint: prompt.fingerprint, keyType: prompt.keyType, reason });
       };
       const currentTarget = () => {
@@ -936,7 +960,7 @@ export class SshManager {
             client.end();
           }, this.d.decisionTimeoutMs ?? 120_000);
           this.trace(attempt, hop, "answering", "keyboard-interactive");
-          this.update({ hostId, attemptId, state: "auth-waiting", authPrompt, ...(this.connecting.get(hostId)?.workspaces && { workspace: true as const }) });
+          this.update({ hostId, attemptId, state: "auth-waiting", authPrompt, ...(this.connecting.get(attempt.slot ?? hostId)?.workspaces && { workspace: true as const }) });
         });
       }
       resumeTimer();
@@ -1024,7 +1048,7 @@ export class SshManager {
                   });
               },
             };
-            const status = { hostId, attemptId, state: "waiting", prompt, ...(this.connecting.get(hostId)?.workspaces && { workspace: true as const }) } as const;
+            const status = { hostId, attemptId, state: "waiting", prompt, ...(this.connecting.get(attempt.slot ?? hostId)?.workspaces && { workspace: true as const }) } as const;
             this.trace(attempt, hop, "trust");
             if (attempt.report) attempt.report(status);
             else this.update(status);
@@ -1039,31 +1063,32 @@ export class SshManager {
   }
 
   // ---- Shell ----
-  workspacePrompt(hostId: string, target: string): HostKeyPrompt | undefined {
-    const status = this.statuses.get(hostId);
+  workspacePrompt(slot: string, target: string): HostKeyPrompt | undefined {
+    const status = this.statuses.get(slot);
     return status?.state === "waiting" && this.attempts.get(status.attemptId)?.routeTarget === target ? status.prompt : undefined;
   }
 
-  workspaceAuthentication(hostId: string, target: string): SshAuthenticationPrompt | undefined {
-    const status = this.statuses.get(hostId);
+  workspaceAuthentication(slot: string, target: string): SshAuthenticationPrompt | undefined {
+    const status = this.statuses.get(slot);
     return status?.state === "auth-waiting" && this.attempts.get(status.attemptId)?.routeTarget === target ? status.authPrompt : undefined;
   }
 
-  async openWorkspaceShell(pane: { hostId: string; target: string; loginCommand?: string | undefined }, signal: AbortSignal, onEnd: () => void): Promise<ShellInfo> {
+  async openWorkspaceShell(pane: { hostId: string; target: string; loginCommand?: string | undefined }, signal: AbortSignal, onEnd: () => void, slot = pane.hostId, recovery?: { onLoss(route: string): void; route?: string }): Promise<ShellInfo> {
     const { hostId, target, loginCommand } = pane;
     const chain = this.route(hostId, await this.d.hosts.list());
     const bindingChanged = () => new HuhuError("VERSION_CONFLICT", "绑定的 SSH 主机、账户或跳板身份已变更");
     if (workspaceTarget(chain) !== target) throw bindingChanged();
     signal.throwIfAborted();
-    const dial = this.begin(hostId, undefined, true, target);
+    const owner = slot === hostId ? undefined : { slot, purpose: "pane" as const };
+    const dial = this.begin(hostId, owner ? signal : undefined, true, target, undefined, recovery?.route, owner);
     dial.workspaces++;
-    const status = this.statuses.get(hostId);
+    const status = this.statuses.get(slot);
     if (status?.attemptId === dial.attempt.id && (status.state === "waiting" || status.state === "key-changed" || status.state === "auth-waiting") && !status.workspace) this.update({ ...status, workspace: true });
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
-      if (--dial.workspaces === 0 && !dial.direct && this.connecting.get(hostId) === dial && !this.conns.has(hostId)) dial.abort.abort();
+      if (--dial.workspaces === 0 && !dial.direct && this.connecting.get(slot) === dial && !this.conns.has(slot)) dial.abort.abort();
     };
     signal.addEventListener("abort", release, { once: true });
     let connection: Conn;
@@ -1080,6 +1105,7 @@ export class SshManager {
       this.closeShell(shell.id);
       signal.throwIfAborted();
     }
+    if (owner && recovery) connection.onLoss = recovery.onLoss;
     if (loginCommand) {
       const rec = this.shells.get(shell.id);
       if (rec?.state === "running") rec.channel.write(loginCommand + "\r");
@@ -1087,13 +1113,19 @@ export class SshManager {
     return shell;
   }
 
-  async openShell(hostId: string, size: { cols: number; rows: number } = { cols: 80, rows: 24 }, expected?: Conn, onEnd?: () => void, integrate = false): Promise<ShellInfo> {
-    const conn = this.conns.get(hostId);
-    if (!conn || (expected && conn !== expected)) throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
+  async openShell(hostId: string, size: { cols: number; rows: number } = { cols: 80, rows: 24 }, expected?: Conn, onEnd?: () => void, integrate = false, command?: string): Promise<ShellInfo> {
+    const conn = expected ?? this.conns.get(hostId);
+    if (!conn || conn.hostId !== hostId || this.conns.get(conn.slot) !== conn) throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
     const pty = { term: "xterm-256color", cols: size.cols, rows: size.rows };
     const integrated = integrate ? await openIntegratedShell(conn.target, pty) : undefined;
-    const channel = integrated?.channel ?? (await new Promise<ClientChannel>((resolve, reject) => conn.target.shell(pty, (err, ch) => (err ? reject(new HuhuError("SSH_DISCONNECTED", `打开 Shell 失败：${err.message}`)) : resolve(ch)))));
-    if (this.conns.get(hostId) !== conn) {
+    const channel = integrated?.channel ?? (await new Promise<ClientChannel>((resolve, reject) => {
+      const opened = (error: Error | undefined, stream: ClientChannel) => error
+        ? reject(new HuhuError("SSH_DISCONNECTED", `打开 Shell 失败：${error.message}`))
+        : resolve(stream);
+      if (command) conn.target.exec(command, { pty }, opened);
+      else conn.target.shell(pty, opened);
+    }));
+    if (this.conns.get(conn.slot) !== conn) {
       channel.close();
       throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
     }
@@ -1111,11 +1143,28 @@ export class SshManager {
       for (const v of rec.viewers) v(b);
     });
     channel.on("close", () => {
-      rec.state = "ended";
-      for (const c of rec.closers) c();
+      this.endShell(rec);
     });
     this.audit({ hostId, action: "shell", result: "ok", detail: id });
     return this.info(rec);
+  }
+
+  async openToolShell(hostId: string, shellId: string, connectionId: string, command: string, signal: AbortSignal): Promise<ShellInfo> {
+    signal.throwIfAborted();
+    const parent = this.shells.get(shellId);
+    const connection = this.runningShellConnection(hostId, shellId);
+    if (!parent || !connection || this.fileOrigins.get(connection)?.connectionId !== connectionId) throw new HuhuError("SSH_DISCONNECTED", "服务器工具的原分栏已关闭");
+    let childId: string | undefined;
+    const closeChild = () => { if (childId) this.closeShell(childId); };
+    const shell = await this.openShell(hostId, undefined, connection, () => parent.closers.delete(closeChild), false, command);
+    childId = shell.id;
+    if (parent.state !== "running" || signal.aborted) {
+      closeChild();
+      signal.throwIfAborted();
+      throw new HuhuError("SSH_DISCONNECTED", "服务器工具的原分栏已关闭");
+    }
+    parent.closers.add(closeChild);
+    return shell;
   }
 
   private info(r: ShellRec): ShellInfo {
@@ -1131,7 +1180,7 @@ export class SshManager {
   closeShell(id: string): boolean {
     const s = this.shells.get(id);
     if (!s) return false;
-    s.state = "ended";
+    this.endShell(s);
     s.channel.close(); // “结束 shell”才关闭 channel；关闭视图不会
     return true;
   }
@@ -1160,18 +1209,76 @@ export class SshManager {
     };
   }
 
-  private drop(hostId: string): void {
-    const c = this.conns.get(hostId);
-    if (!c) return;
-    // 连接断开：该主机的所有 shell 变为已结束（重新连接后需新建，不会绑定到新连接）
-    for (const s of this.shells.values())
-      if (s.hostId === hostId) {
-        s.state = "ended";
-        for (const f of s.closers) f();
+  private endShell(shell: ShellRec): void {
+    if (shell.state === "ended") return;
+    shell.state = "ended";
+    for (const notify of shell.closers) notify();
+    shell.closers.clear();
+  }
+
+  private drop(slot: string): void {
+    const connection = this.conns.get(slot);
+    if (!connection) return;
+    this.conns.delete(slot);
+    for (const shell of this.shells.values()) {
+      if (this.shellConnections.get(shell) === connection) this.endShell(shell);
+    }
+    for (const client of connection.clients.toReversed()) {
+      if (this.disposed) client.destroy();
+      else client.end();
+    }
+    const { hostId, attemptId } = connection;
+    if (this.statuses.get(slot)?.attemptId === attemptId) this.update({ hostId, attemptId, state: "disconnected" }, slot);
+  }
+
+  newPaneSlot(hostId: string): string {
+    return this.d.connectionPreferences?.().shareConnections === false ? newId("cap") : hostId;
+  }
+
+  closeOwnedConnection(slot: string): void {
+    const dial = this.connecting.get(slot);
+    if (dial) {
+      this.connecting.delete(slot);
+      dial.abort.abort();
+    }
+    this.cancelReconnect(slot);
+    this.drop(slot);
+    const status = this.statuses.get(slot);
+    if (status) {
+      this.statuses.delete(slot);
+      if (!this.disposed) this.d.publish("ssh.connectionChanged", { hostId: status.hostId, state: "disconnected" });
+    }
+  }
+
+  async openFileConnection(hostId: string, signal: AbortSignal) {
+    const slot = newId("cap");
+    const close = () => this.closeOwnedConnection(slot);
+    try {
+      const { connection } = await this.begin(hostId, signal, true, undefined, undefined, undefined, { slot, purpose: "files" }).promise;
+      signal.throwIfAborted();
+      return { origin: this.fileOrigins.get(connection)!, close };
+    } catch (error) {
+      close();
+      throw error;
+    }
+  }
+
+  async openWorkbenchShell(hostId: string, size: { cols: number; rows: number }, signal: AbortSignal): Promise<ShellInfo> {
+    if (this.d.connectionPreferences?.().shareConnections !== false) return this.openShell(hostId, size);
+    const slot = newId("cap");
+    try {
+      const { connection } = await this.begin(hostId, signal, true, undefined, undefined, undefined, { slot, purpose: "shell" }).promise;
+      signal.throwIfAborted();
+      const shell = await this.openShell(hostId, size, connection, () => this.closeOwnedConnection(slot));
+      if (signal.aborted) {
+        this.closeShell(shell.id);
+        signal.throwIfAborted();
       }
-    this.conns.delete(hostId);
-    for (const cl of c.clients.reverse()) cl.end();
-    if (this.statuses.get(hostId)?.attemptId === c.attemptId) this.update({ hostId, attemptId: c.attemptId, state: "disconnected" });
+      return shell;
+    } catch (error) {
+      this.closeOwnedConnection(slot);
+      throw error;
+    }
   }
 
   private scheduleReconnect(hostId: string, route: string): void {
@@ -1205,15 +1312,17 @@ export class SshManager {
   }
 
   disposeAll(): void {
-    for (const hostId of this.reconnectTimers.keys()) this.cancelReconnect(hostId);
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const slot of this.reconnectTimers.keys()) this.cancelReconnect(slot);
     for (const draft of this.drafts) draft.abort();
     for (const { abort } of this.connecting.values()) abort.abort();
     for (const { abort } of this.forwardDials.values()) abort.abort();
-    for (const id of Array.from(this.conns.keys())) this.drop(id);
-    for (const [hostId, session] of this.quick) {
-      this.statuses.delete(hostId);
-      if (session.shellId) this.shells.delete(session.shellId);
-    }
+    for (const { controller } of this.transferring.values()) controller.abort();
+    for (const slot of this.conns.keys()) this.drop(slot);
+    this.attempts.clear();
+    this.statuses.clear();
+    this.shells.clear();
     this.quick.clear();
   }
 
@@ -1253,14 +1362,23 @@ export class SshManager {
     });
   }
 
+  private findConnection(hostId: string, connectionId: string): Conn | undefined {
+    return [...this.conns.values()].find((conn) => conn.hostId === hostId && this.fileOrigins.get(conn)?.connectionId === connectionId);
+  }
+
+  hasFileConnection(hostId: string, connectionId: string): boolean {
+    return this.findConnection(hostId, connectionId) !== undefined;
+  }
+
+  private runningShellConnection(hostId: string, shellId: string): Conn | undefined {
+    const shell = this.shells.get(shellId);
+    const conn = shell && this.shellConnections.get(shell);
+    return shell?.state === "running" && conn?.hostId === hostId && this.conns.get(conn.slot) === conn ? conn : undefined;
+  }
+
   fileOrigin(hostId: string, shellId?: string): z.infer<typeof FileOrigin> | undefined {
-    const conn = this.conns.get(hostId);
-    if (!conn) return undefined;
-    if (shellId) {
-      const shell = this.shells.get(shellId);
-      if (!shell || shell.state !== "running" || this.shellConnections.get(shell) !== conn) return undefined;
-    }
-    return this.fileOrigins.get(conn);
+    const conn = shellId ? this.runningShellConnection(hostId, shellId) : this.conns.get(hostId);
+    return conn && this.fileOrigins.get(conn);
   }
 
   directoryState(origin: z.infer<typeof FileOrigin> & { shellId?: string | undefined }): DirectoryFollowState {
@@ -1283,17 +1401,19 @@ export class SshManager {
   async withSftp<T>(source: SftpSource, action: string, detail: string, fn: (s: SFTPWrapper, signal: AbortSignal) => Promise<T>, opts: { transfer?: boolean; signal?: AbortSignal; timeoutMs?: number; elevated?: boolean } = {}): Promise<T> {
     const binding = typeof source === "string" ? undefined : source;
     const hostId = typeof source === "string" ? source : source.hostId;
-    const conn = this.conns.get(hostId);
+    const conn = binding ? this.findConnection(hostId, binding.connectionId) : this.conns.get(hostId);
     const external = binding?.externalClient;
     const target = external ?? conn?.target;
-    if (!target || (!external && binding && (!conn || this.fileOrigins.get(conn)?.connectionId !== binding.connectionId))) throw new HuhuError("SSH_DISCONNECTED", binding ? "文件会话的原连接已断开" : "尚未连接该主机");
-    const transferKey = external ? binding.connectionId : hostId;
+    if (!target) throw new HuhuError("SSH_DISCONNECTED", binding ? "文件会话的原连接已断开" : "尚未连接该主机");
+    const transferKey = binding?.connectionId ?? this.fileOrigin(hostId)!.connectionId;
     if (opts.transfer && this.transferring.has(transferKey)) throw errors.invalidInput("这台主机正在传输另一个文件，请等它完成后再试");
     const ac = new AbortController();
-    const signal = AbortSignal.any([ac.signal, ...(binding ? [binding.signal] : []), ...(opts.signal ? [opts.signal] : [])]);
+    const privileged = opts.elevated ? binding?.privileged : undefined;
+    const signal = AbortSignal.any([ac.signal, ...(binding ? [binding.signal] : []), ...(opts.signal ? [opts.signal] : []), ...(privileged ? [privileged.lifetime.signal] : [])]);
     signal.throwIfAborted();
     if (opts.transfer) this.transferring.set(transferKey, { controller: ac, ...(binding ? { fileSessionId: binding.fileSessionId } : {}) });
     let session: SFTPWrapper | undefined;
+    let unlock: (() => void) | undefined;
     let detach = (): void => undefined;
     try {
       // 取消（用户或调度器）与超时都要能让一切立刻结束并释放互斥：连接还活着但服务器不回应时，ssh2 不会自己报错
@@ -1316,7 +1436,15 @@ export class SshManager {
       });
       stop.catch(() => undefined);
       session = await Promise.race([
-        opts.elevated ? openPrivilegedSftp(target, signal) : new Promise<SFTPWrapper>((resolve, reject) =>
+        privileged ? (() => {
+          const previous = privileged.tail;
+          const held = new Promise<void>((release) => { unlock = release; });
+          privileged.tail = previous.then(() => held);
+          return previous.then(() => {
+            signal.throwIfAborted();
+            return privileged.channel;
+          });
+        })() : opts.elevated ? openPrivilegedSftp(target, signal) : new Promise<SFTPWrapper>((resolve, reject) =>
           target.sftp((err, channel) => {
             if (err) return reject(err);
             if (signal.aborted) {
@@ -1355,17 +1483,20 @@ export class SshManager {
     } finally {
       detach();
       try {
-        session?.end();
+        if (!privileged) session?.end();
+        if (privileged && session && signal.aborted) privileged.lifetime.abort();
       } catch {
         /* 连接已断 */
       }
+      unlock?.();
       if (opts.transfer) this.transferring.delete(transferKey);
     }
   }
 
   /** 取消这台主机上正在进行的传输。 */
   sftpCancel(source: SftpSource): boolean {
-    const transfer = this.transferring.get(typeof source === "string" ? source : source.externalClient ? source.connectionId : source.hostId);
+    const connectionId = typeof source === "string" ? this.fileOrigin(source)?.connectionId : source.connectionId;
+    const transfer = connectionId && this.transferring.get(connectionId);
     if (!transfer || (typeof source !== "string" && transfer.fileSessionId !== source.fileSessionId)) return false;
     transfer.controller.abort();
     return true;

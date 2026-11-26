@@ -1,11 +1,10 @@
 import { HuhuError } from "@huhu/contracts";
 import type { z } from "zod";
-import type { MonitorTool, MonitorToolRequest, MonitorToolResult } from "../shared/monitoring.js";
+import type { MonitorContainerTarget, MonitorProcessTarget, MonitorTool, MonitorToolRequest, MonitorToolResult } from "../shared/monitoring.js";
 import type { MonitorConnection, SshManager } from "./manager.js";
 import { detectPlatform, monitorExec, monitorWithSudo, powershellProbe, SampleError } from "./monitor-sample.js";
 
-// Read-only command subset adapted from Motty remotetools. Process arguments,
-// environment, container configuration and logs are outside this response.
+// Fixed Linux queries adapted from Motty remotetools.
 export const PROCESS_LIST = "LC_ALL=C ps -e -o pid= -o comm=";
 export const CONTAINER_LIST = "docker ps -a --format '{{.ID}}|{{.Names}}|{{.Image}}|{{.State}}'";
 export const IMAGE_LIST = "docker images --format '{{.ID}}|{{.Repository}}:{{.Tag}}|{{.Size}}'";
@@ -82,4 +81,59 @@ export async function readMonitorConnection(connection: MonitorConnection, tool:
     off();
     connection.release();
   }
+}
+
+async function withLinuxTool<T>(
+  manager: SshManager,
+  input: { hostId: string; shellId: string; sudo?: boolean | undefined },
+  request: AbortSignal,
+  action: (run: (command: string) => ReturnType<typeof monitorExec>, connectionId: string, signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const connection = manager.monitorPane(input.hostId, input.shellId);
+  const close = new AbortController();
+  const off = connection.onClose(() => close.abort());
+  const signal = AbortSignal.any([request, close.signal, AbortSignal.timeout(12_000)]);
+  try {
+    if (await detectPlatform(connection.client, signal) !== "linux") throw new SampleError("unsupported", "此服务器工具操作仅支持 Linux");
+    return await action(
+      (command) => input.sudo ? monitorWithSudo(connection.client, "linux", command, signal) : monitorExec(connection.client, command, signal),
+      connection.id,
+      signal,
+    );
+  } catch (error) {
+    if (close.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "服务器工具的原分栏已关闭");
+    request.throwIfAborted();
+    if (error instanceof SampleError) throw new HuhuError(error.phase === "denied" ? "PERMISSION_DENIED" : "INVALID_INPUT", error.message);
+    throw error;
+  } finally {
+    off();
+    connection.release();
+  }
+}
+
+export function terminateMonitorProcess(manager: SshManager, input: z.infer<typeof MonitorProcessTarget>, signal: AbortSignal) {
+  return withLinuxTool(manager, input, signal, async (run) => {
+    const name = "'" + input.name.replaceAll("'", "'\\''") + "'";
+    const response = await run(`actual=$(LC_ALL=C ps -p ${input.pid} -o comm=) || exit 3; [ "$actual" = ${name} ] || exit 3; kill -TERM ${input.pid}`);
+    if (response.code === 3) throw new HuhuError("VERSION_CONFLICT", "此 PID 已退出或进程名已变更，请刷新查询");
+    if (response.code !== 0) throw new HuhuError("PERMISSION_DENIED", "远端未能向进程发送终止信号");
+    return { ok: true as const };
+  });
+}
+
+export function readContainerLogs(manager: SshManager, input: z.infer<typeof MonitorContainerTarget>, signal: AbortSignal) {
+  return withLinuxTool(manager, input, signal, async (run) => {
+    const result = await run(`docker logs --tail 100 -- ${input.containerId}`);
+    if (result.code !== 0) throw new HuhuError("INVALID_INPUT", "无法读取指定容器日志，请确认容器和 Docker 权限");
+    return { stdout: result.stdout, stderr: result.stderr };
+  });
+}
+
+export function openContainerShell(manager: SshManager, input: z.infer<typeof MonitorContainerTarget>, signal: AbortSignal) {
+  return withLinuxTool(manager, input, signal, async (run, connectionId, current) => {
+    const command = `docker exec -it ${input.containerId} sh`;
+    const probe = await run(`docker exec ${input.containerId} sh -c :`);
+    if (probe.code !== 0) throw new HuhuError("INVALID_INPUT", "容器须正在运行并提供 sh，且当前账户须有执行权限");
+    return manager.openToolShell(input.hostId, input.shellId, connectionId, input.sudo ? `sudo -n -- ${command}` : command, current);
+  });
 }

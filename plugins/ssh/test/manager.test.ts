@@ -7,6 +7,7 @@ import { HuhuError } from "@huhu/contracts";
 import { randomUUID } from "node:crypto";
 import { findJumpCycle } from "../src/engine/hosts.js";
 import type { SshHostProfile } from "../src/engine/auth-profile.js";
+import { FileSessions } from "../src/engine/file-sessions.js";
 import { SshManager } from "../src/engine/manager.js";
 import { DeviceProxies } from "../src/engine/device-proxies.js";
 import { TerminalRecordings } from "../src/engine/terminal-recordings.js";
@@ -15,6 +16,7 @@ import { maxRecordingCheckpoints } from "../src/shared/recordings.js";
 import { genHostKey, startFakeSsh } from "./fake-server.js";
 import { ownedHosts } from "./owned-hosts.js";
 import { relayToLoopback } from "./shell-relay-fixture.js";
+import { defaultVaultPreferences } from "../src/shared/preferences.js";
 import { parseQuickEndpoint } from "../src/shared/quick-connection.js";
 
 const dirs: string[] = [];
@@ -29,12 +31,13 @@ const tmp = () => {
   return d;
 };
 
-function setup(password = "pw", unavailable = false, deviceProxy = false) {
+function setup(password = "pw", unavailable = false, deviceProxy = false, shareConnections = true) {
   const root = tmp();
   const hosts = ownedHosts();
   const commands = deviceProxy ? new DeviceProxies({ localRoot: root, localVaultInstanceId: "fixture-vault" }) : undefined;
   const prompts: { hop: number; reason: string; attemptId: string; fingerprint: string }[] = [];
   let mgr!: SshManager;
+  const changes = vi.fn();
   const secretCalls: string[] = [];
   mgr = new SshManager({
     hosts,
@@ -47,12 +50,14 @@ function setup(password = "pw", unavailable = false, deviceProxy = false) {
       await connect({ password });
     },
     publish: (type, payload) => {
+      if (type === "ssh.connectionChanged") changes(payload);
       if (type === "ssh.hostKeyPrompt") {
         const p = payload as { hop: number; reason: string; attemptId: string; fingerprint: string };
         prompts.push(p);
       }
     },
     decisionTimeoutMs: 1000,
+    connectionPreferences: () => ({ ...defaultVaultPreferences.connection, shareConnections }),
     ...(commands && { deviceProxy: { commands, currentRoute: (id: string) => connectionIdentity(routeForHost(new Map(hosts.list().map((host) => [host.id, host])), id)) } }),
   });
   closers.push(() => {
@@ -60,7 +65,7 @@ function setup(password = "pw", unavailable = false, deviceProxy = false) {
     mgr.disposeAll();
   });
   const add = (port: number, over: Partial<SshHostProfile> = {}) => hosts.save({ name: `h${port}`, host: "127.0.0.1", port, user: "u", jumpHostIds: [], tags: [], connectTimeoutSec: 5, ...over });
-  return { root, hosts, mgr, prompts, add, secretCalls, commands };
+  return { root, hosts, mgr, prompts, add, secretCalls, commands, changes };
 }
 const until = async (c: () => boolean, ms = 3000) => {
   const end = Date.now() + ms;
@@ -88,6 +93,87 @@ describe("主机配置", () => {
 });
 
 describe("连接与主机密钥", () => {
+  test("disposing an SSH generation drops old prompts and suppresses late status events", async () => {
+    const server = await startFakeSsh({ keyboardResponse: "one-time answer" });
+    const { mgr, add, changes } = setup();
+    closers.push(server.close);
+    const host = add(server.port);
+    const pending = mgr.connect(host.id).catch((error: unknown) => error);
+    const current = () => mgr.connectionStatuses()[0];
+    await expect.poll(() => current()?.state).toBe("waiting");
+    const first = current();
+    if (first?.state !== "waiting") throw new Error("missing host key");
+    expect(mgr.decide(first.attemptId, 0, true, first.prompt.promptId)).toBe(true);
+    await expect.poll(() => current()?.state).toBe("auth-waiting");
+    const auth = current();
+    if (auth?.state !== "auth-waiting") throw new Error("missing interactive authentication");
+    changes.mockClear();
+    mgr.disposeAll();
+    expect(mgr.decideAuthentication(auth.attemptId, 0, auth.authPrompt.promptId, ["one-time answer"])).toBe(false);
+    expect(await pending).toMatchObject({ code: "SSH_DISCONNECTED" });
+    await expect.poll(() => server.closed()).toBe(1);
+    expect(mgr.connectionStatuses()).toEqual([]);
+    expect(changes).not.toHaveBeenCalled();
+  });
+
+  test("a file view dials an unconnected host and releases only its own transport", async () => {
+    const server = await startFakeSsh();
+    const { mgr, add } = setup();
+    const files = new FileSessions(mgr);
+    closers.push(() => files.dispose(), server.close);
+    server.fs.files.set("/home/test/isolated.txt", Buffer.from("file view connection"));
+    const host = add(server.port);
+    const opening = files.openIndependent(host.id, new AbortController().signal);
+    const wait = () => mgr.connectionStatuses().find(({ purpose }) => purpose === "files");
+    await expect.poll(() => wait()?.state).toBe("waiting");
+    const status = wait();
+    if (status?.state !== "waiting") throw new Error("missing fingerprint");
+    expect(mgr.decide(status.attemptId, 0, true, status.prompt.promptId)).toBe(true);
+    const session = await opening;
+    expect(mgr.isConnected(host.id)).toBe(false);
+    expect(mgr.listShells(host.id)).toEqual([]);
+    await expect(mgr.sftpList(files.source({ fileSessionId: session.fileSessionId }), "")).resolves.toMatchObject({ entries: expect.arrayContaining([expect.objectContaining({ name: "isolated.txt" })]) });
+    await mgr.connect(host.id);
+    expect(server.conns).toHaveLength(2);
+    files.close(session.fileSessionId);
+    await expect.poll(() => server.closed()).toBe(1);
+    expect(mgr.isConnected(host.id)).toBe(true);
+    expect(wait()).toBeUndefined();
+  });
+
+  test("isolated panes keep their own trust requests, file origins and monitor transport", async () => {
+    const server = await startFakeSsh();
+    const { mgr, add } = setup("pw", false, false, false);
+    closers.push(server.close);
+    const host = add(server.port);
+    const pane = { hostId: host.id, target: workspaceTarget([host]) };
+    const firstSlot = mgr.newPaneSlot(host.id);
+    const secondSlot = mgr.newPaneSlot(host.id);
+    const signal = new AbortController().signal;
+    const first = mgr.openWorkspaceShell(pane, signal, () => undefined, firstSlot);
+    const second = mgr.openWorkspaceShell(pane, signal, () => undefined, secondSlot);
+    await expect.poll(() => [firstSlot, secondSlot].every((slot) => mgr.workspacePrompt(slot, pane.target))).toBe(true);
+    const firstPrompt = mgr.workspacePrompt(firstSlot, pane.target)!;
+    const secondPrompt = mgr.workspacePrompt(secondSlot, pane.target)!;
+    expect(firstPrompt.attemptId).not.toBe(secondPrompt.attemptId);
+    expect(mgr.decide(firstPrompt.attemptId, 0, true, secondPrompt.promptId, false)).toBe(false);
+    expect(mgr.decide(firstPrompt.attemptId, 0, true, firstPrompt.promptId, false)).toBe(true);
+    const firstShell = await first;
+    expect(mgr.workspacePrompt(secondSlot, pane.target)).toEqual(secondPrompt);
+    expect(mgr.decide(secondPrompt.attemptId, 0, true, secondPrompt.promptId, false)).toBe(true);
+    const secondShell = await second;
+    const firstOrigin = mgr.fileOrigin(host.id, firstShell.id)!;
+    const secondOrigin = mgr.fileOrigin(host.id, secondShell.id)!;
+    expect(firstOrigin.connectionId).not.toBe(secondOrigin.connectionId);
+    expect(mgr.monitorPane(host.id, secondShell.id).id).toBe(secondOrigin.connectionId);
+    mgr.closeOwnedConnection(firstSlot);
+    await expect.poll(() => server.closed()).toBe(1);
+    expect(mgr.hasFileConnection(host.id, firstOrigin.connectionId)).toBe(false);
+    expect(mgr.hasFileConnection(host.id, secondOrigin.connectionId)).toBe(true);
+    expect(mgr.shellInfo(firstShell.id)?.state).toBe("ended");
+    expect(mgr.shellInfo(secondShell.id)?.state).toBe("running");
+  });
+
   test("an unsaved quick connection authenticates, opens one shell and releases all temporary state", async () => {
     const srv = await startFakeSsh({ password: "one-time-fixture" });
     const { root, hosts, mgr, prompts, secretCalls } = setup();

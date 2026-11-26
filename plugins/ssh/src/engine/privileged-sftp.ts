@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { errors, HuhuError } from "@huhu/contracts";
 import type { Client, ClientChannel, SFTPWrapper } from "ssh2";
@@ -14,9 +15,16 @@ type SftpConstructor = new (
   info: { type: "session"; incoming: BridgeWindow; outgoing: BridgeWindow },
 ) => BridgeSftp;
 const require = createRequire(import.meta.url);
-const unavailable = () => new HuhuError("PERMISSION_DENIED", "原主机无法启动 sudo -n SFTP。需要允许免交互运行系统 sftp-server。", { retryable: false });
+const unavailable = () => new HuhuError("PERMISSION_DENIED", "原主机无法通过 sudo 启动系统 sftp-server。请核对远端 sudo 权限。", { retryable: false });
 
-export function openPrivilegedSftp(client: Client, signal: AbortSignal): Promise<SFTPWrapper> {
+export function openPrivilegedSftp(client: Client, signal: AbortSignal, auth?: { password: string; signal: AbortSignal }): Promise<SFTPWrapper> {
+  const challenge = auth ? randomUUID() : undefined;
+  const prompt = `huhu-sudo-${challenge}:`;
+  const ready = `huhu-ready-${challenge}:`;
+  // Motty waits for a private stderr marker before starting the binary SFTP protocol.
+  const command = auth
+    ? `for server in ${servers}; do if [ -x "$server" ]; then exec sudo -S -p '${prompt}' -- /bin/sh -c 'printf %s "${ready}" >&2; exec "$1"' huhu "$server"; fi; done; exit 127`
+    : privilegedSftpCommand;
   // ssh2's public sftp() API only opens a subsystem. Its SSH 2.0 SFTP codec
   // can also use an exec channel carrying the same binary stream.
   let SFTP: SftpConstructor;
@@ -28,18 +36,32 @@ export function openPrivilegedSftp(client: Client, signal: AbortSignal): Promise
   }
   return new Promise((resolve, reject) => {
     let channel: ClientChannel | undefined;
-    const abort = () => {
-      channel?.destroy();
-      reject(signal.reason);
+    let password = auth ? Buffer.from(auth.password + "\n", "utf8") : undefined;
+    if (auth) auth.password = "";
+    const authSignal = auth?.signal;
+    const clearPassword = () => {
+      password?.fill(0);
+      password = undefined;
     };
-    if (signal.aborted) return abort();
+    const abort = () => {
+      clearPassword();
+      channel?.destroy();
+      reject(signal.reason ?? authSignal?.reason);
+    };
+    const detach = () => {
+      signal.removeEventListener("abort", abort);
+      authSignal?.removeEventListener("abort", abort);
+    };
+    if (signal.aborted || authSignal?.aborted) return abort();
     signal.addEventListener("abort", abort, { once: true });
+    authSignal?.addEventListener("abort", abort, { once: true });
     try {
-      client.exec(privilegedSftpCommand, (error, stream) => {
+      client.exec(command, (error, stream) => {
         channel = stream;
-        if (signal.aborted) return abort();
+        if (signal.aborted || authSignal?.aborted) return abort();
         if (error) {
-          signal.removeEventListener("abort", abort);
+          detach();
+          clearPassword();
           reject(unavailable());
           return;
         }
@@ -59,7 +81,33 @@ export function openPrivilegedSftp(client: Client, signal: AbortSignal): Promise
           sftp._chunkcb?.call(sftp);
         });
         stream.on("data", (data: Buffer) => sftp.push(data));
-        stream.stderr.resume();
+        if (!authSignal) stream.stderr.resume();
+        else {
+          let response = "";
+          const onProbe = (data: Buffer) => {
+            response += data.toString("utf8");
+            if (response.length > 4096) {
+              failAuthentication();
+            } else if (response.includes(ready)) {
+              clearPassword();
+              stream.stderr.off("data", onProbe);
+              stream.stderr.resume();
+              sftp._init();
+            } else if (response.includes(prompt)) {
+              const submitted = password;
+              password = undefined;
+              response = "";
+              if (!submitted) return failAuthentication();
+              stream.write(submitted, () => submitted.fill(0));
+            }
+          };
+          const failAuthentication = () => {
+            clearPassword();
+            reject(new HuhuError("PERMISSION_DENIED", "sudo 口令被拒绝或主机未提供可用的 SFTP 后端", { retryable: false }));
+            stream.destroy();
+          };
+          stream.stderr.on("data", onProbe);
+        }
         stream.on("error", () => stream.destroy());
         sftp.on("error", () => {
           reject(unavailable());
@@ -67,16 +115,21 @@ export function openPrivilegedSftp(client: Client, signal: AbortSignal): Promise
         });
         stream.once("close", () => {
           outgoing.state = "closing";
-          signal.removeEventListener("abort", abort);
+          detach();
+          clearPassword();
           sftp.push(null);
           sftp.emit("close");
           reject(unavailable());
         });
-        sftp.once("ready", () => resolve(sftp));
-        sftp._init();
+        sftp.once("ready", () => {
+          authSignal?.removeEventListener("abort", abort);
+          resolve(sftp);
+        });
+        if (!authSignal) sftp._init();
       });
     } catch {
-      signal.removeEventListener("abort", abort);
+      detach();
+      clearPassword();
       reject(unavailable());
     }
   });
