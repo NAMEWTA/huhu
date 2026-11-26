@@ -1,4 +1,5 @@
 {
+  "jsPlugins": ["./scripts/lint-scheduling.mjs"],
   "categories": {
     "correctness": "error"
   },
@@ -24,6 +25,13 @@
     ]
   },
   "overrides": [
+    {
+      "files": ["plugins/*/src/engine/**", "plugins/*/src/shared/**"],
+      "rules": {
+        "huhu-scheduling/no-private-periodic-timer": "error",
+        "huhu-scheduling/no-direct-notification-fallback": "error"
+      }
+    },
     {
       "files": ["plugins/*/src/engine/**"],
       "rules": {

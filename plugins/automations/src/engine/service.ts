@@ -512,6 +512,7 @@ export class AutomationsService {
       if (created) {
         this.d.publish("automation.activated", { ruleId, activationId: rec.activationId, trigger: rec.trigger });
         if (input) await this.runTerminalAction(run, rule.data.title, action, input);
+        // oxlint-disable-next-line huhu-scheduling/no-direct-notification-fallback -- 已记录的终端运行未取得启动输入，报告该次运行失败。
         else this.d.notify({ title: `自动化「${rule.data.title}」失败：${run.body.trim()}`, module: "automations", occurrence: { planId: ruleId, occurrenceId: rec.activationId } });
       }
       return this.terminalActivation(this.d.repo.read("automation-run", run.id))!;
@@ -772,6 +773,7 @@ export class AutomationsService {
         return await this.terminalPending(run.id, "正在核对原启动及终端状态。");
       }
       const msg = errorMessage(e);
+      // oxlint-disable-next-line huhu-scheduling/no-direct-notification-fallback -- 报告已受理终端运行的启动失败。
       this.d.notify({ title: `自动化「${ruleTitle}」失败：${msg}`, module: "automations", ...(activationId && { occurrence: { planId: ruleId, occurrenceId: activationId } }) });
       return await this.finishTerminalRun(run.id, "failed", msg);
     } finally {
@@ -843,6 +845,7 @@ export class AutomationsService {
     this.d.publish("run.stateChanged", { runId, kind: "automation-run", state });
     if (state === "failed" || state === "unknown") {
       const { ruleId, activationId } = cur.data as unknown as AutomationRunFrontmatter;
+      // oxlint-disable-next-line huhu-scheduling/no-direct-notification-fallback -- 报告已结算终端运行的最终状态。
       this.d.notify({ title: `自动化「${ruleTitle}」${STATE_TEXT[state] ?? state}`, module: "automations", ...(activationId && { occurrence: { planId: ruleId, occurrenceId: activationId } }) });
     }
     if (sess.hasEnv) await this.releaseTerminal(runId, sessionId);

@@ -302,6 +302,7 @@ export class ReminderDeliveries {
       this.lifetime.signal.throwIfAborted();
       if (this.current(row.data)) {
         try {
+          // oxlint-disable-next-line huhu-scheduling/no-direct-notification-fallback -- 计划递送端口在持久化副作用检查点后发送。
           this.notifications.send({ id: stableNotification, title: row.data.text, module: row.data.notificationModule,
             occurrence: { planId: row.data.ruleId, occurrenceId: id },
             ...(row.data.source === "task-reminder" && { body: `提醒时间 ${row.data.scheduledFor}` }),

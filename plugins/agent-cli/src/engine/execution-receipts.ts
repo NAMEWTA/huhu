@@ -156,6 +156,7 @@ export function pollExecutionReceipts(
     }
   }
   void drain();
+  // oxlint-disable-next-line huhu-scheduling/no-private-periodic-timer -- 对账原生执行回执与 ACK，随执行作用域停止。
   const timer = setInterval(() => void drain(), interval);
   return () => clearInterval(timer);
 }
