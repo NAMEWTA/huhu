@@ -42,6 +42,43 @@ const jobCancel = "ssh.jobs.cancel";
 const execCancel = "ssh.exec.cancel";
 const execRun = "ssh.exec.run";
 const jobCapabilities = [jobPrepare, jobStart, jobGet, jobOutput, jobCancel];
+
+test("workbench dynamic split gives the new SSH host its own trust prompt", async () => {
+  const f = await fixture();
+  try {
+    const first = await f.host("original pane");
+    const second = await f.host("added pane");
+    const started = await f.desktop<WorkspaceRun>("ssh.workspace.runs.start", {
+      name: "dynamic split", layout: { kind: "one" }, panes: [{ hostId: first.hostId }],
+    });
+    const read = async () => (await f.desktop<WorkspaceRun[]>("ssh.workspace.runs.list")).find(({ id }) => id === started.id)!;
+    async function accept(hostId: string) {
+      const pane = async () => (await read()).panes.find((item) => item.hostId === hostId);
+      await expect.poll(async () => (await pane())?.phase).toBe("trust");
+      const prompt = (await pane())?.prompt;
+      if (!prompt) throw new Error("Missing pending host key");
+      expect(await f.desktop("ssh.hostKey.decide", {
+        attemptId: prompt.attemptId, hop: prompt.hop, promptId: prompt.promptId, accept: true,
+      })).toEqual({ applied: true });
+      await expect.poll(async () => (await pane())?.phase).toBe("ready");
+      return (await pane())?.sessionId;
+    }
+    const originalShell = await accept(first.hostId);
+    expect(originalShell).toBeDefined();
+    expect(second.server.conns).toHaveLength(0);
+    const open = await read();
+    await f.desktop("ssh.workspace.runs.changeLayout", {
+      id: open.id, expectedLayoutRevision: open.layoutRevision ?? open.id,
+      change: { action: "split", hostId: second.hostId, paneId: open.panes[0]!.paneId, axis: "column" },
+    });
+    expect(await accept(second.hostId)).toBeDefined();
+    expect((await read()).panes[0]?.sessionId).toBe(originalShell);
+    expect([first.server.conns.length, second.server.conns.length]).toEqual([1, 1]);
+  } finally {
+    await f.close();
+  }
+});
+
 type Probe = z.infer<typeof PublicProbeStatus>;
 type Waiting = Extract<Probe, { prompt: unknown }>;
 type JobStatus = z.infer<typeof ExecJobStatus>;
