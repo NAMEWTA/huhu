@@ -113,6 +113,17 @@ test("A09 desktop sudo SFTP edits an actual root-owned file and leaves the shell
     expect(execFileSync("sudo", ["-n", "cat", "--", target], { encoding: "utf8" })).toBe("新内容");
     expect(execFileSync("sudo", ["-n", "stat", "-c", "%u:%a", "--", target], { encoding: "utf8" }).trim()).toBe("0:600");
     await editor.getByRole("button", { name: "关闭编辑" }).click();
+    await sudo.getByRole("button", { name: "sudo 属性与移动" }).click();
+    const props = page.getByRole("dialog", { name: "sudo 文件属性" });
+    const moved = path.join(vault, "sudo-renamed.txt");
+    await props.getByLabel("移动到（远端绝对路径）").fill(moved);
+    await props.getByRole("button", { name: "移动项目" }).click();
+    await expect(props).toHaveCount(0);
+    expect(execFileSync("sudo", ["-n", "cat", "--", moved], { encoding: "utf8" })).toBe("新内容");
+    await sudo.getByLabel("sudo 文件路径").fill(moved);
+    await sudo.getByRole("button", { name: "sudo 删除项目" }).click();
+    await page.getByRole("dialog", { name: "确认 sudo 删除" }).getByRole("button", { name: "确认删除" }).click();
+    await expect.poll(() => existsSync(moved)).toBe(false);
     await sudo.getByRole("button", { name: "退出 sudo 文件操作" }).click();
     await expect(sudo.getByRole("button", { name: "检查 sudo 文件权限" })).toBeVisible();
     await expect(run.getByTestId("terminal-view")).toHaveAttribute("data-state", "open");

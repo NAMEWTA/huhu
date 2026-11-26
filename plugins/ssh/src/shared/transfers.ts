@@ -3,7 +3,7 @@ import { FileSession } from "./files.js";
 
 const TransferPath = z.string().min(1).max(32767);
 const Local = z.strictObject({ kind: z.literal("local"), path: TransferPath });
-const Remote = z.strictObject({ kind: z.literal("remote"), fileSessionId: z.uuid(), path: TransferPath });
+const Remote = z.strictObject({ kind: z.literal("remote"), fileSessionId: z.uuid(), path: TransferPath, sudo: z.literal(true).optional(), sudoSessionId: z.uuid().optional() });
 export const TransferEndpoint = z.discriminatedUnion("kind", [Local, Remote]);
 export type TransferEndpoint = z.infer<typeof TransferEndpoint>;
 export const TransferRequest = z.strictObject({ source: TransferEndpoint, target: TransferEndpoint });

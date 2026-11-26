@@ -105,7 +105,8 @@ type Attempt = {
 };
 export type KeyboardPrompt = { promptId: string; hop: number; serverHostId: string; instructions: string; prompts: { label: string; echo: boolean }[] };
 type DialResult = { attemptId: string; connection: Conn };
-export type SftpSource = string | { hostId: string; connectionId: string; fileSessionId: string; signal: AbortSignal; externalClient?: Client };
+export type PrivilegedFileLease = { channel: SFTPWrapper; lifetime: AbortController; tail: Promise<void> };
+export type SftpSource = string | { hostId: string; connectionId: string; fileSessionId: string; signal: AbortSignal; externalClient?: Client; privileged?: PrivilegedFileLease };
 type ForwardOwner = (status: ConnectionStatus) => void;
 type ForwardDial = {
   id: string;
@@ -1367,10 +1368,12 @@ export class SshManager {
     const transferKey = binding?.connectionId ?? this.fileOrigin(hostId)!.connectionId;
     if (opts.transfer && this.transferring.has(transferKey)) throw errors.invalidInput("这台主机正在传输另一个文件，请等它完成后再试");
     const ac = new AbortController();
-    const signal = AbortSignal.any([ac.signal, ...(binding ? [binding.signal] : []), ...(opts.signal ? [opts.signal] : [])]);
+    const privileged = opts.elevated ? binding?.privileged : undefined;
+    const signal = AbortSignal.any([ac.signal, ...(binding ? [binding.signal] : []), ...(opts.signal ? [opts.signal] : []), ...(privileged ? [privileged.lifetime.signal] : [])]);
     signal.throwIfAborted();
     if (opts.transfer) this.transferring.set(transferKey, { controller: ac, ...(binding ? { fileSessionId: binding.fileSessionId } : {}) });
     let session: SFTPWrapper | undefined;
+    let unlock: (() => void) | undefined;
     let detach = (): void => undefined;
     try {
       // 取消（用户或调度器）与超时都要能让一切立刻结束并释放互斥：连接还活着但服务器不回应时，ssh2 不会自己报错
@@ -1393,7 +1396,15 @@ export class SshManager {
       });
       stop.catch(() => undefined);
       session = await Promise.race([
-        opts.elevated ? openPrivilegedSftp(target, signal) : new Promise<SFTPWrapper>((resolve, reject) =>
+        privileged ? (() => {
+          const previous = privileged.tail;
+          const held = new Promise<void>((release) => { unlock = release; });
+          privileged.tail = previous.then(() => held);
+          return previous.then(() => {
+            signal.throwIfAborted();
+            return privileged.channel;
+          });
+        })() : opts.elevated ? openPrivilegedSftp(target, signal) : new Promise<SFTPWrapper>((resolve, reject) =>
           target.sftp((err, channel) => {
             if (err) return reject(err);
             if (signal.aborted) {
@@ -1432,10 +1443,12 @@ export class SshManager {
     } finally {
       detach();
       try {
-        session?.end();
+        if (!privileged) session?.end();
+        if (privileged && session && signal.aborted) privileged.lifetime.abort();
       } catch {
         /* 连接已断 */
       }
+      unlock?.();
       if (opts.transfer) this.transferring.delete(transferKey);
     }
   }
