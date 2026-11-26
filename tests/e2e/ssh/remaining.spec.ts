@@ -617,7 +617,9 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     const activeSpot = run.locator('[data-workspace-spot][data-active="true"]');
     const attached = () => originalPanes.map(({ sessionId }) => attachments.get(sessionId!) ?? 0);
     await expect(firstPane.getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
-    expect(attached()).toEqual([1, 0, 0]);
+    // The desktop attaches hidden panes in advance for whole-workspace window handoff.
+    const initialAttachments = [1, 1, 1];
+    await expect.poll(attached).toEqual(initialAttachments);
 
     await firstToolbar.getByRole("button", { name: "移至分栏下方" }).press("Enter");
     await expect(firstToolbar).toHaveAttribute("data-position", "bottom");
@@ -658,7 +660,7 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     await page.mouse.up();
     await expect(firstToolbar).toHaveAttribute("data-position", "top");
     await expect(firstToolbar.getByRole("button", { name: "移至分栏下方" })).toBeFocused();
-    expect(attached()).toEqual([1, 0, 0]);
+    expect(attached()).toEqual(initialAttachments);
 
     const tabs = run.getByRole("tablist", { name: "内部标签" });
     const aliasTab = tabs.getByRole("tab", { name: "目标甲别名", exact: true });
@@ -667,7 +669,7 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     await expect(aliasTab).toBeFocused();
     await expect(aliasTab).toHaveAttribute("aria-selected", "true");
     await expect(panes.last().getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
-    expect(attached()).toEqual([1, 0, 1]);
+    expect(attached()).toEqual(initialAttachments);
     await run.getByText("本机布局偏好", { exact: true }).click();
     await run.getByLabel("工作区标签方向").selectOption("left");
     await run.getByRole("checkbox", { name: "纵向标签按同目标分组" }).check();
@@ -689,7 +691,7 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     await expect(aliasToolbar).toHaveAttribute("data-size", "large");
     await run.getByLabel("分栏工具栏位置").selectOption("hidden");
     await expect(run.getByTestId("ssh-pane-tools")).toHaveCount(0);
-    expect(attached()).toEqual([1, 1, 1]);
+    expect(attached()).toEqual(initialAttachments);
     expect([target.conns.length, other.conns.length]).toEqual([2, 1]);
     const current = (await desktopCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).find(({ id }) => id === start.id)!;
     expect(current.layoutRevision).toBe(original.layoutRevision);
