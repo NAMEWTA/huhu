@@ -5,6 +5,7 @@ import path from "node:path";
 import { HuhuError, errors } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CredentialAction, type CredentialOwner, type CredentialSummary } from "@huhu/kernel";
 import ssh2, { type ConnectConfig } from "ssh2";
+import { prepareSshPrivateKey } from "./putty-key.js";
 import type { z } from "zod";
 import { HostDefinition, OwnedHostId, type ConfigureHost, type CopyHost, type HostRevision, type ManagedHostView, type SshHostProfile } from "./auth-profile.js";
 import { validateHost, type HostStore, type LegacyHost } from "./hosts.js";
@@ -70,7 +71,7 @@ export function agentAuth(): ConnectionAuth {
   return agent === undefined ? {} : { agent };
 }
 
-function buildAuth(kind: HostDefinition["authKind"], values: ReadonlyMap<string, string>): ConnectionAuth {
+async function buildAuth(kind: HostDefinition["authKind"], values: ReadonlyMap<string, string>): Promise<ConnectionAuth> {
   if (kind === "agent") return agentAuth();
   if (kind === "password") return { password: values.get("password")! };
   let key = values.get("privateKey");
@@ -84,13 +85,13 @@ function buildAuth(kind: HostDefinition["authKind"], values: ReadonlyMap<string,
       throw authError("identity-file-unavailable");
     }
   }
-  const passphrase = values.get("passphrase");
-  const candidates = ssh2.utils.parseKey(key!, passphrase);
+  const prepared = await prepareSshPrivateKey(key!, values.get("passphrase")).catch(() => { throw authError("invalid-private-key-or-passphrase"); });
+  const candidates = ssh2.utils.parseKey(prepared.privateKey, prepared.passphrase);
   if (candidates instanceof Error) throw authError("invalid-private-key-or-passphrase");
   const signer = Array.isArray(candidates) ? candidates[0] : candidates;
   if (!signer?.isPrivateKey()) throw authError("invalid-private-key-or-passphrase");
   const certificate = identity ? readIdentityCertificate(identity, signer.type, signer.getPublicSSH()) : undefined;
-  return { privateKey: key!, ...(passphrase !== undefined ? { passphrase } : {}), ...(certificate !== undefined ? { publicKeyCertificate: certificate } : {}) };
+  return { privateKey: prepared.privateKey, ...(prepared.passphrase !== undefined ? { passphrase: prepared.passphrase } : {}), ...(certificate !== undefined ? { publicKeyCertificate: certificate } : {}) };
 }
 
 function summary({ entityId, revision, authState }: CredentialSummary, authKind: HostDefinition["authKind"]) {
@@ -366,7 +367,7 @@ export class HostConfigurations {
       }
       const primary = applicable[0];
       if (primary && !values.has(primary)) await connect({});
-      else await connect(buildAuth(input.authKind, values));
+      else await connect(await buildAuth(input.authKind, values));
     };
     if (!saved || !retained.length) return applyDraft(new Map());
     const result = await this.credentials()
@@ -390,7 +391,7 @@ export class HostConfigurations {
         try {
           if (revision !== host.revision || definition.configId !== host.configId) throw new HuhuError("VERSION_CONFLICT", "SSH 主机配置已更新，请重新连接");
           if (definition.keyId) await this.keys.use(definition.keyId, connect);
-          else await connect(buildAuth(definition.authKind, values));
+          else await connect(await buildAuth(definition.authKind, values));
           return null;
         } catch (error) {
           return error instanceof HuhuError ? error : authError("connection-setup-failed");

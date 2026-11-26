@@ -25,6 +25,7 @@ export interface FakeSshOptions {
   /** 记录收到的认证尝试（用于断言"主机密钥不符时没有发送凭据"）。 */
   onAuth?: (user: string, method: string) => void;
   keyboardResponse?: string;
+  keyboardRounds?: readonly { text: string; echo: boolean; answer: string }[][];
   onShellInput?: (text: string) => void;
   onShellClose?: () => void;
   onInteractiveShell?: (channel: ServerChannel) => void;
@@ -80,12 +81,19 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
     });
     client.on("authentication", (ctx) => {
       o.onAuth?.(ctx.username, ctx.method);
-      if (o.keyboardResponse !== undefined) {
+      const rounds = o.keyboardRounds ?? (o.keyboardResponse === undefined ? undefined : [[{ text: "Fixture response", echo: false, answer: o.keyboardResponse }]]);
+      if (rounds) {
         if (ctx.method !== "keyboard-interactive") return ctx.reject(["keyboard-interactive"]);
-        ctx.prompt({ prompt: "Fixture response", echo: false }, (responses) => {
-          if (responses.length === 1 && responses[0] === o.keyboardResponse) ctx.accept();
-          else ctx.reject();
-        });
+        function prompt(index: number) {
+          const questions = rounds?.[index];
+          if (!questions) return ctx.accept();
+          if (ctx.method !== "keyboard-interactive") return ctx.reject();
+          ctx.prompt(questions.map(({ text, echo }) => ({ prompt: text, echo })), (responses) => {
+            if (responses.length !== questions.length || questions.some(({ answer }, item) => answer !== responses[item])) return ctx.reject();
+            prompt(index + 1);
+          });
+        }
+        prompt(0);
         return;
       }
       if (publicKey !== undefined && ctx.method === "publickey" && ctx.key.algo === publicKey.type && ctx.key.data.equals(publicKey.getPublicSSH())) {

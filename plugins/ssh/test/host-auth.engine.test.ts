@@ -12,6 +12,9 @@ import { exportPackage, importPackage } from "../../../packages/vault/src/packag
 import { CapabilityError, EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import { writeLegacyItem } from "../../safe/test/legacy-fixture.js";
 import { startFakeSsh } from "./fake-server.js";
+import { makePuttyKey, startFixtureAgent, supportsFixtureAgent } from "./key-auth-fixture.js";
+import type { ConnectionStatus } from "../src/shared/trust.js";
+import { prepareSshPrivateKey } from "../src/engine/putty-key.js";
 
 type Summary = { hostId: string; revision: string; authKind: string; configured: boolean; authState: Record<string, string> };
 type HostRow = { id: string; revision?: string; authState?: Record<string, string> };
@@ -89,6 +92,103 @@ afterEach(async () => {
   } finally {
     await Promise.all(servers.splice(0).map((value) => value.close()));
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+engineTest("PPK v2 and v3 keys authenticate through the desktop route using scoped credentials", { timeout: 18000 }, async () => {
+  const { client, engine } = await fixture();
+  const write = { write: true };
+  for (const version of [2, 3] as const) {
+    const passphrase = randomUUID();
+    const key = makePuttyKey(version, passphrase);
+    expect((await prepareSshPrivateKey(key.privateKey, passphrase)).encrypted).toBe(true);
+    const remote = await server({ publicKey: key.publicKey });
+    const name = "PuTTY v" + version;
+    const input = { name, host: "127.0.0.1", port: remote.port, user: "fixture", authKind: "key", expectedRevision: null };
+    const credentials = [
+      { purpose: "privateKey", action: "replace", value: key.privateKey },
+      { purpose: "passphrase", action: "replace", value: passphrase },
+    ];
+    const wrong = credentials.map((patch) => patch.purpose === "passphrase" ? { ...patch, value: "wrong-fixture" } : patch);
+    const { hostId } = await client.call<Summary>("ssh.hosts.configure", { ...input, credentials: version === 2 ? credentials : wrong }, write);
+    if (version === 3) {
+      expect(await connect(client, engine, hostId)).toBe("SSH_AUTH_FAILED");
+      const { id: keyId } = await client.call<{ id: string }>("ssh.keys.add", { action: "import", name, privateKey: key.privateKey, passphrase }, write);
+      const saved = (await client.call<HostRow[]>("ssh.hosts.list")).find(({ id }) => id === hostId)!;
+      await client.call("ssh.hosts.configure", { ...input, hostId, expectedRevision: saved.revision, keyId, credentials: [] }, write);
+    }
+    expect(await connect(client, engine, hostId), `PPK v${version}`).toBe("OK");
+    const hostList = JSON.stringify(await client.call("ssh.hosts.list"));
+    expect(hostList.includes(passphrase) || hostList.includes("Private-MAC")).toBe(false);
+  }
+});
+
+engineTest("PPK v3 RSA validates the matching public key and rejects a modified MAC", () => {
+  const key = makePuttyKey(3, undefined, "rsa");
+  return prepareSshPrivateKey(key.privateKey).then(async (result) => {
+    const signer = ssh2.utils.parseKey(result.privateKey);
+    if (signer instanceof Error || Array.isArray(signer)) throw new Error("Expected one RSA identity");
+    expect(`${signer.type} ${signer.getPublicSSH().toString("base64")}`).toBe(key.publicKey);
+    const corrupt = key.privateKey.replace(/(Private-MAC: )([a-f0-9])/, (_field, label: string, first: string) => label + (first === "0" ? "1" : "0"));
+    await expect(prepareSshPrivateKey(corrupt)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+});
+
+engineTest("separate keyboard-interactive rounds accept their own prompts and reject a stale reply", { timeout: 12000 }, async () => {
+  const { client } = await fixture();
+  const first = randomUUID();
+  const second = randomUUID();
+  const remote = await server({ keyboardRounds: [
+    [{ text: "Fixture identifier", echo: true, answer: "fixture" }, { text: "First secret", echo: false, answer: first }],
+    [{ text: "Second secret", echo: false, answer: second }],
+  ] });
+  const write = { write: true };
+  const { hostId } = await client.call<Summary>("ssh.hosts.configure", {
+    name: "multi-round fixture", host: "127.0.0.1", port: remote.port, user: "fixture", authKind: "password", expectedRevision: null,
+    credentials: [{ purpose: "password", action: "replace", value: "try keyboard fixture" }],
+  }, write);
+  const state = async () => (await client.call<ConnectionStatus[]>("ssh.connections.status")).find((row) => row.hostId === hostId);
+  await client.call("ssh.connect", { hostId, background: true }, write);
+  await expect.poll(async () => (await state())?.state).toBe("waiting");
+  const waiting = await state();
+  if (waiting?.state !== "waiting") throw new Error("Missing trust prompt");
+  await client.call("ssh.hostKey.decide", { attemptId: waiting.attemptId, hop: 0, promptId: waiting.prompt.promptId, accept: true }, write);
+  async function challenge() {
+    await expect.poll(async () => (await state())?.state).toBe("auth-waiting");
+    const current = await state();
+    if (current?.state !== "auth-waiting") throw new Error("Missing keyboard-interactive prompt");
+    return current.authPrompt;
+  }
+  const round1 = await challenge();
+  const answer = ({ attemptId, promptId, hop }: typeof round1, answers: string[]) => client.call("ssh.authentication.answer", { attemptId, promptId, hop, answers }, write);
+  expect(round1.questions.map(({ echo }) => echo)).toEqual([true, false]);
+  expect(await answer(round1, ["fixture", first])).toEqual({ applied: true });
+  await expect.poll(async () => {
+    const current = await state();
+    return current?.state === "auth-waiting" ? current.authPrompt.promptId : undefined;
+  }).not.toBe(round1.promptId);
+  const round2 = await challenge();
+  expect(round2.promptId).not.toBe(round1.promptId);
+  expect(await answer(round1, ["fixture", first])).toEqual({ applied: false });
+  expect(await answer(round2, [second])).toEqual({ applied: true });
+  await expect.poll(async () => (await state())?.state).toBe("connected");
+});
+
+engineTest.skipIf(!supportsFixtureAgent())("system ssh-agent signs a desktop loopback connection without saving the key", { timeout: 12000 }, async () => {
+  const agent = await startFixtureAgent();
+  try {
+    vi.stubEnv("SSH_AUTH_SOCK", agent.socket);
+    const { client, engine } = await fixture();
+    const remote = await server({ publicKey: agent.publicKey });
+    const { hostId } = await client.call<Summary>("ssh.hosts.configure", {
+      name: "isolated agent", host: "127.0.0.1", port: remote.port, user: "fixture", authKind: "agent", expectedRevision: null,
+      credentials: [],
+    }, { write: true });
+    expect(await connect(client, engine, hostId)).toBe("OK");
+    expect(remote.conns).toHaveLength(1);
+  } finally {
+    vi.unstubAllEnvs();
+    await agent.close();
   }
 });
 

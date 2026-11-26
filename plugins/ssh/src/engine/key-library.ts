@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { errors, HuhuError } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CredentialSummary } from "@huhu/kernel";
 import ssh2 from "ssh2";
+import { prepareSshPrivateKey } from "./putty-key.js";
 import type { z } from "zod";
 import { SshKeySummary, type AddSshKey } from "../shared/key-library.js";
 import { fingerprintSha256 } from "./known-hosts.js";
@@ -31,6 +32,8 @@ function translate(error: unknown): never {
 
 // Normalization follows Motty internal/keyidentity/generate.go (Apache-2.0).
 function normalizePrivateKey(value: string): string {
+  const putty = value.replace(/^\uFEFF/u, "");
+  if (putty.startsWith("PuTTY-User-Key-File-")) return putty.replace(/\r\n/g, "\n");
   const text = value
     .replace(/\r\n?/g, "\n")
     .split("\n")
@@ -88,12 +91,12 @@ export class KeyLibrary {
     signal.throwIfAborted();
     const owner = this.credentials();
     const privateKey = input.action === "generate" ? await generate(input.passphrase) : normalizePrivateKey(input.privateKey);
-    const key = ssh2.utils.parseKey(privateKey, input.passphrase);
+    const prepared = await prepareSshPrivateKey(privateKey, input.passphrase);
+    const key = ssh2.utils.parseKey(prepared.privateKey, prepared.passphrase);
     if (key instanceof Error || Array.isArray(key) || !key.isPrivateKey()) throw errors.invalidInput("无法读取私钥，请核对格式与口令");
     const publicBytes = key.getPublicSSH();
     // A supplied passphrase need not be persisted when an imported key is already unencrypted.
-    const parsedWithoutPassphrase = ssh2.utils.parseKey(privateKey);
-    const encrypted = parsedWithoutPassphrase instanceof Error;
+    const encrypted = prepared.encrypted ?? ssh2.utils.parseKey(privateKey) instanceof Error;
     const definition = { name: input.name, publicKey: `${key.type} ${publicBytes.toString("base64")}`, keyType: key.type, fingerprint: fingerprintSha256(publicBytes), encrypted };
     const saved = await owner
       .save({
@@ -114,7 +117,8 @@ export class KeyLibrary {
       .use(id, key.encrypted ? ["privateKey", "passphrase"] : ["privateKey"], async (_definition, values, revision) => {
         try {
           if (key.revision !== revision) throw errors.versionConflict(revision);
-          await connect({ privateKey: values.get("privateKey")!, ...(key.encrypted && { passphrase: values.get("passphrase")! }) });
+          const prepared = await prepareSshPrivateKey(values.get("privateKey")!, key.encrypted ? values.get("passphrase") : undefined);
+          await connect({ privateKey: prepared.privateKey, ...(prepared.passphrase !== undefined && { passphrase: prepared.passphrase }) });
           return null;
         } catch (error) {
           return error instanceof HuhuError ? error : new HuhuError("SSH_AUTH_FAILED", "所选密钥认证失败");
