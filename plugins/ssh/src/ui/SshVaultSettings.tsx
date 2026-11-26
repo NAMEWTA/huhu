@@ -8,6 +8,7 @@ type Section = UpdateVaultPreferences["change"]["section"];
 function VaultForm({ section, initial, reload }: { section: Section; initial: VaultPreferencesSnapshot; reload: () => Promise<unknown> }) {
   const headingId = useId();
   const autoReconnectId = useId();
+  const shareConnectionsId = useId();
   const recordingEnabledId = useId();
   const recordingHistoryId = useId();
   const engine = useEngine();
@@ -91,6 +92,11 @@ function VaultForm({ section, initial, reload }: { section: Section; initial: Va
             <label htmlFor={autoReconnectId}>断线后自动重连一次</label>
             <input id={autoReconnectId} type="checkbox" checked={draft.connection.autoReconnect} onChange={(event) =>
               setDraft({ ...draft, connection: { ...draft.connection, autoReconnect: event.currentTarget.checked } })} />
+          </div>
+          <div className="hu-setting-row">
+            <label htmlFor={shareConnectionsId}>同主机的新终端复用 SSH 连接</label>
+            <input id={shareConnectionsId} type="checkbox" checked={draft.connection.shareConnections} onChange={(event) =>
+              setDraft({ ...draft, connection: { ...draft.connection, shareConnections: event.currentTarget.checked } })} />
           </div>
           <p>自动重连使用原 SSH 路由。断开的 Shell 和文件会话需要重新打开。保活间隔填 0 会停用协议保活。</p>
         </>

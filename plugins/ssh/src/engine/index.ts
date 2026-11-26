@@ -1068,7 +1068,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.shellsOpen, (context, input) => {
-      if (isWorkbenchCaller(context.caller)) return manager.openShell(input.hostId, { cols: input.cols, rows: input.rows });
+      if (isWorkbenchCaller(context.caller)) return manager.openWorkbenchShell(input.hostId, { cols: input.cols, rows: input.rows }, context.signal);
       if (!("attemptId" in input)) throw errors.invalidInput("打开外部 SSH 终端需要连接和意图键");
       return publicShells.open(context, input);
     }),

@@ -37,12 +37,12 @@ export class FileSessions {
 
   get(id: string): FileSession {
     const { session, owned } = this.lookup(id);
-    const ready = owned ? !owned.signal.aborted : this.manager.fileOrigin(session.hostId)?.connectionId === session.connectionId;
+    const ready = owned ? !owned.signal.aborted : this.manager.hasFileConnection(session.hostId, session.connectionId);
     return { ...session, state: ready ? "ready" : "disconnected" };
   }
 
   hasOriginalConnection(session: FileSession): boolean {
-    if (session.source !== "external") return this.manager.fileOrigin(session.hostId)?.connectionId === session.connectionId;
+    if (session.source !== "external") return this.manager.hasFileConnection(session.hostId, session.connectionId);
     const owned = this.bindings.get(session.fileSessionId)?.owned;
     return owned?.origin.connectionId === session.connectionId && !owned.signal.aborted;
   }

@@ -15,6 +15,7 @@ import { maxRecordingCheckpoints } from "../src/shared/recordings.js";
 import { genHostKey, startFakeSsh } from "./fake-server.js";
 import { ownedHosts } from "./owned-hosts.js";
 import { relayToLoopback } from "./shell-relay-fixture.js";
+import { defaultVaultPreferences } from "../src/shared/preferences.js";
 import { parseQuickEndpoint } from "../src/shared/quick-connection.js";
 
 const dirs: string[] = [];
@@ -29,7 +30,7 @@ const tmp = () => {
   return d;
 };
 
-function setup(password = "pw", unavailable = false, deviceProxy = false) {
+function setup(password = "pw", unavailable = false, deviceProxy = false, shareConnections = true) {
   const root = tmp();
   const hosts = ownedHosts();
   const commands = deviceProxy ? new DeviceProxies({ localRoot: root, localVaultInstanceId: "fixture-vault" }) : undefined;
@@ -53,6 +54,7 @@ function setup(password = "pw", unavailable = false, deviceProxy = false) {
       }
     },
     decisionTimeoutMs: 1000,
+    connectionPreferences: () => ({ ...defaultVaultPreferences.connection, shareConnections }),
     ...(commands && { deviceProxy: { commands, currentRoute: (id: string) => connectionIdentity(routeForHost(new Map(hosts.list().map((host) => [host.id, host])), id)) } }),
   });
   closers.push(() => {
@@ -88,6 +90,39 @@ describe("主机配置", () => {
 });
 
 describe("连接与主机密钥", () => {
+  test("isolated panes keep their own trust requests, file origins and monitor transport", async () => {
+    const server = await startFakeSsh();
+    const { mgr, add } = setup("pw", false, false, false);
+    closers.push(server.close);
+    const host = add(server.port);
+    const pane = { hostId: host.id, target: workspaceTarget([host]) };
+    const firstSlot = mgr.newPaneSlot(host.id);
+    const secondSlot = mgr.newPaneSlot(host.id);
+    const signal = new AbortController().signal;
+    const first = mgr.openWorkspaceShell(pane, signal, () => undefined, firstSlot);
+    const second = mgr.openWorkspaceShell(pane, signal, () => undefined, secondSlot);
+    await expect.poll(() => [firstSlot, secondSlot].every((slot) => mgr.workspacePrompt(slot, pane.target))).toBe(true);
+    const firstPrompt = mgr.workspacePrompt(firstSlot, pane.target)!;
+    const secondPrompt = mgr.workspacePrompt(secondSlot, pane.target)!;
+    expect(firstPrompt.attemptId).not.toBe(secondPrompt.attemptId);
+    expect(mgr.decide(firstPrompt.attemptId, 0, true, secondPrompt.promptId, false)).toBe(false);
+    expect(mgr.decide(firstPrompt.attemptId, 0, true, firstPrompt.promptId, false)).toBe(true);
+    const firstShell = await first;
+    expect(mgr.workspacePrompt(secondSlot, pane.target)).toEqual(secondPrompt);
+    expect(mgr.decide(secondPrompt.attemptId, 0, true, secondPrompt.promptId, false)).toBe(true);
+    const secondShell = await second;
+    const firstOrigin = mgr.fileOrigin(host.id, firstShell.id)!;
+    const secondOrigin = mgr.fileOrigin(host.id, secondShell.id)!;
+    expect(firstOrigin.connectionId).not.toBe(secondOrigin.connectionId);
+    expect(mgr.monitorPane(host.id, secondShell.id).id).toBe(secondOrigin.connectionId);
+    mgr.closeOwnedConnection(firstSlot);
+    await expect.poll(() => server.closed()).toBe(1);
+    expect(mgr.hasFileConnection(host.id, firstOrigin.connectionId)).toBe(false);
+    expect(mgr.hasFileConnection(host.id, secondOrigin.connectionId)).toBe(true);
+    expect(mgr.shellInfo(firstShell.id)?.state).toBe("ended");
+    expect(mgr.shellInfo(secondShell.id)?.state).toBe("running");
+  });
+
   test("an unsaved quick connection authenticates, opens one shell and releases all temporary state", async () => {
     const srv = await startFakeSsh({ password: "one-time-fixture" });
     const { root, hosts, mgr, prompts, secretCalls } = setup();

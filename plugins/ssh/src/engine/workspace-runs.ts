@@ -31,7 +31,7 @@ const SavedRun = z
 const State = z.strictObject({ version: z.literal(1), runs: z.array(SavedRun) });
 type SavedRun = z.infer<typeof SavedRun>;
 type PaneState = Pick<WorkspaceRunPane, "sessionId" | "error">;
-type LiveRun = { generation: number; panes: Map<string, PaneState>; controllers: Map<string, AbortController> };
+type LiveRun = { generation: number; panes: Map<string, PaneState>; controllers: Map<string, { controller: AbortController; slot: string; hostId: string }> };
 
 export function editWorkspacePanes<Pane extends { paneId: string; hostId: string; label: string }>(current: { layout: WorkspaceLayout; panes: Pane[] }, change: ChangeWorkspaceRun["change"]) {
   const byId = new Map(current.panes.map((pane) => [pane.paneId, pane]));
@@ -196,9 +196,20 @@ export class WorkspaceRuns {
 
   private beginPane(run: SavedRun, live: LiveRun, pane: SavedRun["panes"][number]) {
     const controller = new AbortController();
-    live.controllers.set(pane.paneId, controller);
+    const slot = this.manager.newPaneSlot(pane.hostId);
+    live.controllers.set(pane.paneId, { controller, slot, hostId: pane.hostId });
+    this.connectPane(run, live, pane, controller, slot);
+  }
+
+  private connectPane(run: SavedRun, live: LiveRun, pane: SavedRun["panes"][number], controller: AbortController, slot: string, route?: string) {
+    const onLoss = (lostRoute: string) => {
+      if (this.live.get(run.id) !== live || controller.signal.aborted) return;
+      live.panes.delete(pane.paneId);
+      this.connectPane(run, live, pane, controller, slot, lostRoute);
+      this.changed(run.id);
+    };
     void this.manager
-      .openWorkspaceShell(pane, controller.signal, () => this.changed(run.id))
+      .openWorkspaceShell(pane, controller.signal, () => this.changed(run.id), slot, { onLoss, ...(route && { route }) })
       .then(
         (shell) => {
           if (this.live.get(run.id) === live && !controller.signal.aborted) live.panes.set(pane.paneId, { sessionId: shell.id });
@@ -206,6 +217,7 @@ export class WorkspaceRuns {
         },
         (error: unknown) => {
           if (this.live.get(run.id) !== live || controller.signal.aborted) return;
+          if (slot !== pane.hostId) this.manager.closeOwnedConnection(slot);
           live.panes.set(pane.paneId, {
             error: error instanceof HuhuError ? { code: error.code, message: error.message } : { code: "INTERNAL", message: "无法建立该分栏的 SSH 会话" },
           });
@@ -224,11 +236,13 @@ export class WorkspaceRuns {
   }
 
   private releasePane(live: LiveRun, paneId: string): void {
-    live.controllers.get(paneId)?.abort();
+    const binding = live.controllers.get(paneId);
+    binding?.controller.abort();
     live.controllers.delete(paneId);
     const shell = live.panes.get(paneId)?.sessionId;
     live.panes.delete(paneId);
     if (shell) this.manager.closeShell(shell);
+    if (binding && binding.slot !== binding.hostId) this.manager.closeOwnedConnection(binding.slot);
   }
 
   private view(run: SavedRun): WorkspaceRun {
@@ -239,8 +253,9 @@ export class WorkspaceRuns {
       const pane = live.panes.get(paneId);
       if (pane?.error) return { ...base, phase: "failed", error: pane.error };
       if (pane?.sessionId) return { ...base, phase: this.manager.shellInfo(pane.sessionId)?.state === "running" ? "ready" : "ended", sessionId: pane.sessionId };
-      const prompt = this.manager.workspacePrompt(hostId, target);
-      const authPrompt = this.manager.workspaceAuthentication(hostId, target);
+      const slot = live.controllers.get(paneId)?.slot ?? hostId;
+      const prompt = this.manager.workspacePrompt(slot, target);
+      const authPrompt = this.manager.workspaceAuthentication(slot, target);
       if (authPrompt) return { ...base, phase: "authentication", authPrompt };
       return prompt ? { ...base, phase: "trust", prompt } : { ...base, phase: "connecting" };
     });

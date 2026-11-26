@@ -89,6 +89,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [knownReview, setKnownReview] = useState<HostKeyPrompt | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openingShell, setOpeningShell] = useState<AbortController>();
   const [connectError, setConnectError] = useState<{ hostId: string; message: string } | null>(null);
   const [requestHost, setRequestHost] = useState<string | null>(null);
   const [hostAction, setHostAction] = useState<HostAction | null>(null);
@@ -113,7 +114,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const [importVault, setImportVault] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ vaultId: string; text: string; pending: boolean } | null>(null);
   const importStatus = importResult?.vaultId === engine.vaultId ? importResult : null;
-  const recoveredHostId = connections.data?.find((status) => (status.state === "waiting" || status.state === "auth-waiting") && !status.workspace)?.hostId;
+  const recoveredHostId = connections.data?.find((status) => (status.state === "waiting" || status.state === "auth-waiting") && !status.workspace && !status.purpose)?.hostId;
   const host = (hosts.data ?? []).find((h) => h.id === (sel ?? recoveredHostId)) ?? hosts.data?.[0] ?? null;
   const outbound = useCapability<OutboundProxySummary>("ssh.outboundProxies.preview", host ? { hostId: host.id } : {}, { enabled: Boolean(host && isManagedHost(host)) });
   const shells = useCapability<Shell[]>("ssh.shells.list", host ? { hostId: host.id } : {});
@@ -187,14 +188,22 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
     }
   }
   async function newShell() {
-    if (!host) return;
+    if (!host || openingShell) return;
+    const pending = new AbortController();
+    setOpeningShell(pending);
     setError(null);
     try {
-      const s = await engine.call<Shell>("ssh.shells.open", { hostId: host.id }, { write: true });
+      const s = await engine.call<Shell>("ssh.shells.open", { hostId: host.id }, { write: true, signal: pending.signal });
+      if (pending.signal.aborted) {
+        await engine.call("ssh.shells.close", { id: s.id }, { write: true });
+        return;
+      }
       setActiveShell(s.id);
       await refresh();
     } catch (e) {
-      setError(message(e));
+      if (!pending.signal.aborted) setError(message(e));
+    } finally {
+      setOpeningShell(undefined);
     }
   }
   async function endShell(id: string) {
@@ -216,9 +225,11 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
     }
   }
 
-  const byHost = new Map(connections.data?.filter(({ source }) => source !== "external").map((entry) => [entry.hostId, entry]));
+  const byHost = new Map(connections.data?.filter(({ source, purpose }) => source !== "external" && !purpose).map((entry) => [entry.hostId, entry]));
   const externalConnections = connections.data?.filter(({ source, hostId, state }) => source === "external" && hostId === host?.id && (state === "connected" || state === "connecting")) ?? [];
   const connection = host ? byHost.get(host.id) : undefined;
+  const openingSession = connections.data?.find((status) => status.hostId === host?.id && status.purpose === "shell"
+    && (status.state === "waiting" || status.state === "key-changed" || status.state === "auth-waiting"));
   const isConn = connection?.state === "connected";
   const waiting = connection?.state === "waiting";
   const authWaiting = connection?.state === "auth-waiting";
@@ -827,7 +838,9 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                 ))}
               </div>
               <span className="hu-flex-fill" />
-              <IconButton icon={Plus} label={t.newShell} disabled={!isConn} onClick={() => void newShell()} />
+              {openingShell && openingSession && dismissed && <Button onClick={() => setDismissed(null)}>继续打开终端</Button>}
+              {openingShell && <Button onClick={() => openingShell.abort()}>取消打开终端</Button>}
+              <IconButton icon={Plus} label={t.newShell} disabled={!isConn || Boolean(openingShell)} onClick={() => void newShell()} />
             </div>
             {externalShells.length ? (
               <section className="hu-card-alt">
@@ -869,7 +882,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                 title={isConn ? "为这台主机打开交互终端" : "先连接主机，再打开终端"}
                 hint="SSH shell、单次 Exec 和文件传输共用主机连接，各自保有独立的通道与生命周期。"
                 action={
-                  <Button variant="primary" icon={Plus} disabled={!isConn} onClick={() => void newShell()}>
+                  <Button variant="primary" icon={Plus} disabled={!isConn || Boolean(openingShell)} onClick={() => void newShell()}>
                     {t.newShell}
                   </Button>
                 }
@@ -877,9 +890,9 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
             )}
           </div>
         ) : host && tab === "files" ? (
-          isConn ? (
+          isConn || selectedShell?.state === "running" ? (
             <div className="hu-scroll ssh-pad">
-              <AttachedFiles key={`${host.id}:${activeShell ?? ""}`} hostId={host.id} shellId={activeShell} onOpen={openFiles} />
+              <AttachedFiles key={`${host.id}:${selectedShell?.id ?? ""}`} hostId={host.id} shellId={selectedShell?.state === "running" ? selectedShell.id : null} onOpen={openFiles} />
             </div>
           ) : (
             <EmptyState icon={Folder} title="先连接主机，再浏览文件" />
@@ -898,6 +911,12 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
           }}
         />
       ) : null}
+      {tab === "terminal" && (openingSession?.state === "waiting" || openingSession?.state === "key-changed") && dismissed !== openingSession.prompt.promptId && (
+        <HostKeyDialog key={openingSession.prompt.promptId} prompt={openingSession.prompt} changed={openingSession.state === "key-changed"} onClose={() => setDismissed(openingSession.prompt.promptId)} onReview={() => openReview(openingSession.prompt)} onRefresh={refetchConnections} />
+      )}
+      {tab === "terminal" && openingSession?.state === "auth-waiting" && dismissed !== openingSession.authPrompt.promptId && (
+        <AuthenticationDialog key={openingSession.authPrompt.promptId} prompt={openingSession.authPrompt} onClose={() => setDismissed(openingSession.authPrompt.promptId)} onAnswered={refetchConnections} />
+      )}
       {prompt && !workspacePrompt && tab === "overview" && dismissed !== prompt.promptId && !hostAction && importVault !== engine.vaultId ? (
         <HostKeyDialog key={prompt.promptId} prompt={prompt} changed={changed} onClose={() => setDismissed(prompt.promptId)} onReview={() => openReview(prompt)} onRefresh={refetchConnections} />
       ) : null}
