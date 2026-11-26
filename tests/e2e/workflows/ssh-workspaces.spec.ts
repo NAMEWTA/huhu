@@ -219,11 +219,17 @@ test("A06 live SSH scrollback search and terminal links use the same shell", asy
     for (const [label, href] of [[plain, plain], ["OSC eight target", osc]]) {
       const row = terminal.locator(".xterm-rows > div").filter({ hasText: label! });
       await row.scrollIntoViewIfNeeded();
-      const rect = (await row.boundingBox())!;
-      const x = rect.x + 15;
-      const y = rect.y + rect.height / 2;
-      await page.mouse.move(x, y);
-      await expect(terminal.getByRole("application")).toHaveAttribute("title", new RegExp(href!));
+      let x = 0;
+      let y = 0;
+      // xterm resolves links on pointer movement; re-hover until the row has settled after the search scroll.
+      await expect(async () => {
+        const rect = (await row.boundingBox())!;
+        x = rect.x + 15;
+        y = rect.y + rect.height / 2;
+        await page.mouse.move(x, y - rect.height);
+        await page.mouse.move(x, y);
+        await expect(terminal.getByRole("application")).toHaveAttribute("title", new RegExp(href!), { timeout: 1_000 });
+      }).toPass({ timeout: 10_000 });
       await page.keyboard.down("Control");
       try { await page.mouse.click(x, y); }
       finally { await page.keyboard.up("Control"); }
