@@ -10,7 +10,7 @@
   "activation": "vault-open",
   "contributes": {
     "modules": ["automations"],
-    "settingsPages": [],
+    "settingsPages": ["automations"],
     "homeWidgets": ["summary"],
     "commands": [],
     "capabilities": [
