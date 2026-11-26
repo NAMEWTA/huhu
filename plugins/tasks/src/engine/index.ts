@@ -466,7 +466,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   const store = new DispatchStore(files, api.vault.vaultId, machine, ({ runId }, op) => publishRun(runId, op));
   const executor = opts.dispatchExecutor === undefined ? createAgentDispatchExecutor(api, machine) : opts.dispatchExecutor;
   const inbox = new TaskReceiptInbox(files, now, publishRun);
-  const replies = new TaskNativeReplies(files, svc, inbox, now, executor ?? undefined);
+  const replies = new TaskNativeReplies(files, svc, inbox, now, executor ?? undefined, publishRun);
   const dispatch: TaskDispatch = new TaskDispatch(svc, store, inbox, replies, now, machine, executor ?? undefined, opts.onError, (rel) => {
     try {
       const abs = resolveReadableAsset(api.vault.files.root, rel);
