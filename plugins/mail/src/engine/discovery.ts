@@ -1,5 +1,5 @@
 import type { MailFolder } from "./account-definition.js";
-import type { MailEndpoint } from "./presets.js";
+import type { MailEndpoint } from "../shared/presets.js";
 
 export type MailAccountErrorCode =
   | "invalid-settings"

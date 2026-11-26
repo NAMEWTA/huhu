@@ -4,6 +4,18 @@ import { LocalEnvironment } from "../shared/local-shell.js";
 
 export const terminalLineHeights = { normal: 1, roomy: 1.25 } as const;
 export const terminalScrollbackChoices = [1000, 5000, 10000] as const;
+export const sshNavigation = {
+  workspaces: "工作区",
+  files: "独立文件会话",
+  forwarding: "端口转发",
+  monitoring: "监控",
+  keys: "密钥",
+  routes: "跳板路由",
+  recordings: "会话日志",
+  shortcuts: "快捷命令",
+  audit: "全部连接审计",
+} as const;
+const navigationPage = z.enum(Object.keys(sshNavigation) as (keyof typeof sshNavigation)[]);
 
 const schema = z.object({
   tabs: z.enum(["top", "left"]),
@@ -12,6 +24,7 @@ const schema = z.object({
   paneToolOrder: z.enum(["files-first", "monitor-first"]),
   groupVerticalTabs: z.boolean(),
   restoreWorkspace: z.boolean(),
+  hiddenNavigation: z.array(navigationPage),
   fontSize: z.number().int().min(9).max(28),
   font: z.enum(["theme", "jetbrains", "system"]),
   terminalLineHeight: z.enum(["normal", "roomy"]),
@@ -24,6 +37,7 @@ const schema = z.object({
   showDotFiles: z.boolean(),
   fileSort: z.enum(["name", "modified", "size"]),
   remoteOnLeft: z.boolean(),
+  fileOpenMode: z.enum(["tab", "window"]),
   showPaneFiles: z.boolean(),
   followShellDirectory: z.boolean(),
   followFileDirectory: z.boolean(),
@@ -36,6 +50,7 @@ export const deviceDefaults: DevicePreferences = {
   paneToolOrder: "files-first",
   groupVerticalTabs: false,
   restoreWorkspace: false,
+  hiddenNavigation: [],
   fontSize: 13,
   font: "theme",
   terminalLineHeight: "normal",
@@ -48,6 +63,7 @@ export const deviceDefaults: DevicePreferences = {
   showDotFiles: true,
   fileSort: "name",
   remoteOnLeft: false,
+  fileOpenMode: "tab",
   showPaneFiles: false,
   followShellDirectory: true,
   followFileDirectory: false,

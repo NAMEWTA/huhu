@@ -7,6 +7,7 @@ import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./impo
 import { sshAuthenticationDescriptor } from "./authentication-capability.js";
 import { sshQuickConnectionDescriptors } from "./quick-connection-capabilities.js";
 import { sshScpDescriptors } from "./scp-capabilities.js";
+import { sshPrivilegedFileDescriptors } from "./privileged-file-capabilities.js";
 import { sshConfigSyncDescriptors } from "./config-sync.js";
 import { sshDraftDescriptor } from "./draft-connection.js";
 import { sshHostAuthorityDescriptors } from "./host-authorities.js";
@@ -92,6 +93,7 @@ export const sshCapabilityDescriptors = {
   authenticationAnswer: sshAuthenticationDescriptor,
   ...sshQuickConnectionDescriptors,
   ...sshScpDescriptors,
+  ...sshPrivilegedFileDescriptors,
   hostsTestDraft: sshDraftDescriptor,
   workspaceRunChangeLayout: sshWorkspacePaneDescriptor,
   routesEdit: defineCapabilityDescriptor({
@@ -517,7 +519,7 @@ export const sshCapabilityDescriptors = {
     ...resource,
     name: "ssh.transfers.cancel",
     title: "取消文件传输",
-    description: "停止指定任务并清理暂存。",
+    description: "请求停止指定任务。运行中的任务先返回 cancelling，清理完成后在传输列表显示 cancelled。",
     scope: "execute",
     risk: "high",
     idempotency: "handler",

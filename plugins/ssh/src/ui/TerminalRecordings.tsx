@@ -2,6 +2,7 @@ import { Button, EmptyState, PageHead, SearchBox } from "@huhu/ui";
 import { host as desktopHost, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { RecordingContent, RecordingSummary } from "../shared/recordings.js";
+import type { VaultPreferencesSnapshot } from "../shared/preferences.js";
 
 const recordings = "ssh.recordings.list";
 function useRecordings() {
@@ -18,10 +19,12 @@ function useRecordings() {
 export function RecordTerminal({ shellId }: { shellId: string }) {
   const engine = useEngine();
   const records = useRecordings();
+  const settings = useCapability<VaultPreferencesSnapshot>("ssh.settings.get", {}, { enabled: Boolean(desktopHost()) });
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const current = records.data?.find((entry) => entry.shellId === shellId && (!entry.endedAt || entry.savePending));
   if (!desktopHost()) return null;
+  if (settings.data?.values.recording.enabled === false && !current) return null;
   async function toggle() {
     if (busy) return;
     setBusy(true);

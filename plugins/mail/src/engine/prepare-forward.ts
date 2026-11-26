@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { draftRecipient } from "./draft-content.js";
-import { forwardContext } from "./forward-context.js";
+import { forwardContext } from "../shared/forward-context.js";
 import { parseForwardAttachments } from "./message-body.js";
 import { addresses, rootHeaders } from "./prepare-reply.js";
-import { sourceMessage } from "./reply-context.js";
+import { sourceMessage } from "../shared/reply-context.js";
 
 export const forwardSeed = z.strictObject({ accountId: sourceMessage.shape.accountId.nullable(), subject: z.string().max(8192), forward: forwardContext });
 export const newTopicSeed = z.strictObject({ accountId: sourceMessage.shape.accountId.nullable(), to: z.array(draftRecipient).max(1000) });

@@ -3,7 +3,8 @@ import { CapabilityIntentKeySchema, errors, isHuhuError, isWorkbenchCaller } fro
 import { bindCapability, defineCapabilityDescriptor, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { SshHostProfile } from "../auth-profile.js";
-import { importFormats, importIssueCodes, MAX_BYTES, MAX_RECORDS, type ImportIssue } from "./input.js";
+import { importFormats, MAX_BYTES } from "../../shared/host-import.js";
+import { importIssueCodes, MAX_RECORDS, type ImportIssue } from "./input.js";
 import { hostEndpoint, hostName, previewHostImport } from "./preview.js";
 import type { HostConfigurations, HostRecord, SshCredentialHost } from "../host-configurations.js";
 import type { HostDirectory } from "../directory.js";

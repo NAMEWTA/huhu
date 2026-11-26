@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import type { PlanSummary } from "@huhu/contracts";
 import { openApp } from "../helpers/launch.js";
@@ -5,6 +6,7 @@ import { LINUX_SAMPLE, PLATFORM_COMMAND } from "../../../plugins/ssh/src/engine/
 import { CONTAINER_LIST, IMAGE_LIST, PROCESS_LIST } from "../../../plugins/ssh/src/engine/monitor-tools.js";
 import type { MonitorPanel } from "../../../plugins/ssh/src/shared/monitoring.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
+import { localPosixCommand } from "../../../plugins/ssh/test/shell-relay-fixture.js";
 import { browserBinary, localWebLink } from "./workbench.js";
 
 async function call<T>(page: Page, capability: string, input: unknown) {
@@ -23,6 +25,64 @@ async function call<T>(page: Page, capability: string, input: unknown) {
   expect(result.ok, result.error?.message).toBe(true);
   return result.data as T;
 }
+
+test("A11 native server tools keep the original shell and query the actual Docker socket", async () => {
+  const docker = spawnSync("/bin/sh", ["-c", CONTAINER_LIST], { timeout: 5000, encoding: "utf8", env: { PATH: "/usr/bin:/bin", LANG: "C.UTF-8" } });
+  test.skip(process.platform !== "linux" || docker.status !== 0, "需要 Linux 本机 Docker CLI 和可用的默认 Docker socket");
+  let queries = 0;
+  const first = await startFakeSsh({ onInteractiveExec(command, channel) {
+    if (![PLATFORM_COMMAND, LINUX_SAMPLE, PROCESS_LIST, CONTAINER_LIST, IMAGE_LIST].includes(command)) return false;
+    if (command === CONTAINER_LIST) queries++;
+    localPosixCommand(channel, command);
+    return true;
+  } });
+  const second = await startFakeSsh({ onExec(command) {
+    if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
+    if (command === CONTAINER_LIST) return { stdout: "abcdef012345|wrong-host-fixture|fixture|running" };
+  } });
+  const fixture = await openApp();
+  try {
+    const { app, page } = fixture;
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const panes = [];
+    for (const [name, port] of [["Docker 原端点", first.port], ["Docker 另一端点", second.port]] as const) {
+      panes.push(await call<{ hostId: string }>(page, "ssh.hosts.configure", {
+        name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+      }));
+    }
+    await call(page, "ssh.workspace.runs.start", {
+      name: "Docker 原生工具", layout: { kind: "tabs" }, panes: panes.map(({ hostId }) => ({ hostId })),
+    });
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /Docker 原生工具.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await run.getByRole("button", { name: "分栏监控" }).click();
+    const opening = app.waitForEvent("window");
+    await run.getByRole("button", { name: "在新窗口打开服务器工具" }).click();
+    const window = await opening;
+    const tools = window.getByTestId("ssh-tool-window");
+    const original = await run.getByRole("article", { name: "Docker 原端点" }).getAttribute("data-session-id");
+    await expect(tools).toHaveAttribute("data-shell-id", original!);
+    await expect(tools.getByRole("heading", { name: "Docker 原端点" })).toBeVisible();
+    await run.getByRole("tab", { name: "Docker 另一端点" }).click();
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await tools.getByRole("button", { name: "容器" }).click();
+    await expect.poll(() => queries).toBe(1);
+    await expect(tools.getByRole("status")).toHaveText(/已读取 \d+ 条|没有可读取的条目/);
+    await expect(tools).not.toContainText("wrong-host-fixture");
+    const actualId = docker.stdout.trim().split("|")[0];
+    if (actualId) await expect(tools.getByText(actualId, { exact: true })).toBeVisible();
+    await window.close();
+    await run.getByRole("tab", { name: "Docker 原端点" }).click();
+    await expect(run.getByRole("article", { name: "Docker 原端点" })).toHaveAttribute("data-session-id", original!);
+  } finally {
+    await fixture.close();
+    await Promise.all([first.close(), second.close()]);
+  }
+});
 
 test("Workbench monitors a saved panel in the background and controls the active Pane separately", async () => {
   let reads = 0;

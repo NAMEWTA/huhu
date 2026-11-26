@@ -6,12 +6,12 @@ import { errors } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { maxRecordingCheckpoints, RecordingContent, RecordingSummary, RecordingTimeline, type PlaybackCheckpoint } from "../shared/recordings.js";
+import { defaultRecordingPreferences, type RecordingPreferences } from "../shared/preferences.js";
 import type { SshManager } from "./manager.js";
 
 const bytesPerRecording = 256 * 1024;
 const maxFileSize = 7 * bytesPerRecording;
 const maxActive = 8;
-const maxSaved = 60;
 const recordingFile = /^([a-f0-9-]{36})\.json$/u;
 const savedRecording = RecordingContent.extend({ timeline: z.unknown().optional() });
 
@@ -81,6 +81,7 @@ export class TerminalRecordings {
     private readonly manager: Pick<SshManager, "shellInfo" | "attachShell">,
     private readonly directory: string,
     private readonly changed: (id: string) => void = () => {},
+    private readonly preferences: () => RecordingPreferences = () => defaultRecordingPreferences,
   ) {}
 
   start(shellId: string): RecordingSummary {
@@ -88,6 +89,7 @@ export class TerminalRecordings {
     if (shell?.state !== "running") throw errors.notFound("活动的 SSH Shell");
     const existing = this.active.get(shellId);
     if (existing) return activeSummary(existing);
+    if (!this.preferences().enabled) throw errors.permissionDenied("当前库已停用新的 SSH 录制");
     if (this.active.size >= maxActive) throw errors.invalidInput("最多同时录制 8 个 Shell");
     mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     const summary: RecordingSummary = { id: randomUUID(), shellId, hostId: shell.hostId, label: shell.name, startedAt: new Date().toISOString(), endedAt: null, truncated: false, reason: null };
@@ -175,7 +177,9 @@ export class TerminalRecordings {
     this.active.delete(active.summary.shellId);
     // The record is committed above. A cleanup failure cannot change the stop result.
     try {
-      for (const id of this.saved().slice(maxSaved)) rmSync(path.join(this.directory, id + ".json"), { force: true });
+      for (const id of this.saved().filter((id) => id !== content.summary.id).slice(this.preferences().savedLimit - 1)) {
+        rmSync(path.join(this.directory, id + ".json"), { force: true });
+      }
     } catch {
       // A subsequent stop retries the retention cleanup.
     }
@@ -290,8 +294,8 @@ export const sshRecordingDescriptors = {
   recordingsStop: defineCapabilityDescriptor({ ...desktop, name: "ssh.recordings.stop", title: "结束 SSH 录制", description: "停止捕获并保存当前 Shell 的录制。", scope: "write", input: shellId, output: RecordingSummary }),
 };
 
-export function registerSshRecordings(api: HuhuApi, manager: SshManager, directory: string): TerminalRecordings {
-  const records = new TerminalRecordings(manager, directory, (id) => api.events.publish("entity.changed", { kind: "ssh-recording", id, op: "updated" }));
+export function registerSshRecordings(api: HuhuApi, manager: SshManager, directory: string, preferences: () => RecordingPreferences): TerminalRecordings {
+  const records = new TerminalRecordings(manager, directory, (id) => api.events.publish("entity.changed", { kind: "ssh-recording", id, op: "updated" }), preferences);
   const requireDesktop = (caller: string) => {
     if (caller !== "desktop") throw errors.permissionDenied("SSH 终端录制");
   };

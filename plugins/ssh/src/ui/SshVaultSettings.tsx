@@ -7,6 +7,9 @@ type Section = UpdateVaultPreferences["change"]["section"];
 
 function VaultForm({ section, initial, reload }: { section: Section; initial: VaultPreferencesSnapshot; reload: () => Promise<unknown> }) {
   const headingId = useId();
+  const autoReconnectId = useId();
+  const recordingEnabledId = useId();
+  const recordingHistoryId = useId();
   const engine = useEngine();
   const queries = useQueryClient();
   const [saved, setSaved] = useState(initial);
@@ -21,7 +24,9 @@ function VaultForm({ section, initial, reload }: { section: Section; initial: Va
     setNotice("");
     setError("");
     setSaving(true);
-    const change = section === "connection" ? ({ section, values: draft.connection } as const) : ({ section, values: draft.transfer } as const);
+    const change = section === "connection" ? { section, values: draft.connection } as const
+      : section === "recording" ? { section, values: draft.recording } as const
+        : { section, values: draft.transfer } as const;
     try {
       const next = await engine.call<VaultPreferencesSnapshot>("ssh.settings.update", { expectedRevision: saved.revision, change }, { write: true });
       setSaved(next);
@@ -44,7 +49,7 @@ function VaultForm({ section, initial, reload }: { section: Section; initial: Va
 
   return (
     <form className="hu-settings-section hu-card-alt" aria-labelledby={headingId} onSubmit={(event) => void submit(event)}>
-      <h2 id={headingId}>{section === "connection" ? "当前库的连接默认值" : "当前库的传输默认值"}</h2>
+      <h2 id={headingId}>{section === "connection" ? "当前库的连接默认值" : section === "recording" ? "当前库的录制与历史" : "当前库的传输默认值"}</h2>
       {section === "connection" ? (
         <>
           <p>新拨号使用这些值。主机上单独填写的值优先。已经打开的连接保留原参数。</p>
@@ -82,7 +87,26 @@ function VaultForm({ section, initial, reload }: { section: Section; initial: Va
               onChange={(event) => setDraft({ ...draft, connection: { ...draft.connection, keepaliveCountMax: event.target.value ? event.target.valueAsNumber : null } })}
             />
           </label>
-          <p>保活间隔填 0 会停用保活。主机密钥依照已知主机规则验证。连接断开后可在原工作区手动重连。</p>
+          <div className="hu-setting-row">
+            <label htmlFor={autoReconnectId}>断线后自动重连一次</label>
+            <input id={autoReconnectId} type="checkbox" checked={draft.connection.autoReconnect} onChange={(event) =>
+              setDraft({ ...draft, connection: { ...draft.connection, autoReconnect: event.currentTarget.checked } })} />
+          </div>
+          <p>自动重连使用原 SSH 路由。断开的 Shell 和文件会话需要重新打开。保活间隔填 0 会停用协议保活。</p>
+        </>
+      ) : section === "recording" ? (
+        <>
+          <div className="hu-setting-row">
+            <label htmlFor={recordingEnabledId}>允许开始新的终端录制</label>
+            <input id={recordingEnabledId} type="checkbox" checked={draft.recording.enabled} onChange={(event) =>
+              setDraft({ ...draft, recording: { ...draft.recording, enabled: event.currentTarget.checked } })} />
+          </div>
+          <div className="hu-setting-row">
+            <label htmlFor={recordingHistoryId}>录制历史上限</label>
+            <input id={recordingHistoryId} type="number" required min={1} max={60} value={Number.isNaN(draft.recording.savedLimit) ? "" : draft.recording.savedLimit}
+              onChange={(event) => setDraft({ ...draft, recording: { ...draft.recording, savedLimit: event.currentTarget.valueAsNumber } })} />
+          </div>
+          <p>正在进行的录制可正常结束。每次保存录制后，清理超出上限的旧录制。</p>
         </>
       ) : (
         <>
@@ -98,10 +122,10 @@ function VaultForm({ section, initial, reload }: { section: Section; initial: Va
           保存库内设置
         </Button>
         <Button disabled={!changed || saving} onClick={() => reset(saved.values)}>
-          取消修改
+          {section === "recording" ? "取消录制修改" : "取消修改"}
         </Button>
         <Button disabled={saving} onClick={() => reset(defaultVaultPreferences)}>
-          恢复本类默认
+          {section === "recording" ? "恢复录制默认" : "恢复本类默认"}
         </Button>
         {error && (
           <Button disabled={saving} onClick={() => void reload()}>

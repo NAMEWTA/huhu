@@ -9,6 +9,8 @@ declare global {
       revealVault(): Promise<void>;
       openVaultFile(rel: string, reveal?: boolean): Promise<"opened" | "revealed" | "denied" | "missing" | "failed">;
       openExternal(url: string): Promise<boolean>;
+      openSshFileWindow: import("@huhu/plugin-ssh/shared").SshFileWindowHost["openSshFileWindow"];
+      openSshToolWindow: import("@huhu/plugin-ssh/shared").SshToolWindowHost["openSshToolWindow"];
       sshExternalEditor: import("@huhu/plugin-ssh/shared").SshExternalEditorHost;
       externalLinkPreview(url: string): Promise<unknown>;
       previewGrant(rel: string): Promise<{ ok: true; url: string; nonce: string } | { ok: false; reason: string }>;

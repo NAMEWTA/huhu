@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { attachmentRefs } from "./draft-attachments.js";
-import { forwardContext } from "./forward-context.js";
-import { replyContext } from "./reply-context.js";
+import { forwardContext } from "../shared/forward-context.js";
+import { replyContext } from "../shared/reply-context.js";
 
 export const uuid = z.uuidv4().toLowerCase();
 export const draftRecipient = z.string().trim().toLowerCase().max(254).pipe(z.email());

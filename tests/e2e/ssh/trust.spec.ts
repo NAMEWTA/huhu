@@ -5,6 +5,7 @@ import path from "node:path";
 import type { ConnectionStatus, HostKeyPrompt, KnownHostKey } from "../../../plugins/ssh/src/shared/trust.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import { relayToLoopback } from "../../../plugins/ssh/test/shell-relay-fixture.js";
+import { makeEncryptedOpenSshKey, makePuttyKey, startFixtureAgent, supportsFixtureAgent } from "../../../plugins/ssh/test/key-auth-fixture.js";
 import { openApp } from "../helpers/launch.js";
 import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
 
@@ -45,6 +46,98 @@ async function fixtureHost(page: Page, name: string, port: number, password: str
 async function snapshot(page: Page, hostId: string) {
   return (await desktopCall<ConnectionStatus[]>(page, "ssh.connections.status")).find((item) => item.hostId === hostId);
 }
+
+test("A01 PuTTY v2, encrypted PuTTY v3 and OpenSSH keys connect after desktop trust", async () => {
+  const fixture = await openApp();
+  const servers = [];
+  try {
+    const { page } = fixture;
+    await openSsh(page);
+    const passphrase = randomUUID();
+    const keys = [
+      { name: "PPK v2 fixture", key: makePuttyKey(2) },
+      { name: "PPK v3 fixture", key: makePuttyKey(3, passphrase), passphrase },
+      { name: "OpenSSH fixture", key: makeEncryptedOpenSshKey(passphrase), passphrase },
+    ];
+    for (const { name, key, passphrase } of keys) {
+      const server = await startFakeSsh({ publicKey: key.publicKey });
+      servers.push(server);
+      await desktopCall(page, "ssh.hosts.configure", {
+        name, host: "127.0.0.1", port: server.port, user: "fixture", authKind: "key", expectedRevision: null,
+        credentials: [
+          { purpose: "privateKey", action: "replace", value: key.privateKey },
+          ...(passphrase ? [{ purpose: "passphrase", action: "replace", value: passphrase }] : []),
+        ],
+      });
+      await selectHost(page, name);
+      await connect(page);
+      await expect(dialog(page)).toContainText(server.fingerprint);
+      await dialog(page).getByRole("button", { name: "信任并连接" }).click();
+      await expect(moduleView(page).getByRole("button", { name: "断开", exact: true })).toBeVisible();
+      expect(server.conns).toHaveLength(1);
+      await disconnect(page);
+    }
+  } finally {
+    await fixture.close();
+    await Promise.all(servers.map((server) => server.close()));
+  }
+});
+
+test("A01 desktop SSH agent authenticates with its isolated system socket", async () => {
+  test.skip(!supportsFixtureAgent(), "需要 Linux OpenSSH 的 ssh-agent、ssh-add 和 ssh-keygen");
+  const agent = await startFixtureAgent();
+  const server = await startFakeSsh({ publicKey: agent.publicKey });
+  let fixture: Awaited<ReturnType<typeof openApp>> | undefined;
+  try {
+    fixture = await openApp({ SSH_AUTH_SOCK: agent.socket });
+    const { page } = fixture;
+    await openSsh(page);
+    await desktopCall(page, "ssh.hosts.configure", {
+      name: "系统 Agent 回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "agent", expectedRevision: null, credentials: [],
+    });
+    await selectHost(page, "系统 Agent 回环");
+    await connect(page);
+    await dialog(page).getByRole("button", { name: "信任并连接" }).click();
+    await expect(moduleView(page).getByRole("button", { name: "断开", exact: true })).toBeVisible();
+    expect(server.conns).toHaveLength(1);
+  } finally {
+    try {
+      await fixture?.close();
+    } finally {
+      await server.close();
+      await agent.close();
+    }
+  }
+});
+
+test("A01 desktop answers a multi-question challenge and a second SSH authentication round", async () => {
+  const first = randomUUID();
+  const second = randomUUID();
+  const server = await startFakeSsh({ keyboardRounds: [
+    [{ text: "Fixture login", echo: true, answer: "fixture" }, { text: "First response", echo: false, answer: first }],
+    [{ text: "Second response", echo: false, answer: second }],
+  ] });
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    await fixtureHost(page, "多轮认证回环", server.port, "keyboard fixture");
+    await openSsh(page);
+    await connect(page);
+    await dialog(page).getByRole("button", { name: "信任并连接" }).click();
+    const auth = page.getByRole("dialog", { name: "SSH 交互认证" });
+    await auth.getByLabel("Fixture login").fill("fixture");
+    await expect(auth.getByLabel("First response")).toHaveAttribute("type", "password");
+    await auth.getByLabel("First response").fill(first);
+    await auth.getByRole("button", { name: "提交回答" }).click();
+    await expect(auth.getByLabel("Second response")).toHaveValue("");
+    await auth.getByLabel("Second response").fill(second);
+    await auth.getByRole("button", { name: "提交回答" }).click();
+    await expect(moduleView(page).getByRole("button", { name: "断开", exact: true })).toBeVisible();
+  } finally {
+    await fixture.close();
+    await server.close();
+  }
+});
 
 async function promptFor(page: Page, hostId: string): Promise<HostKeyPrompt> {
   const item = await snapshot(page, hostId);

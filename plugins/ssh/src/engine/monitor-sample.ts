@@ -151,8 +151,18 @@ function linux(text: string, at: number, previous?: Counters) {
   return { sample, counters };
 }
 
-export async function readSample(client: Client, platform: Platform, signal: AbortSignal, previous?: Counters) {
-  const result = await monitorExec(client, platform === "linux" ? LINUX_SAMPLE : WINDOWS_SAMPLE, signal);
+export async function monitorWithSudo(client: Client, platform: Platform, command: string, signal: AbortSignal) {
+  if (platform !== "linux") throw new SampleError("unsupported", "当前系统不支持 sudo 查询");
+  const result = await monitorExec(client, "sudo -n -- /bin/sh -c '" + command.replaceAll("'", "'\\''") + "'", signal);
+  if (result.code !== 0 && /sudo[: ]|not in the sudoers|password is required/i.test(result.stderr)) {
+    throw new SampleError(result.code === 127 ? "unsupported" : "denied", "原主机没有为此查询提供免交互 sudo 权限");
+  }
+  return result;
+}
+
+export async function readSample(client: Client, platform: Platform, signal: AbortSignal, previous?: Counters, elevated = false) {
+  const command = platform === "linux" ? LINUX_SAMPLE : WINDOWS_SAMPLE;
+  const result = await (elevated ? monitorWithSudo(client, platform, command, signal) : monitorExec(client, command, signal));
   if (result.stdout === "denied" || denied.test(result.stderr)) throw new SampleError("denied", "读取系统指标的权限不足");
   if (result.stdout === "unsupported" || (platform === "windows" && result.code === 127)) throw new SampleError("unsupported", "系统监控工具不可用");
   if (result.code !== 0 && result.code !== undefined) throw new SampleError("failed", "监控查询未正常完成");

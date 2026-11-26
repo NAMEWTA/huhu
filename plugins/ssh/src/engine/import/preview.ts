@@ -1,6 +1,7 @@
 import { SshHostProfile, type SshHostProfile as Profile } from "../auth-profile.js";
 import { defaultVaultPreferences } from "../../shared/preferences.js";
-import { badFile, decodeHostInput, MAX_BYTES, MAX_RECORDS, optionalGroup, printable, type HostImportFormat, type ImportIssue, type ImportLocation, type ParsedHosts, type RawHost } from "./input.js";
+import { MAX_BYTES, type HostImportFormat, type ImportLocation } from "../../shared/host-import.js";
+import { badFile, decodeHostInput, MAX_RECORDS, optionalGroup, printable, type ImportIssue, type ParsedHosts, type RawHost } from "./input.js";
 import { parseOpenSsh } from "./openssh.js";
 import { parseElecterm, parseNetcatty, parseWindTerm } from "./structured-formats.js";
 import { parseMobaXterm, parsePutty, parseSecureCRT, parseXshell } from "./text-formats.js";

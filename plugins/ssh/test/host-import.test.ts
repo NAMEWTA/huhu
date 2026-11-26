@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { HostImportFormat } from "../src/engine/import/input.js";
+import type { HostImportFormat } from "../src/shared/host-import.js";
 import { previewHostImport } from "../src/engine/import/preview.js";
 
 const server = "server.example.invalid";

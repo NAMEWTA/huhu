@@ -9,6 +9,7 @@ import { directoryGroupPath, hostSearchTerms, matchesHostSearch } from "../share
 import type { ConnectionHop, ConnectionStatus, HostKeyPrompt } from "../shared/trust.js";
 import { AttachedFiles, FileWorkspace } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
+import type { SshFileWindowHost } from "../shared/file-window.js";
 import { HostEditorDialog } from "./HostEditorDialog.js";
 import { HostDirectory } from "./HostDirectory.js";
 import { HostImportDialog } from "./HostImportDialog.js";
@@ -29,6 +30,7 @@ import { RecordTerminal, TerminalRecordingsPanel } from "./TerminalRecordings.js
 import { LocalShellPanel } from "./LocalShellPanel.js";
 import { directJumpIds, routeForHost } from "../shared/route.js";
 import { t } from "./i18n.js";
+import { useDevicePreferences } from "./device-preferences.js";
 
 interface Shell {
   id: string;
@@ -75,6 +77,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const engine = useEngine();
   const qc = useQueryClient();
   const desktop = Boolean(desktopHost());
+  const { fileOpenMode, hiddenNavigation } = useDevicePreferences();
   const hosts = useCapability<Host[]>("ssh.hosts.list", {});
   const directory = useCapability<z.output<typeof DirectoryView>>("ssh.hosts.directory", {});
   const connections = useCapability<ConnectionStatus[]>(CONNECTIONS, {});
@@ -252,8 +255,13 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
       setConnectError({ hostId: h.id, message: message(e) });
     }
   }
-  function openFiles(session?: FileSession) {
+  async function openFiles(session?: FileSession) {
     if (session) {
+      const windowHost = (globalThis as { huhuHost?: SshFileWindowHost }).huhuHost;
+      if (fileOpenMode === "window" && windowHost?.openSshFileWindow) {
+        await windowHost.openSshFileWindow({ vaultId: engine.vaultId, fileSessionId: session.fileSessionId });
+        return;
+      }
       setFileSeed(session);
       selectFile(session.fileSessionId);
     }
@@ -359,20 +367,20 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
     <div className="hu-module-layout hu-execution-module" data-testid="ssh-module">
       <aside className="hu-resource-pane" aria-label={t.title}>
         <div className="hu-resource-head ssh-resource-head">
-          <Button variant="ghost" onClick={() => setWorkspaces(true)}>
+          {!hiddenNavigation.includes("workspaces") && <Button variant="ghost" onClick={() => setWorkspaces(true)}>
             工作区
-          </Button>
-          <Button variant="ghost" onClick={() => openFiles()}>
+          </Button>}
+          {!hiddenNavigation.includes("files") && <Button variant="ghost" onClick={() => openFiles()}>
             独立文件会话
-          </Button>
-          {desktop && (
+          </Button>}
+          {desktop && !hiddenNavigation.includes("forwarding") && (
             <Button variant="ghost" onClick={() => setForwarding(true)}>
               端口转发
             </Button>
           )}
-          <Button variant="ghost" onClick={() => setMonitoring(true)}>
+          {!hiddenNavigation.includes("monitoring") && <Button variant="ghost" onClick={() => setMonitoring(true)}>
             监控
-          </Button>
+          </Button>}
           <div className="row">
             <span className="hu-flex-fill ssh-resource-title">{t.hosts}</span>
             <span className="ssh-count">{(hosts.data ?? []).length}</span>
@@ -425,32 +433,32 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
           <Button variant="ghost" icon={Fingerprint} onClick={() => openReview(null)}>
             已知主机
           </Button>
-          {desktop && (
+          {desktop && !hiddenNavigation.includes("keys") && (
             <Button variant="ghost" icon={KeyRound} onClick={() => setKeyLibrary(true)}>
               密钥
             </Button>
           )}
-          {desktop && (
+          {desktop && !hiddenNavigation.includes("routes") && (
             <Button variant="ghost" icon={Network} onClick={() => setRoutes(true)}>
               跳板路由
             </Button>
           )}
-          {desktop && (
+          {desktop && !hiddenNavigation.includes("recordings") && (
             <Button variant="ghost" icon={Activity} onClick={() => setRecordings(true)}>
               会话日志
             </Button>
           )}
-          <Button variant="ghost" icon={TextCursorInput} onClick={() => setShortcuts(true)}>
+          {!hiddenNavigation.includes("shortcuts") && <Button variant="ghost" icon={TextCursorInput} onClick={() => setShortcuts(true)}>
             快捷命令
-          </Button>
+          </Button>}
           {desktop && (
             <Button variant="ghost" icon={Terminal} onClick={() => setLocalTerminal(true)}>
               本地终端
             </Button>
           )}
-          <Button variant="ghost" icon={Activity} onClick={() => setTab("audit")}>
+          {!hiddenNavigation.includes("audit") && <Button variant="ghost" icon={Activity} onClick={() => setTab("audit")}>
             全部连接审计
-          </Button>
+          </Button>}
         </div>
       </aside>
       <main className="hu-view-content">

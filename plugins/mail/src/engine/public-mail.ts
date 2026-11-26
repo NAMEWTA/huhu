@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { draftRecipient } from "./draft-content.js";
 import { addresses, mailboxes, rootHeaders } from "./prepare-reply.js";
-import { rfcMessageId } from "./reply-context.js";
+import { rfcMessageId } from "../shared/reply-context.js";
 
 export const publicMail = z.strictObject({ participants: z.array(draftRecipient), senderNames: z.array(z.string().min(1).max(200)).max(10).optional(), internetId: rfcMessageId.optional(), date: z.iso.datetime().optional() });
 

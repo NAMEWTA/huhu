@@ -1,6 +1,6 @@
 import "@huhu/ui/styles.css";
 import "@huhu/workbench/shell.css";
-import { appearanceController } from "@huhu/ui";
+import { appearanceController, EmptyState } from "@huhu/ui";
 import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
 import { contributions as automationsUi, PlanScheduleControls } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
@@ -9,7 +9,8 @@ import { createLedgerContributions } from "@huhu/plugin-ledger/ui";
 import { createMailContributions, requestMailNotification } from "@huhu/plugin-mail/ui";
 import { DocumentSessionConnection, contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
-import { contributions as sshUi } from "@huhu/plugin-ssh/ui";
+import { readSshFileWindow, readSshToolWindow } from "@huhu/plugin-ssh/shared";
+import { contributions as sshUi, SshFileWindow, SshToolWindow } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
 import { contributions as tasksUi, TaskRunDetails, taskRunLabel } from "@huhu/plugin-tasks/ui";
 import {
@@ -100,7 +101,23 @@ interface AppProps {
   browser?: boolean;
 }
 
-export function WorkbenchApp({ endpoint, state, version, onRestartEngine, onConnection, browser = false }: AppProps) {
+export function WorkbenchApp(props: AppProps) {
+  const files = readSshFileWindow(location.hash);
+  const tools = props.browser ? undefined : readSshToolWindow(location.hash);
+  const target = files ?? tools;
+  if (!target) return <WorkbenchShell {...props} />;
+  const { endpoint, state, onConnection } = props;
+  if (!endpoint || target.vaultId !== endpoint.vaultId) {
+    return <EmptyState title={state === "starting" || (state === "ready" && !endpoint) ? "正在连接原 SSH 会话…" : "原 SSH 会话所在的 Vault 未连接"} />;
+  }
+  return (
+    <EngineProvider endpoint={endpoint} {...(onConnection ? { onConnection } : {})}>
+      {"fileSessionId" in target ? <SshFileWindow id={target.fileSessionId} /> : <SshToolWindow hostId={target.hostId} shellId={target.shellId} name={target.name} />}
+    </EngineProvider>
+  );
+}
+
+function WorkbenchShell({ endpoint, state, version, onRestartEngine, onConnection, browser = false }: AppProps) {
   const [vaultName, setVaultName] = useState("HUHU");
   const currentEndpoint = useRef(endpoint);
   const notificationRequest = useRef(0);

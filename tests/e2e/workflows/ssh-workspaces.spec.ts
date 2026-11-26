@@ -120,7 +120,11 @@ test("A05 adding a split opens only the new host and keeps the original pane ses
     await run.getByLabel("新分栏主机").selectOption(b.hostId);
     await run.getByRole("button", { name: "上下分割活动分栏" }).click();
     const added = run.getByRole("article", { name: "新增分栏" });
+    await expect(run.locator('[data-workspace-spot][data-active="true"]')).toContainText("新增分栏");
+    const confirm = page.waitForResponse((response) => response.url().endsWith("/api/v1/call")
+      && response.request().postDataJSON()?.capability === "ssh.hostKey.decide");
     await added.getByRole("button", { name: "信任并连接" }).click();
+    expect(await (await confirm).json()).toMatchObject({ ok: true, data: { applied: true } });
     await expect(added).toHaveAttribute("data-phase", "ready");
     await expect(original).toHaveAttribute("data-session-id", shell!);
     await expect(run.getByRole("separator")).toHaveAttribute("aria-orientation", "horizontal");
@@ -1248,9 +1252,14 @@ test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保
     const full = await sshCall<TransferJob>(page, "ssh.transfers.start", input);
     expect(full.error?.message).toContain("队列已满");
     expect((await sshCall<TransferQueue>(page, "ssh.transfers.list")).data.canQueue).toBe(false);
-    const cancelled = await sshCall<TransferJob>(page, "ssh.transfers.cancel", { transferId: jobs.at(-1) });
-    expect(cancelled.data.state).toBe("cancelled");
-    expect((await sshCall<TransferQueue>(page, "ssh.transfers.list")).data.canQueue).toBe(true);
+    const idToCancel = jobs.at(-1)!;
+    const cancelled = await sshCall<TransferJob>(page, "ssh.transfers.cancel", { transferId: idToCancel });
+    expect(cancelled.ok, cancelled.error?.message).toBe(true);
+    expect(["cancelling", "cancelled"]).toContain(cancelled.data.state);
+    await expect.poll(async () => {
+      const { data } = await sshCall<TransferQueue>(page, "ssh.transfers.list");
+      return { state: data.jobs.find(({ transferId }) => transferId === idToCancel)?.state, canQueue: data.canQueue };
+    }).toEqual({ state: "cancelled", canQueue: true });
     expect((await sshCall(page, "ssh.disconnect", { hostId: a.hostId })).ok).toBe(true);
     await expect
       .poll(async () => {

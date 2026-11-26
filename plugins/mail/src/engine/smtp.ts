@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 import XOAuth2 from "nodemailer/lib/xoauth2";
 import { z } from "zod";
-import type { MailEndpoint } from "./presets.js";
+import type { MailEndpoint } from "../shared/presets.js";
 
 const smtpCode = z.number().int().min(200).max(599);
 const recipientResult = z.strictObject({ address: z.email(), state: z.enum(["accepted", "not-delivered", "unknown"]), smtpCode: smtpCode.optional() });

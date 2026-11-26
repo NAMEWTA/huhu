@@ -9,6 +9,9 @@ import { SshModule } from "./SshModule.js";
 import { SshSettingsPage } from "./SshSettingsPage.js";
 import { t } from "./i18n.js";
 
+export { SshFileWindow } from "./FileWorkspace.js";
+export { MonitorTools as SshToolWindow } from "./MonitorTools.js";
+
 export const contributions = {
   modules: [{ id: "ssh", plugin: "ssh", title: t.title, group: "execution", order: 20, icon: <Server size={18} aria-hidden />, component: SshModule }] satisfies ModuleContribution[],
   homeWidgets: [defineHomeWidgetContribution(sshHostsWidget, 20, SshHomeWidget, SshHomeWidgetConfig)],

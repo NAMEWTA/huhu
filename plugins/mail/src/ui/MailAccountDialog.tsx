@@ -2,7 +2,7 @@ import { Button, Dialog, Field } from "@huhu/ui";
 import { CapabilityError, host, useEngine } from "@huhu/workbench";
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import type { MailAccountSettings, MailFolder } from "../engine/account-definition.js";
-import { mailPreset, mailProviderSchema, type MailEndpoint, type MailProvider } from "../engine/presets.js";
+import { mailPreset, mailProviderSchema, type MailEndpoint, type MailProvider } from "../shared/presets.js";
 import type { MailAccount } from "./mail-types.js";
 import { MailOAuthControls } from "./MailOAuthControls.js";
 

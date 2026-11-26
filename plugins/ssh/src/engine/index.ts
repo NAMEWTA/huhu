@@ -55,6 +55,7 @@ import { registerShortcuts } from "./shortcuts.js";
 import { registerSshTerminalBridge } from "./terminal-bridge.js";
 import { registerSshRecordings } from "./terminal-recordings.js";
 import { registerScp } from "./scp-capabilities.js";
+import { registerPrivilegedFiles } from "./privileged-file-capabilities.js";
 import { registerSshWorkspacePanes } from "./workspace-pane-capability.js";
 import * as sftp from "./sftp.js";
 
@@ -143,6 +144,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const publicTransfers = new PublicTransfers(publicFiles, manager, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }));
   const files = new FileSessions(manager);
   registerScp(api, files, manager);
+  registerPrivilegedFiles(api, files, manager);
   const archives = new Archives(files, manager);
   const publicArchives = new PublicArchives(publicFiles);
   const transfers = new Transfers(
@@ -174,7 +176,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   registerSshConfigSync(api, hosts);
   const proxyShare = registerSshProxyShare(api, manager);
   registerSshWorkspacePanes(api, runs, publicWorkspaces);
-  const recordings = execJobs && registerSshRecordings(api, manager, path.join(execJobs.runtimeDir, "ssh-recordings"));
+  const recordings = execJobs && registerSshRecordings(api, manager, path.join(execJobs.runtimeDir, "ssh-recordings"), () => preferences.runtime().recording);
   const localShells = launchLocalPty && registerSshLocalShells(api, launchLocalPty);
   api.events.subscribe((event) => {
     if (event.type !== "entity.changed" || !("kind" in event.payload)) return;

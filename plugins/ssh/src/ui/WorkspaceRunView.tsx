@@ -38,7 +38,7 @@ export function WorkspaceRunView({
   connections: readonly ConnectionStatus[];
   hosts: readonly { hostId: string; name: string }[];
   onTrust: (prompt: NonNullable<WorkspaceRunPane["prompt"]>, accept: boolean) => Promise<void>;
-  onOpenFiles: (session: FileSession) => void;
+  onOpenFiles: (session: FileSession) => void | Promise<void>;
 }) {
   const engine = useEngine();
   const { endpoint } = engine;
@@ -81,6 +81,10 @@ export function WorkspaceRunView({
     setLayoutError("");
     try {
       const next = await engine.call<WorkspaceRun>("ssh.workspace.runs.changeLayout", { id: run.id, expectedLayoutRevision: revision, change }, { write: true });
+      if (change.action === "split") {
+        const added = next.panes.find(({ hostId }) => hostId === change.hostId);
+        if (added) setActive(added.paneId);
+      }
       qc.setQueryData<WorkspaceRun[]>(query, (value) => value?.map((item) => (item.id === next.id ? next : item)));
     } catch (error) {
       setLayoutError(error instanceof Error ? error.message : "无法保存分栏布局。");
@@ -300,10 +304,10 @@ export function WorkspaceRunView({
                         </code>
                       </p>
                       <div className="ssh-workspace-controls">
-                        <Button disabled={deciding[decidingKey]} onClick={() => void decide(true)}>
+                        <Button disabled={saving || deciding[decidingKey]} onClick={() => void decide(true)}>
                           信任并连接
                         </Button>
-                        <Button disabled={deciding[decidingKey]} onClick={() => void decide(false)}>
+                        <Button disabled={saving || deciding[decidingKey]} onClick={() => void decide(false)}>
                           拒绝密钥
                         </Button>
                       </div>

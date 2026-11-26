@@ -7,6 +7,8 @@ import { boot } from "../../../apps/engine/src/boot.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import { defaultVaultPreferences, type UpdateVaultPreferences, type VaultPreferencesSnapshot } from "../src/shared/preferences.js";
+import type { ConnectionStatus } from "../src/shared/trust.js";
+import { startFakeSsh } from "./fake-server.js";
 
 test("SSH default settings are revisioned per Vault and drive the next handshake and transfer queue", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "huhu-ssh-preferences-"));
@@ -30,7 +32,7 @@ test("SSH default settings are revisioned per Vault and drive the next handshake
   try {
     const client = await open("primary", true);
     expect(await get(client)).toEqual({ revision: null, values: defaultVaultPreferences });
-    const connection = { connectTimeoutSec: 1, keepaliveIntervalSec: 0, keepaliveCountMax: 0 };
+    const connection = { connectTimeoutSec: 1, keepaliveIntervalSec: 0, keepaliveCountMax: 0, autoReconnect: false };
     const saved = await update(client, null, { section: "connection", values: connection });
     const outcomes = await Promise.allSettled([3, 4].map((parallel) => update(client, saved.revision, { section: "transfer", values: { parallel } })));
     expect(outcomes.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
@@ -80,3 +82,54 @@ test("SSH default settings are revisioned per Vault and drive the next handshake
     await rm(root, { recursive: true, force: true });
   }
 }, 12_000);
+
+test("saved auto-reconnect and recording preferences change subsequent transport and capture behavior", { timeout: 16_000 }, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "huhu-ssh-saved-policies-"));
+  const vaultPath = path.join(root, "vault");
+  const desktopUserData = path.join(root, "device");
+  await Promise.all([mkdir(vaultPath), mkdir(desktopUserData)]);
+  const engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create: true });
+  const server = await startFakeSsh();
+  const client = new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
+  const write = { write: true };
+  try {
+    const { hostId } = await client.call<{ hostId: string }>("ssh.hosts.configure", {
+      name: "saved policy fixture", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+    }, write);
+    const live = async () => (await client.call<ConnectionStatus[]>("ssh.connections.status")).find((entry) => entry.hostId === hostId);
+    await client.call("ssh.connect", { hostId, background: true }, write);
+    await expect.poll(async () => (await live())?.state).toBe("waiting");
+    const waiting = await live();
+    if (waiting?.state !== "waiting") throw new Error("Missing loopback fingerprint");
+    await client.call("ssh.hostKey.decide", { attemptId: waiting.attemptId, hop: 0, promptId: waiting.prompt.promptId, accept: true }, write);
+    await expect.poll(async () => (await live())?.state).toBe("connected");
+    const { id: shellId } = await client.call<{ id: string }>("ssh.shells.open", { hostId }, write);
+    const original = await live();
+    const save = (expectedRevision: string | null, change: UpdateVaultPreferences["change"]) =>
+      client.call<VaultPreferencesSnapshot>("ssh.settings.update", { expectedRevision, change }, write);
+    const enabled = await save(null, { section: "connection", values: { ...defaultVaultPreferences.connection, autoReconnect: true } });
+    const limits = await save(enabled.revision, { section: "recording", values: { enabled: true, savedLimit: 1 } });
+    for (let i = 0; i < 2; i++) {
+      await client.call("ssh.recordings.start", { shellId }, write);
+      await client.call("ssh.recordings.stop", { shellId }, write);
+    }
+    expect(await client.call("ssh.recordings.list", { shellId })).toHaveLength(1);
+    await save(limits.revision, { section: "recording", values: { enabled: false, savedLimit: 1 } });
+    await expect(client.call("ssh.recordings.start", { shellId }, write)).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    server.conns[0]!.end();
+    await expect.poll(async () => {
+      const current = await live();
+      return current?.state === "connected" && current.attemptId !== original?.attemptId;
+    }, { timeout: 5000 }).toBe(true);
+    expect(server.conns).toHaveLength(2);
+    expect(await client.call("ssh.shells.list", { hostId })).toContainEqual(expect.objectContaining({ id: shellId, state: "ended" }));
+    await client.call("ssh.disconnect", { hostId }, write);
+    await expect.poll(async () => (await live())?.state).toBe("disconnected");
+    expect(server.conns).toHaveLength(2);
+  } finally {
+    await engine.shutdown();
+    await server.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

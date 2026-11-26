@@ -1,5 +1,6 @@
 import type { z } from "zod";
-import { purposes, type AuthKind, type LegacyHostView, type ManagedHostView, type Purpose } from "../engine/auth-profile.js";
+import { purposes, type AuthKind, type Purpose } from "../shared/host-auth.js";
+import type { LegacyHostView, ManagedHostView } from "../engine/auth-profile.js";
 
 export type ManagedHost = z.output<typeof ManagedHostView>;
 export type Host = ManagedHost | z.output<typeof LegacyHostView>;

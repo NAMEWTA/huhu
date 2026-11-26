@@ -2,7 +2,8 @@ import { chromium, expect, test, type Browser, type Page } from "@playwright/tes
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { AuthKind, ManagedHostView } from "../../../plugins/ssh/src/engine/auth-profile.js";
+import type { ManagedHostView } from "../../../plugins/ssh/src/engine/auth-profile.js";
+import type { AuthKind } from "../../../plugins/ssh/src/shared/host-auth.js";
 import type { DirectoryView } from "../../../plugins/ssh/src/engine/directory-schema.js";
 import { openApp } from "../helpers/launch.js";
 import { browserBinary, desktopCall, localWebLink } from "./workbench.js";

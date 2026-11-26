@@ -1,6 +1,5 @@
-export const importFormats = ["openssh", "putty", "xshell", "mobaxterm", "windterm", "electerm", "netcatty", "securecrt"] as const;
-export type HostImportFormat = (typeof importFormats)[number];
-export type ImportLocation = { kind: "line" | "record"; index: number };
+import type { ImportLocation } from "../../shared/host-import.js";
+
 export const importIssueCodes = [
   "unrecognized-format",
   "unsupported-variant",
@@ -38,7 +37,6 @@ export type RawHost = {
 };
 export type ParsedHosts = { records: RawHost[]; issues: ImportIssue[] };
 export const MAX_RECORDS = 5_000;
-export const MAX_BYTES = 4 * 1024 * 1024;
 export const line = (index: number): ImportLocation => ({ kind: "line", index });
 export const record = (index: number): ImportLocation => ({ kind: "record", index });
 export const badFile = (code: ImportIssue["code"]): ParsedHosts => ({ records: [], issues: [{ code }] });

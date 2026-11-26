@@ -1,5 +1,6 @@
 import { CapabilityIntentKeySchema } from "@huhu/contracts";
 import { z } from "zod";
+import { AuthKind, Purpose } from "../shared/host-auth.js";
 import { SshKeyId } from "../shared/key-library.js";
 import { OutboundProxyPolicy } from "../shared/outbound-proxy.js";
 
@@ -26,10 +27,6 @@ export const LegacyHostView = LegacyHostRecord.extend({
   repairRequired: z.literal(true),
 });
 
-const AuthKind = z.enum(["password", "key", "agent", "identity-file"]);
-export type AuthKind = z.infer<typeof AuthKind>;
-const Purpose = z.enum(["password", "privateKey", "passphrase", "identityFile"]);
-export type Purpose = z.infer<typeof Purpose>;
 const CredentialPatch = z.discriminatedUnion("action", [
   z.strictObject({ purpose: Purpose, action: z.literal("keep") }),
   z.strictObject({ purpose: Purpose, action: z.literal("replace"), value: z.string().min(1), reconfigure: z.literal(true).optional() }),
@@ -69,10 +66,3 @@ export const ManagedHostView = z.object({
   authState: AuthState,
   configured: z.boolean(),
 });
-
-export const purposes: Record<AuthKind, readonly Purpose[]> = {
-  password: ["password"],
-  key: ["privateKey", "passphrase"],
-  agent: [],
-  "identity-file": ["identityFile", "passphrase"],
-};

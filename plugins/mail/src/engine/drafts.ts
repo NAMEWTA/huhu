@@ -7,7 +7,7 @@ import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { assertAttachmentCapacity, assertImportActive, attachmentDetails, attachmentDigest, attachmentObjectPath, DraftAttachmentObjects, readAttachmentSource, type MailAttachmentSource } from "./draft-attachments.js";
 import { draftContent, storedDraftContent, uuid, type DraftContent, type StoredDraftContent } from "./draft-content.js";
-import { missingForwardAttachments, sameForwardSource, type ForwardContext } from "./forward-context.js";
+import { missingForwardAttachments, sameForwardSource, type ForwardContext } from "../shared/forward-context.js";
 import { requireCachedMessage } from "./message-cache.js";
 import { MAIL_OUTBOX_SERVICE, MailOutbox, outboxReceipt, outboxRetryInput, outboxStatusInput, outboxSubmitInput, outboxSummary, outboxView, type MailOutboxService } from "./outbox.js";
 import { isOutboxRecordPath, OutboxStorage } from "./outbox-storage.js";
