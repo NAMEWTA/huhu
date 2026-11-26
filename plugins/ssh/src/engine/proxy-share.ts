@@ -42,21 +42,27 @@ export function privateRemoteListeners(output: string, port: number): boolean {
 }
 
 function collect(channel: ClientChannel, signal: AbortSignal, done: (error: Error | undefined, data?: string) => void, headersOnly = false): void {
-  let data = "";
+  let data = Buffer.alloc(0);
   let settled = false;
   function finish(failure: Error | undefined) {
     if (settled) return;
     settled = true;
     signal.removeEventListener("abort", abort);
-    done(failure, data);
+    done(failure, data.toString("utf8"));
     channel.close();
   }
   const abort = () => finish(error("等待远端代理验证超时"));
   channel.on("error", () => finish(error("无法读取远端代理验证结果")));
   channel.on("data", (bytes: Buffer) => {
-    data += bytes.toString("utf8", 0, maxOutput + 1);
-    if (Buffer.byteLength(data) > maxOutput) finish(error("远端代理验证响应超限"));
-    else if (headersOnly && data.includes("\r\n\r\n")) finish(undefined);
+    if (settled) return;
+    data = Buffer.concat([data, bytes.subarray(0, maxOutput + 1 - data.length)]);
+    const headerEnd = headersOnly ? data.indexOf("\r\n\r\n") : -1;
+    if (headerEnd >= 0 && headerEnd + 4 <= maxOutput) {
+      data = data.subarray(0, headerEnd + 4);
+      finish(undefined);
+    } else if (data.length > maxOutput) {
+      finish(error("远端代理验证响应超限"));
+    }
   });
   channel.once("close", (code: number | undefined) => finish(!headersOnly && code !== 0 ? error("无法确认远端监听仅绑定回环地址") : undefined));
   if (signal.aborted) abort();

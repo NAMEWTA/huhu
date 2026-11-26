@@ -6,10 +6,84 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import type { LocalEnvironment, LocalSession } from "../../../plugins/ssh/src/shared/local-shell.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import { openApp } from "../helpers/launch.js";
 import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
 import type { CapabilityCatalogEntry } from "../../../packages/contracts/src/capability.js";
+
+test("H5.4 Linux 本地终端在停用 Agent 后用原 Shell 重连", async () => {
+  test.skip(process.platform !== "linux", "需要 Linux 本机 Shell");
+  const fixture = await openApp();
+  const { page } = fixture;
+  const preferenceKey = "huhu.ssh.device-preferences.v1";
+  let previous: string | null | undefined;
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    previous = await page.evaluate((key) => localStorage.getItem(key), preferenceKey);
+    await desktopCall(page, "plugins.setEnabled", { id: "agent-cli", enabled: false });
+    const environments = await desktopCall<LocalEnvironment[]>(page, "ssh.local.environments");
+    const sh = environments.find(({ kind, name }) => kind === "shell" && name === "sh");
+    const bash = environments.find(({ kind, name }) => kind === "shell" && name === "bash");
+    if (!sh || !bash) throw new Error("需要本机 sh 与 bash");
+
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    const module = page.getByTestId("ssh-module");
+    const openLocal = () => module.getByRole("button", { name: "本地终端", exact: true }).click();
+    const back = () => page.getByRole("button", { name: "返回主机", exact: true }).click();
+    const environment = page.getByRole("combobox", { name: "启动环境" });
+    await openLocal();
+    await environment.selectOption(sh.id);
+    await page.getByRole("button", { name: "打开终端", exact: true }).click();
+    const terminal = page.getByTestId("terminal-view");
+    const terminalInput = terminal.locator(".xterm-helper-textarea");
+    const verifyPty = async () => {
+      await expect(terminal).toHaveAttribute("data-state", "open");
+      await terminalInput.focus();
+      await page.keyboard.type("test -t 0 && printf 'fixture-%s\\n' \"$((6 * 7))\"");
+      await page.keyboard.press("Enter");
+      await expect(terminal.locator(".xterm-rows")).toContainText("fixture-42");
+    };
+    await verifyPty();
+    const sessions = () => desktopCall<LocalSession[]>(page, "ssh.local.list");
+    const original = (await sessions()).find(({ state }) => state === "running")!;
+    expect(original.environment.id).toBe(sh.id);
+    await page.getByRole("button", { name: "结束终端", exact: true }).click();
+    await expect(page.getByRole("button", { name: "用原环境重连" })).toBeVisible();
+    expect((await sessions()).find(({ id }) => id === original.id)?.state).toBe("ended");
+    await back();
+
+    await module.getByRole("button", { name: "SSH 设置", exact: true }).click();
+    const settings = page.getByTestId("ssh-settings");
+    await settings.getByPlaceholder("搜索 SSH 设置").fill("本地 Shell");
+    await settings.getByLabel("默认本地 Shell").selectOption(bash.id);
+    await settings.getByRole("button", { name: "保存设置", exact: true }).click();
+    await expect(settings.getByText("已保存到本机。")).toBeVisible();
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await openLocal();
+    await expect(environment).toHaveValue(bash.id);
+    await page.getByRole("button", { name: "sh · 已结束", exact: true }).click();
+    await page.getByRole("button", { name: "用原环境重连", exact: true }).click();
+    await verifyPty();
+    const restarted = await sessions();
+    expect(restarted).toMatchObject([{ environment: sh, state: "running" }]);
+    expect(restarted[0]?.id).not.toBe(original.id);
+    await page.getByRole("button", { name: "结束终端", exact: true }).click();
+    await expect(page.getByRole("button", { name: "用原环境重连" })).toBeVisible();
+    expect((await sessions()).every(({ state }) => state === "ended")).toBe(true);
+  } finally {
+    try {
+      if (previous !== undefined) {
+        await page.evaluate(({ key, value }) => {
+          if (value === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, value);
+        }, { key: preferenceKey, value: previous });
+      }
+    } finally {
+      await fixture.close();
+    }
+  }
+});
 
 test("A12 SSH navigation and recording settings apply to their own UI and can be restored", async () => {
   const fixture = await openApp();

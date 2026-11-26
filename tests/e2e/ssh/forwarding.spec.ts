@@ -62,6 +62,77 @@ async function readExactly(socket: net.Socket, length: number): Promise<Buffer> 
   }
 }
 
+test("H3.5 桌面代理分享复制配置并在测试失败和停止后清除成功状态", async () => {
+  const password = randomUUID();
+  let accepts = true;
+  const proxy = net.createServer((socket) => {
+    socket.on("error", () => socket.destroy());
+    let request = "";
+    socket.on("data", (chunk) => {
+      request += chunk.toString("utf8");
+      if (!request.includes("\r\n\r\n")) return;
+      const accepted = accepts && request.startsWith("CONNECT example.com:443 HTTP/1.1\r\n");
+      socket.end(accepted ? "HTTP/1.1 200 Connection established\r\n\r\n" : "HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
+    });
+  });
+  const localPort = await bind(proxy);
+  const remotePort = await port();
+  const ssh = await startFakeSsh({
+    password,
+    remoteForwarding: true,
+    onExec: (command) => command.startsWith("ss ") ? { stdout: `LISTEN 0 128 127.0.0.1:${remotePort} 0.0.0.0:*\n` } : undefined,
+  });
+  const fixture = await openApp();
+  const { app, page } = fixture;
+  const clipboardBefore = await app.evaluate(({ clipboard }) => clipboard.readText());
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await createHost(page, ssh.port, password);
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    const module = page.getByTestId("ssh-module");
+    await module.getByRole("complementary").getByRole("button", { name: /^回环转发夹具 / }).click();
+    await module.getByRole("button", { name: "连接", exact: true }).click();
+    await page.getByRole("button", { name: "信任并连接" }).click();
+    await expect(module.getByRole("button", { name: "断开", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "跳板路由", exact: true }).click();
+    await page.getByRole("button", { name: "辅助代理分享", exact: true }).click();
+    await page.getByLabel("已连接主机").selectOption({ label: "回环转发夹具" });
+    await page.getByLabel("本机代理端口").fill(String(localPort));
+    await page.getByLabel("远端回环端口").fill(String(remotePort));
+    await page.getByRole("button", { name: "检测本机端口" }).click();
+    await expect(page.getByText("本机代理端口已响应。")).toBeVisible();
+    await page.getByRole("button", { name: "开始分享" }).click();
+    await expect(page.getByText("分享中", { exact: true })).toBeVisible();
+    const verify = page.getByRole("button", { name: "测试 CONNECT" });
+    await verify.click();
+    await expect(page.getByText(/代理已接受 CONNECT/)).toBeVisible();
+    await page.getByRole("button", { name: "复制 Shell 配置", exact: true }).click();
+    await expect(page.getByText("已复制配置文本。")).toBeVisible();
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+      `export http_proxy=http://127.0.0.1:${remotePort} https_proxy=http://127.0.0.1:${remotePort}\n`,
+    );
+
+    accepts = false;
+    await verify.click();
+    await expect(page.getByText(/代理拒绝 CONNECT 或要求认证/)).toBeVisible();
+    await expect(page.getByText(/代理已接受 CONNECT/)).toHaveCount(0);
+    await page.getByRole("button", { name: "停止分享" }).click();
+    await expect(page.getByText("已停止", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "配置预览" })).toHaveCount(0);
+    await expect(dial(remotePort)).rejects.toMatchObject({ code: "ECONNREFUSED" });
+    await page.getByRole("button", { name: "返回跳板路由" }).click();
+    await page.getByRole("button", { name: "返回主机" }).click();
+    await expect(module.getByRole("button", { name: "断开", exact: true })).toBeVisible();
+  } finally {
+    try {
+      await app.evaluate(({ clipboard }, previous) => clipboard.writeText(previous), clipboardBefore);
+    } finally {
+      await fixture.close();
+      await Promise.all([close(proxy), ssh.close()]);
+    }
+  }
+});
+
 test("P07 Workbench ViaShell confirms a TCP exit and cannot be selected for Remote", async () => {
   test.skip(process.platform !== "linux" || !existsSync("/usr/bin/python3"), "Linux system Python 3 is required");
   const password = randomUUID();

@@ -79,7 +79,7 @@ function fromFile(field: ConfigField, value: string | undefined): string | null 
   return field.startsWith("ServerAlive") ? String(Number(value)) : value;
 }
 
-function changeKind(file: string | null, huhu: string | null, base: string | undefined) {
+function changeKind(file: string | null, huhu: string | null, base: string | undefined): ConfigSyncPreview["rows"][number]["change"] {
   if (file === huhu) return "same";
   if (!base) return "unbound";
   if (base === fieldDigest(file)) return "huhu";
@@ -133,18 +133,23 @@ export class SshConfigSync {
     const saved = this.files.read(baseFile);
     const previous = saved ? SyncState.parse(JSON.parse(saved.bytes.toString("utf8"))).fields : {};
     const jump = directory.find(({ id }) => id === host.jumpHostIds[0]);
-    const localIdentity = await this.hosts.syncIdentityFile(host);
+    const identityState = host.authState.identityFile;
+    const restoreIdentity = host.auth.kind === "identity-file" && identityState === "needs-reconfiguration";
+    const localIdentity = identityState === "configured" ? await this.hosts.syncIdentityFile(host) : null;
     const working = {
       ProxyJump: !host.routeDisabled && jump ? jump.name.toLowerCase() : null,
       IdentityFile: localIdentity,
       ServerAliveInterval: host.keepaliveIntervalSec?.toString() ?? null,
       ServerAliveCountMax: host.keepaliveCountMax?.toString() ?? null,
     };
-    const rows = configFields.map((field) => {
+    const rows: ConfigSyncPreview["rows"] = configFields.map((field) => {
       const file = fromFile(field, parsed.values.get(field)?.value);
       const huhu = working[field];
-      const unavailable = field === "ProxyJump" && host.viaShell ? "ViaShell 路由无法用 OpenSSH ProxyJump 表示" : undefined;
-      return { field, file, huhu, change: changeKind(file, huhu, previous[field]), ...(unavailable && { unavailable }) } as const;
+      const row = { field, file, huhu, change: changeKind(file, huhu, previous[field]) };
+      if (field === "ProxyJump" && host.viaShell) return { ...row, unavailable: "ViaShell 路由无法用 OpenSSH ProxyJump 表示" };
+      if (field !== "IdentityFile" || !identityState || identityState === "configured" || identityState === "unconfigured") return row;
+      if (restoreIdentity && file) return { ...row, huhuToFileUnavailable: "身份文件需要在本机重新配置，可采用配置文件中的路径" };
+      return { ...row, unavailable: "无法读取本机身份文件引用，请先在主机编辑中重新配置" };
     });
     const comparison = digest(JSON.stringify(rows));
     return { fingerprint, comparison, mode, parsed, directory, host, baseFile, previous, stateRevision: saved?.version ?? null, rows };
@@ -165,7 +170,8 @@ export class SshConfigSync {
     const rec = await this.snapshot(input);
     if (rec.fingerprint !== input.fingerprint || rec.comparison !== input.comparison || rec.host.revision !== input.hostRevision || rec.stateRevision !== input.stateRevision) throw errors.versionConflict(rec.fingerprint);
     const row = rec.rows.find(({ field }) => field === input.field)!;
-    if ("unavailable" in row && row.unavailable) throw errors.invalidInput(row.unavailable);
+    if (row.unavailable) throw errors.invalidInput(row.unavailable);
+    if (row.huhuToFileUnavailable && input.direction !== "file-to-huhu") throw errors.invalidInput(row.huhuToFileUnavailable);
     const value = input.direction === "file-to-huhu" ? row.file : row.huhu;
     signal.throwIfAborted();
     if (row.file !== row.huhu) {

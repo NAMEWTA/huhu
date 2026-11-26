@@ -14,6 +14,7 @@ const ConfigSyncRow = z.strictObject({
   huhu: z.string().nullable(),
   change: z.enum(["same", "file", "huhu", "conflict", "unbound"]),
   unavailable: z.string().optional(),
+  huhuToFileUnavailable: z.string().optional(),
 });
 export const ConfigSyncPreview = z.strictObject({
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/),

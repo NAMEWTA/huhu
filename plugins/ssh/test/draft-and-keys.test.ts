@@ -1,5 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import ssh2 from "ssh2";
@@ -156,7 +156,6 @@ test("停用路由只影响下次拨号，现有连接保留实际跳点", async
 
 test("OpenSSH 同步保留两侧冲突，按版本写回并保留无关命令文本", async () => {
   const { SshConfigSync } = await import("../src/engine/config-sync.js");
-  const { writeFileSync } = await import("node:fs");
   const { root, vault, hosts } = await setup();
   const signal = new AbortController().signal;
   const jump = await hosts.configure({ ...configuration(2201), name: "jump", authKind: "agent" }, signal);
@@ -189,15 +188,51 @@ test("OpenSSH 同步保留两侧冲突，按版本写回并保留无关命令文
   await expect(sync.preview(source)).rejects.toThrow(/第 2 行/);
 });
 
+test("同步可用 OpenSSH 路径重新配置本机身份文件，同时保留源文件", async () => {
+  const { SshConfigSync } = await import("../src/engine/config-sync.js");
+  const { root, vault, hosts } = await setup();
+  const signal = new AbortController().signal;
+  const saved = await hosts.configure({
+    ...configuration(2202),
+    authKind: "identity-file",
+    credentials: [{ purpose: "identityFile", action: "replace", value: path.join(root, "original-key") }],
+  }, signal);
+  const device = path.join(root, "replacement-device");
+  mkdirSync(device);
+  const restoredHosts = new HostConfigurations(new HostStore(path.join(vault.stateDir, "ssh", "hosts")), {
+    vault,
+    localRoot: device,
+    localVaultInstanceId: "fixture-restored",
+    protection: new TestProtection(device),
+  });
+  expect(await restoredHosts.list()).toMatchObject([{ id: saved.hostId, authState: { identityFile: "needs-reconfiguration" } }]);
+  const file = path.join(root, "config");
+  const content = "Host target\n    IdentityFile ~/.ssh/fixture-identity\n    ServerAliveInterval 30\n";
+  writeFileSync(file, content);
+  const sync = new SshConfigSync(restoredHosts, vault.files);
+  const source = { path: file, hostId: saved.hostId, alias: "target" };
+  const { rows, ...version } = await sync.preview(source);
+  expect(rows).toContainEqual({ field: "ServerAliveInterval", file: "30", huhu: null, change: "unbound" });
+  const identity = path.join(homedir(), ".ssh", "fixture-identity");
+  expect(rows).toContainEqual(expect.objectContaining({ field: "IdentityFile", file: identity, huhu: null, huhuToFileUnavailable: expect.any(String) }));
+  const input = { ...source, ...version, field: "IdentityFile" } as const;
+  await expect(sync.apply({ ...input, direction: "huhu-to-file" }, signal)).rejects.toThrow("身份文件需要在本机重新配置");
+  const preview = await sync.apply({ ...input, direction: "file-to-huhu" }, signal);
+  expect(preview.rows).toContainEqual({ field: "IdentityFile", file: identity, huhu: identity, change: "same" });
+  expect(await restoredHosts.list()).toMatchObject([{ id: saved.hostId, authState: { identityFile: "configured" } }]);
+  expect(readFileSync(file, "utf8")).toBe(content);
+});
+
 test("辅助代理分享验证远端回环，通过 SSH 测试并清理监听", async () => {
   const { SshProxyShare, privateRemoteListeners } = await import("../src/engine/proxy-share.js");
   const { hosts, manager, remember } = await setup();
   const signal = new AbortController().signal;
+  let reply = "HTTP/1.1 200 Connection established\r\n\r\n" + "x".repeat(12_000);
   const proxy = net.createServer((socket) => {
     socket.on("error", () => undefined);
     socket.once("data", (data) => {
       expect(data.toString()).toMatch(/^CONNECT example\.com:443 HTTP/);
-      socket.end("HTTP/1.1 200 Connection established\r\n\r\n");
+      socket.end(reply);
     });
   });
   await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
@@ -223,6 +258,10 @@ test("辅助代理分享验证远端回环，通过 SSH 测试并清理监听", 
   const config = { hostId, connectionId, localPort, remotePort };
   await expect(share.start(config, signal)).resolves.toEqual({ state: "running", config });
   await expect(share.test(signal)).resolves.toEqual({ state: "running", config, tested: "accepted" });
+  reply = "HTTP/1.1 407 Proxy Authentication Required\r\n\r\n";
+  await expect(share.test(signal)).resolves.toMatchObject({ state: "running", config, tested: "failed" });
+  reply = "HTTP/1.1 200 Connection established\r\nX-Fixture: " + "x".repeat(12_000) + "\r\n\r\n";
+  await expect(share.test(signal)).resolves.toMatchObject({ state: "running", config, tested: "failed", message: "远端代理验证响应超限" });
   await expect(share.stop(signal)).resolves.toEqual({ state: "stopped" });
   await expect(share.test(signal)).rejects.toThrow("没有可测试");
   expect(manager.isConnected(hostId)).toBe(true);

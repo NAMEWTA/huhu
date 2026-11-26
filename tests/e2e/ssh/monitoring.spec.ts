@@ -84,6 +84,86 @@ test("A11 native server tools keep the original shell and query the actual Docke
   }
 });
 
+test("H9.3 原生服务器工具复用原窗口并只取消自身查询", async () => {
+  const readingImages = Promise.withResolvers<void>();
+  let imagesClosed = false;
+  const a = await startFakeSsh({ onExec(command) {
+    if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
+    if (command === PROCESS_LIST) return { stdout: "21 process-a" };
+    if (command === CONTAINER_LIST) return { stderr: "docker: not found", code: 127 };
+  } });
+  const b = await startFakeSsh({
+    onExec(command) {
+      if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
+      if (command === PROCESS_LIST) return { stdout: "31 process-b" };
+      if (command === CONTAINER_LIST) return { stderr: "permission denied", code: 1 };
+    },
+    onInteractiveExec(command, channel) {
+      if (command !== IMAGE_LIST) return false;
+      channel.once("close", () => { imagesClosed = true; });
+      readingImages.resolve();
+      return true;
+    },
+  });
+  const fixture = await openApp();
+  const { app, page } = fixture;
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const panes = [];
+    for (const [name, port] of [["工具甲", a.port], ["工具乙", b.port]] as const) {
+      panes.push(await call<{ hostId: string }>(page, "ssh.hosts.configure", {
+        name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+      }));
+    }
+    await call(page, "ssh.workspace.runs.start", { name: "工具窗口归属", layout: { kind: "tabs" }, panes: panes.map(({ hostId }) => ({ hostId })) });
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /工具窗口归属.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    const openTools = run.getByRole("button", { name: "在新窗口打开服务器工具", exact: true });
+    const openWindow = () => Promise.all([app.waitForEvent("window"), openTools.click()]).then(([window]) => window);
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await run.getByRole("button", { name: "分栏监控", exact: true }).click();
+    const windowA = await openWindow();
+    const toolsA = windowA.getByTestId("ssh-tool-window");
+    const sessionA = await run.getByRole("article", { name: "工具甲" }).getAttribute("data-session-id");
+    await expect(toolsA).toHaveAttribute("data-shell-id", sessionA!);
+    await expect(toolsA.getByRole("listitem")).toContainText("process-a");
+    await toolsA.getByRole("button", { name: "容器", exact: true }).click();
+    await expect(toolsA.getByRole("alert")).toHaveText("当前主机缺少 Docker 命令");
+
+    await run.getByRole("tab", { name: "工具乙", exact: true }).click();
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    const windowB = await openWindow();
+    const toolsB = windowB.getByTestId("ssh-tool-window");
+    const sessionB = await run.getByRole("article", { name: "工具乙" }).getAttribute("data-session-id");
+    await expect(toolsB).toHaveAttribute("data-shell-id", sessionB!);
+    expect(sessionB).not.toBe(sessionA);
+    await expect(toolsB.getByRole("listitem")).toContainText("process-b");
+    await toolsB.getByRole("button", { name: "容器", exact: true }).click();
+    await expect(toolsB.getByRole("alert")).toHaveText("当前账户没有读取权限");
+
+    await run.getByRole("tab", { name: "工具甲", exact: true }).click();
+    await openTools.click();
+    await expect.poll(() => windowA.evaluate(() => document.hasFocus())).toBe(true);
+    await expect.poll(() => app.windows().filter((window) => window.url().includes("sshTools=1")).length).toBe(2);
+    await expect(toolsA.getByRole("alert")).toHaveText("当前主机缺少 Docker 命令");
+    await toolsB.getByRole("button", { name: "镜像", exact: true }).click();
+    await readingImages.promise;
+    await windowB.close();
+    await expect.poll(() => imagesClosed, { timeout: 5000 }).toBe(true);
+    await toolsA.getByRole("button", { name: "进程", exact: true }).click();
+    await expect(toolsA.getByRole("listitem")).toContainText("process-a");
+    await run.getByRole("tab", { name: "工具乙", exact: true }).click();
+    await expect(run.getByRole("article", { name: "工具乙" })).toHaveAttribute("data-session-id", sessionB!);
+    await expect(run.getByRole("article", { name: "工具乙" }).getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
+  } finally {
+    await fixture.close();
+    await Promise.all([a.close(), b.close()]);
+  }
+});
+
 test("Workbench monitors a saved panel in the background and controls the active Pane separately", async () => {
   let reads = 0;
   let terminated = 0;

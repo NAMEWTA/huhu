@@ -59,8 +59,10 @@ test("快捷文本排序持久化，预览仅向显式选定的可输入分栏�
   const password = randomUUID();
   const leftInput: string[] = [];
   const rightInput: string[] = [];
+  const thirdInput: string[] = [];
   const left = await startFakeSsh({ password, onShellInput: (text) => leftInput.push(text) });
   const right = await startFakeSsh({ password, onShellInput: (text) => rightInput.push(text) });
+  const third = await startFakeSsh({ password, onShellInput: (text) => thirdInput.push(text) });
   const app = await openApp();
   const { page } = app;
   try {
@@ -83,9 +85,11 @@ test("快捷文本排序持久化，预览仅向显式选定的可输入分栏�
 
     const a = await saveHost(page, "左侧夹具", left.port, password);
     const b = await saveHost(page, "右侧夹具", right.port, password);
-    const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "快捷文本验收", layout: { kind: "two" }, panes: [{ hostId: a.hostId }, { hostId: b.hostId }] });
+    const c = await saveHost(page, "未选夹具", third.port, password);
+    const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "快捷文本验收", layout: { kind: "three" }, panes: [a, b, c].map(({ hostId }) => ({ hostId })) });
     await trustHost(page, a.hostId);
     await trustHost(page, b.hostId);
+    await trustHost(page, c.hostId);
     await page.getByRole("button", { name: "工作区", exact: true }).click();
     await page.getByRole("button", { name: /快捷文本验收/ }).click();
     const run = page.getByTestId("ssh-workspace-run");
@@ -93,8 +97,10 @@ test("快捷文本排序持久化，预览仅向显式选定的可输入分栏�
     await run.getByText("快捷文本与广播", { exact: true }).click();
     const leftTarget = run.getByRole("checkbox", { name: /左侧夹具/ });
     const rightTarget = run.getByRole("checkbox", { name: /右侧夹具/ });
+    const thirdTarget = run.getByRole("checkbox", { name: /未选夹具/ });
     await expect(leftTarget).toBeEnabled();
     await expect(rightTarget).toBeEnabled();
+    await expect(thirdTarget).toBeEnabled();
     const fields = run.getByRole("textbox", { name: "快捷文本", exact: true });
     const preview = run.getByRole("region", { name: "快捷文本预览" });
     const insert = run.getByRole("button", { name: "插入", exact: true });
@@ -125,6 +131,8 @@ test("快捷文本排序持久化，预览仅向显式选定的可输入分栏�
     expect([leftInput.join(""), rightInput.join("")]).toEqual([line, ""]);
     await pick("多行示例");
     await run.getByRole("button", { name: "全部可输入分栏", exact: true }).click();
+    await expect(thirdTarget).toBeChecked();
+    await thirdTarget.uncheck();
     await send.click();
     const sent = multiline.replaceAll("\n", "\r") + "\r";
     await expect.poll(() => [leftInput.join(""), rightInput.join("")]).toEqual([line + sent, sent]);
@@ -154,9 +162,10 @@ test("快捷文本排序持久化，预览仅向显式选定的可输入分栏�
     await expect(preview).toBeHidden();
     await expect(send).toBeHidden();
     expect([leftInput.join(""), rightInput.join("")]).toEqual([line + sent, sent]);
+    expect(thirdInput).toEqual([]);
   } finally {
     await app.close();
-    await Promise.all([left.close(), right.close()]);
+    await Promise.all([left.close(), right.close(), third.close()]);
   }
 });
 
