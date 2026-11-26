@@ -154,7 +154,7 @@ HUHU_USER_ZDOTDIR="\${ZDOTDIR-$HOME}" ZDOTDIR="$d" "$SHELL" -li`;
     const script = `saved_umask=$(umask)
 umask 077
 d=$(mktemp -d "\${TMPDIR:-/tmp}/huhu-shell.XXXXXXXX") || { umask "$saved_umask"; exec "$SHELL" -l; }
-trap 'rm -f -- "$d/bashrc" "$d/.zshenv" "$d/.zprofile" "$d/.zshrc" "$d/.zlogin"; rmdir -- "$d"' 0
+trap 'rm -rf -- "$d"' 0
 trap 'exit 129' HUP
 trap 'exit 143' TERM
 ${scripts}`;

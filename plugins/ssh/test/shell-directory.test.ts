@@ -1,3 +1,7 @@
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { expect, test } from "vitest";
 import { ShellDirectory } from "../src/engine/shell-directory.js";
 
@@ -58,4 +62,19 @@ test("input, foreground and full-screen output invalidate earlier permits withou
   busy();
   idle();
   expect(tracker.state().state).toBe("busy");
+});
+
+test.runIf(process.platform !== "win32")("launch removes its private startup directory even when the shell writes extra files there", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "huhu-launch-"));
+  try {
+    const fakeShell = path.join(root, "fake-zsh");
+    writeFileSync(fakeShell, '#!/bin/sh\n: > "$ZDOTDIR/.zcompdump"\n', { mode: 0o755 });
+    const tmp = path.join(root, "tmp");
+    mkdirSync(tmp);
+    const result = spawnSync("/bin/sh", ["-c", new ShellDirectory().launch("zsh")], { env: { PATH: "/usr/bin:/bin", HOME: root, TMPDIR: tmp, SHELL: fakeShell }, encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(readdirSync(tmp)).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
