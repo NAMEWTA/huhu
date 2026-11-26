@@ -11,7 +11,7 @@ import type { AccountRemovals } from "./account-removals.js";
 import type { MailAccount, openMailAccounts } from "./accounts.js";
 import { MailAccountError } from "./discovery.js";
 import type { MailDrafts } from "./drafts.js";
-import { forwardContext } from "./forward-context.js";
+import { forwardContext } from "../shared/forward-context.js";
 import { gmailFallback, gmailHistoryId, GmailHistoryError, gmailNativeId, gmailRecovery, type GmailPage } from "./gmail-history.js";
 import { graphDeltaLink, GraphMailError, graphNativeId, graphPending, graphProgress, graphRecovery, type GraphPage } from "./graph-mail.js";
 import { IMAP_WINDOW, MAX_IMAP_SOURCE_BYTES } from "./imap-message.js";
@@ -22,7 +22,7 @@ import { prepareReply, replyMode, replySeed, rootHeaders } from "./prepare-reply
 import { cachedPublicMail, publicMail, publicMailHeaders, readPublicMail } from "./public-mail.js";
 import { gmailMessageLocation, graphMessageLocation, imapMessageLocation, preserveReadOverrides, readOverridePath, readOverrides, type PortableMessageLocation } from "./read-overrides.js";
 import { loadRemoteImages, maxRemoteImages, remoteImageTypes } from "./remote-images.js";
-import { sourceMessage } from "./reply-context.js";
+import { sourceMessage } from "../shared/reply-context.js";
 import { searchableHtml, type makeMailSearchText } from "./search-text.js";
 
 const mailbox = sourceMessage.omit({ localMessageId: true });

@@ -1,7 +1,7 @@
 export { mailAccountPackageFile, openMailAccounts, type MailAccount, type MailAccountDraft } from "./accounts.js";
 export type { MailAccountDefinition, MailAccountSettings, MailFolder } from "./account-definition.js";
 export { MailAccountError, type MailAccountErrorCode, type MailFolderDiscovery } from "./discovery.js";
-export { mailPreset, mailProviderSchema, type MailProvider } from "./presets.js";
+export { mailPreset, mailProviderSchema, type MailProvider } from "../shared/presets.js";
 export { apply, mailCapabilityDescriptors } from "./registration.js";
 export { MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource } from "./draft-attachments.js";
 export { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, mailPackageSelection, validateMailPackage, withMailSnapshot, type MailDraftAttachments } from "./drafts.js";

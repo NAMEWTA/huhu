@@ -5,7 +5,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type { DraftContent } from "../engine/draft-content.js";
 import type { ConversationMessage, ConversationMessagesPage, ConversationSummary, ConversationsPage, LocatedMessage, MailLocationTarget } from "../engine/conversations.js";
 import type { MailFolderSyncStatus } from "../engine/message-cache.js";
-import { mailPreset, type MailProvider } from "../engine/presets.js";
+import { mailPreset, type MailProvider } from "../shared/presets.js";
 import { mailDayWindow, type MailPeriod } from "../mail-calendar.js";
 import { isPublicMailFolder } from "../mail-folder-visibility.js";
 import { MailAccountDialog } from "./MailAccountDialog.js";

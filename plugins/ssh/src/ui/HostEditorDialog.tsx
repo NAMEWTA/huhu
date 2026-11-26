@@ -3,7 +3,8 @@ import { CapabilityError, host as desktopHost, useCapability, useEngine } from "
 import { X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import type { z } from "zod";
-import { purposes, type AuthKind, type ConfigureHost, type HostAuthSummary, type Purpose } from "../engine/auth-profile.js";
+import { purposes, type AuthKind, type Purpose } from "../shared/host-auth.js";
+import type { ConfigureHost, HostAuthSummary } from "../engine/auth-profile.js";
 import { authLabels, credentialLabels, credentialState, type Host, type ManagedHost } from "./host-record.js";
 import { t } from "./i18n.js";
 import type { SshKeySummary } from "../shared/key-library.js";

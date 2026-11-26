@@ -33,7 +33,7 @@ import {
   type OAuthProvider,
   type SealedOAuthToken,
 } from "./oauth-provider.js";
-import type { MailEndpoint } from "./presets.js";
+import type { MailEndpoint } from "../shared/presets.js";
 
 export type MailAccountOwner = Pick<CredentialOwner<MailAccountDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
 type DraftInput = Readonly<{ settings: MailAccountSettings; password: string | undefined }>;

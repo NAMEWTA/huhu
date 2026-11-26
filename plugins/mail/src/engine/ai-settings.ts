@@ -23,7 +23,7 @@ import { aiEndpoint, mailCompletion, type AiMessage, type AiResult } from "./ai-
 import { sourceDigest } from "./prepare-forward.js";
 import { parseMessageBody } from "./message-body.js";
 import { requireCachedMessage } from "./message-cache.js";
-import { sourceMessage } from "./reply-context.js";
+import { sourceMessage } from "../shared/reply-context.js";
 import { searchableHtml } from "./search-text.js";
 import { mailActor, mailTool, requireMailCaller } from "./tool-access.js";
 import { mailUnknown, type MailIntents } from "./tool-intents.js";

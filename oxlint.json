@@ -66,6 +66,11 @@
               {
                 "group": ["node:*", "@huhu/vault", "@huhu/kernel", "@huhu/plugin-*/engine"],
                 "message": "插件 ui 不得导入 Node 或 engine"
+              },
+              {
+                "regex": "^(?:\\.\\./)+engine(?:/|$)",
+                "allowTypeImports": true,
+                "message": "插件 ui 的运行时共用代码应放在 shared"
               }
             ]
           }

@@ -1,7 +1,7 @@
 import { isIP } from "node:net";
 import { z } from "zod";
 import { isSelectable } from "../mail-folder-visibility.js";
-import { mailPreset, mailProviderSchema } from "./presets.js";
+import { mailPreset, mailProviderSchema } from "../shared/presets.js";
 export { isSelectable } from "../mail-folder-visibility.js";
 
 const hostname = z.hostname();

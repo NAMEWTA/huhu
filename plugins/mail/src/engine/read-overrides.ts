@@ -2,7 +2,7 @@ import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { gmailNativeId } from "./gmail-history.js";
 import { graphNativeId } from "./graph-mail.js";
-import { sourceMessage } from "./reply-context.js";
+import { sourceMessage } from "../shared/reply-context.js";
 
 export const readOverrideId = z.hash("sha256", { enc: "hex" });
 const { folder } = sourceMessage.shape;

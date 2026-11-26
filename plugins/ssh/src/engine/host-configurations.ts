@@ -1,3 +1,4 @@
+import { purposes, type Purpose } from "../shared/host-auth.js";
 import { randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -5,7 +6,7 @@ import { HuhuError, errors } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CredentialAction, type CredentialOwner, type CredentialSummary } from "@huhu/kernel";
 import ssh2, { type ConnectConfig } from "ssh2";
 import type { z } from "zod";
-import { HostDefinition, OwnedHostId, purposes, type ConfigureHost, type CopyHost, type HostRevision, type ManagedHostView, type Purpose, type SshHostProfile } from "./auth-profile.js";
+import { HostDefinition, OwnedHostId, type ConfigureHost, type CopyHost, type HostRevision, type ManagedHostView, type SshHostProfile } from "./auth-profile.js";
 import { validateHost, type HostStore, type LegacyHost } from "./hosts.js";
 import { readIdentityCertificate } from "./identity-certificate.js";
 import { KeyLibrary } from "./key-library.js";

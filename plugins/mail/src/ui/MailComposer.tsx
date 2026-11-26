@@ -7,7 +7,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { MAX_DRAFT_ATTACHMENT_BYTES, type DesktopDraftAttachmentHost, type DraftAttachmentError, type DraftAttachmentState, type SelectDraftAttachmentResult } from "../desktop-attachments.js";
 import type { DraftContent } from "../engine/draft-content.js";
-import { missingForwardAttachments } from "../engine/forward-context.js";
+import { missingForwardAttachments } from "../shared/forward-context.js";
 import { MailField } from "./MailAccountDialog.js";
 import type { Draft, MailAccount } from "./mail-types.js";
 

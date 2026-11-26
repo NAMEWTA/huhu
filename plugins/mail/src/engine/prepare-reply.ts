@@ -2,7 +2,7 @@ import { Splitter, type Headers, type SplitterChunk } from "@zone-eu/mailsplit";
 import addressParser from "nodemailer/lib/addressparser";
 import { z } from "zod";
 import { draftRecipient } from "./draft-content.js";
-import { maxReferences, replyContext, rfcMessageId, sourceMessage } from "./reply-context.js";
+import { maxReferences, replyContext, rfcMessageId, sourceMessage } from "../shared/reply-context.js";
 
 type Origin = z.infer<typeof sourceMessage>;
 export const replyMode = replyContext.shape.mode;

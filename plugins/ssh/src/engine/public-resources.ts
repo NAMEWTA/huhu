@@ -1,8 +1,9 @@
+import { purposes } from "../shared/host-auth.js";
 import { createHash } from "node:crypto";
 import { CapabilityIntentKeySchema, errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { HostDefinition, ManagedHostView, OwnedHostId, purposes, SshRouteRevision } from "./auth-profile.js";
+import { HostDefinition, ManagedHostView, OwnedHostId, SshRouteRevision } from "./auth-profile.js";
 import type { ManagedHost } from "./host-configurations.js";
 import { effectiveOutboundProxy, outboundProxyVersion } from "./outbound-proxies.js";
 import { connectionIdentity, routeForHost, workspaceTarget } from "./workspace-target.js";

@@ -1,7 +1,7 @@
 import { createPublicKey, verify, type JsonWebKey } from "node:crypto";
 import { z } from "zod";
 import { graphMailEndpoint, graphNativeId } from "./graph-mail.js";
-import { mailPreset, type MailEndpoint } from "./presets.js";
+import { mailPreset, type MailEndpoint } from "../shared/presets.js";
 
 export const oauthProvider = z.enum(["gmail", "outlook"]);
 export type OAuthProvider = z.infer<typeof oauthProvider>;

@@ -3,7 +3,7 @@ import { CapabilityError, useEngine } from "@huhu/workbench";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { z } from "zod";
 import type { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "../engine/import/capability.js";
-import { importFormats, MAX_BYTES, type HostImportFormat, type ImportLocation } from "../engine/import/input.js";
+import { importFormats, MAX_BYTES, type HostImportFormat, type ImportLocation } from "../shared/host-import.js";
 
 type Preview = z.output<typeof hostImportPreviewDescriptor.output>;
 type Row = Preview["rows"][number];
