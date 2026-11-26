@@ -103,7 +103,7 @@ test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效"
       });
       const direct = await configure("启动直连夹具", startup.port);
       const workspace = await configure("恢复工作区夹具", restored.port);
-      const run = await call<WorkspaceRun>("ssh.workspace.runs.start", { name: "恢复首选项", layout: { kind: "one" }, panes: [workspace] });
+      const run = await call<WorkspaceRun>("ssh.workspace.runs.start", { name: "恢复首选项", layout: { kind: "one" }, panes: [{ hostId: workspace.hostId }] });
       const view = () => call<WorkspaceRun[]>("ssh.workspace.runs.list").then((runs) => runs.find(({ id }) => id === run.id));
       const current = () => call<ConnectionStatus[]>("ssh.connections.status");
       await expect.poll(async () => (await view())?.panes[0]?.phase).toBe("trust");

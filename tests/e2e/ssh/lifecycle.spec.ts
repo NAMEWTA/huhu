@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -11,6 +11,7 @@ import type { TransferJob, TransferQueue } from "../../../plugins/ssh/src/shared
 import type { ConnectionStatus } from "../../../plugins/ssh/src/shared/trust.js";
 import type { WorkspaceRun } from "../../../plugins/ssh/src/shared/workspace.js";
 import { LINUX_SAMPLE, PLATFORM_COMMAND } from "../../../plugins/ssh/src/engine/monitor-sample.js";
+import { readEngineEndpoint } from "../../../packages/vault/src/engine-endpoint.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import { openApp } from "../helpers/launch.js";
 import { desktopCall } from "./workbench.js";
@@ -84,11 +85,11 @@ test("H12.1 Engine 异常退出释放转发并留下唯一传输终态，原工�
         const { baseUrl, vaultId } = await window.huhuHost.engine();
         return { port: Number(new URL(baseUrl).port), vaultId };
       });
-      const runtime = path.join(vault, ".huhu", "runtime");
-      const descriptors = await Promise.all((await readdir(runtime)).map(async (machine) => JSON.parse(await readFile(path.join(runtime, machine, "engine.json"), "utf8")) as { pid: number; port: number; vaultId: string }));
-      const engine = descriptors.find(({ port, vaultId }) => port === endpoint.port && vaultId === endpoint.vaultId);
-      expect(engine?.pid).toBeGreaterThan(1);
-      process.kill(engine!.pid, "SIGKILL");
+      const discovery = readEngineEndpoint(vault);
+      if (discovery.state !== "running") throw new Error(`未找到测试 Vault 的本机 Engine 描述符（${discovery.state}）`);
+      expect(discovery.endpoint).toMatchObject({ port: endpoint.port, vaultId: endpoint.vaultId });
+      expect(discovery.endpoint.pid).toBeGreaterThan(1);
+      process.kill(discovery.endpoint.pid, "SIGKILL");
       await expect(page.getByText("工作台引擎未连接")).toBeVisible({ timeout: 10_000 });
       await expect.poll(() => server.closed()).toBe(server.conns.length);
       await expect(bindLoopback(listenPort)).resolves.toBe(listenPort);

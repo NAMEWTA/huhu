@@ -136,10 +136,14 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
         const buffer = term.buffer.active;
         if (!keyword.current || buffer.type !== "normal") return;
         const cursorRow = buffer.baseY + buffer.cursorY;
+        const theme = getComputedStyle(el);
+        const backgroundColor = theme.getPropertyValue("--warning-bg").trim();
+        const foregroundColor = theme.getPropertyValue("--warning-text").trim();
         for (const { start, end } of terminalKeywordRanges(buffer, term.cols, buffer.viewportY, term.rows, keyword.current)) {
           const marker = term.registerMarker(start.y - cursorRow);
           if (!marker) continue;
-          const decoration = term.registerDecoration({ marker, x: start.x, width: end.x - start.x, backgroundColor: "#f6d06f", foregroundColor: "#211804" });
+          const decoration = term.registerDecoration({ marker, x: start.x, width: end.x - start.x,
+            ...(backgroundColor && { backgroundColor }), ...(foregroundColor && { foregroundColor }) });
           decoration?.onRender((element) => { element.dataset.terminalHighlight = ""; });
           decorations.push(marker);
         }
@@ -349,6 +353,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       term.options.fontFamily = next.fontFamily;
       term.options.fontSize = next.fontSize;
       scheduleFit();
+      scheduleHighlights();
     };
     // xterm updates its cell metrics on DPR changes, even when the CSS box keeps its size.
     let resolution: MediaQueryList;
