@@ -1379,6 +1379,45 @@ test("原生回答先落盘，竞争只保存一个回答，确认丢失后只�
   expect(await call(recovered, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, questions: 1 })] });
 });
 
+test.each([false, true])("原生回答回包丢失后只核实并通知两个读取方（运行已结束：%s）", async (finished) => {
+  const { fake, engine, task, run, execution } = await startBoundRun();
+  const question = { mode: "native_deferred", requestId: "ask-delivery", requestVersion: 1, text: "请选一个", options: ["一", "二"], nativeRequestId: "original-request" } as const;
+  expect(await submitReceipt(engine, { version: 1, receiptId: "delivery-question", kind: "question", execution, payload: question })).toMatchObject({ ok: true });
+  const answer = vi.fn<NonNullable<TaskDispatchExecutor["answer"]>>().mockRejectedValue(new Error("原生写入后的回包丢失"));
+  const inspect = vi.fn<NonNullable<TaskDispatchExecutor["inspectAnswer"]>>().mockResolvedValue({ status: "unknown" });
+  fake.answer = answer;
+  fake.inspectAnswer = inspect;
+  const lookup = { taskId: task.id, runId: run.runId, sessionId: execution.sessionBinding.sessionId, requestId: question.requestId, requestVersion: question.requestVersion, replyId: "delivery-reply" };
+  const readReply = () => call(engine, "tasks.reply.read", lookup);
+  const questions = () => call(engine, "tasks.questions.list", { taskId: task.id });
+  expect(await call(engine, "tasks.reply", { ...lookup, answer: "一" })).toMatchObject({ ok: true, data: { status: "pending" } });
+  await vi.waitFor(async () => expect(await readReply()).toMatchObject({ ok: true, data: { status: "unknown" } }));
+
+  if (finished) {
+    expect(await submitReceipt(engine, { version: 1, receiptId: "delivery-result", kind: "result", execution, payload: { message: "已收到回答" } })).toMatchObject({ ok: true });
+    await vi.waitFor(async () => expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [{ state: "succeeded", finishedAt: expect.any(String) }] }));
+    expect(await questions()).toMatchObject({ ok: true, data: [{ status: "closed", reply: { status: "unknown" } }] });
+  }
+
+  const updates: ReturnType<typeof questions>[] = [];
+  const unsubscribe = engine.events.subscribe(({ type, payload }) => {
+    if (type === "entity.changed" && "kind" in payload && payload.kind === "task-run" && "id" in payload && payload.id === run.runId) updates.push(questions());
+  });
+  try {
+    inspect.mockResolvedValue({ status: "accepted" });
+    await vi.waitFor(async () => expect(await readReply()).toMatchObject({ ok: true, data: { status: "accepted" } }));
+    const original = { execution, requestId: question.requestId, requestVersion: question.requestVersion, nativeRequestId: question.nativeRequestId, replyId: lookup.replyId, answer: "一" };
+    expect(answer).toHaveBeenCalledExactlyOnceWith(original, expect.any(AbortSignal));
+    expect(inspect).toHaveBeenLastCalledWith(original, expect.any(AbortSignal));
+    const receipt = { ok: true, data: [{ requestId: question.requestId, status: finished ? "closed" : "awaiting", reply: { replyId: lookup.replyId, status: "accepted" } }] };
+    expect(await questions()).toMatchObject(receipt);
+    expect(await Promise.all(updates)).toContainEqual(expect.objectContaining({ ok: true, data: [expect.objectContaining({ reply: expect.objectContaining({ status: "accepted" }) })] }));
+  } finally {
+    unsubscribe();
+    await Promise.allSettled(updates);
+  }
+});
+
 test("原轮停止先保存意图，重开只核实同一次停止", { timeout: 60_000 }, async () => {
   const { root, fake, engine, task, run, execution } = await startBoundRun();
   const input = { taskId: task.id, dispatchId: run.dispatchId, runId: run.runId, stopId: "user-stop-bound" };

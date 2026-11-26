@@ -139,6 +139,7 @@ function main(file) {
   let server;
   let threadId;
   let resumedStamp;
+  let resumeTurnOffset;
   let defaultChoices = false;
   let turnId;
   let executionBinding;
@@ -295,6 +296,10 @@ function main(file) {
       if (!answer) return;
       answer.resolved = true;
       confirmAnswer(answer);
+      if (resumeTurnOffset !== undefined && !answer.accepted) {
+        const { fingerprint, source: { turnId, itemId, questionId } } = answer;
+        save("answer-resolved-" + fingerprint, { fingerprint, turnId, itemId, questionId, offset: resumeTurnOffset });
+      }
       return;
     }
     recordAnswerOutput(readAnswerOutput(method, params, threadId, turnId));
@@ -388,6 +393,7 @@ function main(file) {
     }
     const intent = runFile(execution, "intent");
     if (statSync(path.join(directory, intent + ".json"), { throwIfNoEntry: false })) return;
+    resumeTurnOffset = resume ? statSync(resume.file, { throwIfNoEntry: false })?.size : undefined;
     submitted = true;
     executionBinding = execution;
     resultMode = requestedResultMode;
@@ -535,7 +541,6 @@ function main(file) {
       cwd: process.cwd(),
       sandbox: workspace ? "workspace-write" : "read-only",
       approvalPolicy: "never",
-      ...(nativeChoiceBridge && { experimentalRawEvents: true }),
       ...(config.model ? { model: config.model } : {}),
       ...(config.fast ? { serviceTier: "priority" } : {}),
       ...(config.effort ? { config: { model_reasoning_effort: config.effort } } : {}),
@@ -554,7 +559,7 @@ function main(file) {
       if (nativeChoiceBridge) prepareDefaultChoices(undefined, 4);
       else listenForControl();
     };
-    if (!resume) return request("thread/start", { ...settings, ephemeral: true }, ready);
+    if (!resume) return request("thread/start", { ...settings, ephemeral: true, ...(nativeChoiceBridge && { experimentalRawEvents: true }) }, ready);
     const sameSource = (thread) =>
       thread?.id === resume.threadId && typeof thread.path === "string" && realpathSync(thread.path) === resume.file && typeof thread.cwd === "string" && path.relative(realpathSync(thread.cwd), resume.cwd) === "";
     request("thread/read", { threadId: resume.threadId, includeTurns: false }, (read) => {

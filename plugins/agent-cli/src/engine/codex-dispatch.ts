@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { accessSync, constants, createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, closeSync, constants, createReadStream, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -53,6 +53,7 @@ export const nativeTerminalCodes = {
   unconfirmed: "codex_terminal_result_unconfirmed",
 } as const;
 const AnswerAck = z.strictObject({ fingerprint: Digest });
+const ResolvedAnswer = AnswerAck.extend({ turnId: Id, itemId: Id, questionId: Id, offset: z.int().nonnegative() });
 const StopWrite = z.strictObject({ fingerprint: Digest, threadId: Id, turnId: Id });
 const Item = z.strictObject({ threadId: Id, turnId: Id, itemId: Id });
 const NativeReport = z.strictObject({
@@ -119,6 +120,51 @@ function runArtifact(execution: ExecutionBinding, name: "receipt" | "completed" 
   const { vaultId, taskId, runId, attempt, dispatchId, sessionBinding: binding } = execution;
   const scope = [vaultId, taskId, runId, attempt, dispatchId, binding.machineId, binding.sessionId, binding.coreId, binding.coreAddress, binding.processGeneration, binding.provider, binding.nativeSessionId];
   return `run-${launchHash(scope)}-${name}`;
+}
+
+/** Codex 0.170 emits raw response events for thread/start only. A restored turn persists the same items in its rollout. */
+function rolloutConfirmsAnswer(resume: z.infer<typeof Resume>, { turnId, itemId, questionId, offset }: z.infer<typeof ResolvedAnswer>, answer: string): boolean {
+  let handle: number | undefined;
+  try {
+    handle = openSync(resume.file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const stat = fstatSync(handle, { bigint: true });
+    const length = stat.size - BigInt(offset);
+    if (!stat.isFile() || `${stat.dev}:${stat.ino}:${stat.birthtimeNs}` !== resume.physical || length <= 0n) return false;
+    const bytes = Buffer.alloc(Math.min(Number(length), 8 * 1024 * 1024));
+    const count = readSync(handle, bytes, 0, bytes.length, offset);
+    const end = bytes.subarray(0, count).lastIndexOf(0x0a);
+    if (end < 0) return false;
+    const lines = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end)).split("\n");
+    const expected = JSON.stringify({ answers: { [questionId]: { answers: [answer] } } });
+    let inTurn = false;
+    let sawCall = false;
+    let sawAnswer = false;
+    for (const line of lines) {
+      const { type, payload } = JSON.parse(line);
+      if (type === "event_msg" && payload?.type === "task_started") {
+        if (inTurn) return false;
+        inTurn = payload.turn_id === turnId;
+      }
+      if (!inTurn) continue;
+      if (type === "event_msg" && (payload?.type === "task_complete" || payload?.type === "turn_aborted")) return payload.turn_id === turnId && sawAnswer;
+      if (type !== "response_item" || payload?.call_id !== itemId) continue;
+      if (payload.type === "function_call") {
+        if (sawCall || payload.name !== "request_user_input") return false;
+        sawCall = true;
+      } else if (payload.type === "function_call_output" && sawCall) {
+        if (payload.name != null && payload.name !== "request_user_input") return false;
+        const { output } = payload;
+        const text = Array.isArray(output) && output.length === 1 && output[0]?.type === "input_text" ? output[0].text : output;
+        if (sawAnswer || typeof text !== "string" || text.length > 16_000 || JSON.stringify(JSON.parse(text)) !== expected) return false;
+        sawAnswer = true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    if (handle !== undefined) closeSync(handle);
+  }
 }
 
 export class CodexDispatch {
@@ -378,7 +424,13 @@ export class CodexDispatch {
     const bound = this.forSession(execution.vaultId, execution.sessionBinding.machineId, session);
     if (!bound || bound.thread.threadId !== execution.sessionBinding.nativeSessionId) return false;
     const fingerprint = answerFingerprint(input);
-    return signedFile(bound.control, "answer-ack-" + fingerprint, AnswerAck)?.fingerprint === fingerprint;
+    const { control, thread } = bound;
+    if (signedFile(control, "answer-ack-" + fingerprint, AnswerAck)?.fingerprint === fingerprint) return true;
+    if (!control.resume) return false;
+    const resolved = signedFile(control, "answer-resolved-" + fingerprint, ResolvedAnswer);
+    if (resolved?.fingerprint !== fingerprint) return false;
+    const completion = signedFile(control, runArtifact(execution, "completed", thread.protocol), Completion);
+    return completion?.threadId === thread.threadId && completion.turnId === resolved.turnId && rolloutConfirmsAnswer(control.resume, resolved, input.answer);
   }
 
   stopWritten(input: NativeStop, session: BoundSession, turnId: string): boolean {

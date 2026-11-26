@@ -84,6 +84,7 @@ export class TaskNativeReplies {
     private readonly inbox: TaskReceiptInbox,
     private readonly now: () => Date,
     private readonly executor?: TaskDispatchExecutor,
+    private readonly onReplyChanged?: (runId: string) => void,
   ) {
     this.index = new TaskJournalIndex(files, DIRECTORY, /^[a-f0-9]{64}\.json$/, (file) => this.groups(this.read(file).entries));
   }
@@ -275,6 +276,7 @@ export class TaskNativeReplies {
       if (status !== current.status) {
         entries[index] = { ...current, status };
         await this.write(file, entries, version);
+        this.onReplyChanged?.(current.input.runId);
       }
       return status;
     });

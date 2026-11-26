@@ -383,6 +383,10 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
       { source: "human", author: "Web", run: run!.runId, session: session!.id, ask: question!.requestId, body: "Circle" },
     ]);
     await expect(peerRun.getByText("已送达", { exact: true })).toBeVisible();
+    await expect(managed.getByText("已送达", { exact: true })).toBeVisible();
+    await peer.reload();
+    const reopenedRun = await openRun(peer, title);
+    await expect(reopenedRun.getByTestId("task-run-question").getByText("已送达", { exact: true })).toBeVisible();
     const taskRequests = responses.requests.slice(sourceRequests.length);
     expect(taskRequests).toHaveLength(2);
     expect(JSON.stringify(taskRequests[0]!.input)).toContain(taskMarker);
