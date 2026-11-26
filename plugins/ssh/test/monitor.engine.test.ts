@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -121,15 +121,32 @@ async function updatePlan(client: EngineClient, { planId, revision }: PlanSummar
   return result.plan;
 }
 
+test.skipIf(process.platform !== "linux")("process list reports the kernel start ticks in the same stat record as the name", async () => {
+  const rows = execFileSync("sh", ["-c", PROCESS_LIST], { encoding: "utf8" }).trimEnd().split("\n");
+  const stat = await readFile("/proc/1/stat", "utf8");
+  const nameEnd = stat.lastIndexOf(") ");
+  const name = stat.slice(stat.indexOf("(") + 1, nameEnd);
+  const start = stat.slice(nameEnd + 2).split(" ")[19];
+  expect(rows).toContain(`1\t${start}\t${name}`);
+  expect(rows.length).toBeLessThanOrEqual(64);
+});
+
 test("tool actions and dashboard sudo stay on the selected original transport", { timeout: 20_000 }, async () => {
   const f = await fixture();
   try {
     const seenA: string[] = [];
     const seenB: string[] = [];
     const containerId = "abcdef123456";
+    let startTicks = "101";
+    let terminations = 0;
     const a = await f.host("Action A", "linux", (command) => {
       seenA.push(command);
-      if (command.startsWith("actual=")) return { code: command.includes("[ \"$actual\" = 'fixture' ]") ? 0 : 3 };
+      if (command === PROCESS_LIST) return { stdout: `55\t${startTicks}\tfixture` };
+      if (command.endsWith("kill -TERM 55")) {
+        if (!command.includes(`[ "$name" = 'fixture' ] && [ "$start" = '${startTicks}' ]`)) return { code: 3 };
+        terminations++;
+        return { code: 0 };
+      }
       if (command === `docker logs --tail 100 -- ${containerId}`) return { stdout: "from A", stderr: "stderr from A" };
       if (command === `docker exec ${containerId} sh -c :`) return { code: 0 };
       if (command.startsWith("sudo -n --")) return { stdout: "memory 8192 4096\n" };
@@ -144,8 +161,17 @@ test("tool actions and dashboard sudo stay on the selected original transport", 
     const source = await shell(client, a.id);
     const other = await shell(client, b.id);
     const target = { hostId: a.id, shellId: source };
-    await expect(client.call("ssh.monitor.tools.process.terminate", { ...target, pid: 55, name: "stale name" }, opts)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
-    expect(await client.call("ssh.monitor.tools.process.terminate", { ...target, pid: 55, name: "fixture" }, opts)).toEqual({ ok: true });
+    const list = () => client.call<MonitorToolResult>("ssh.monitor.tools.read", { ...target, tool: "processes" }, opts);
+    const [old] = (await list()).rows;
+    expect(old).toEqual({ id: "55", name: "fixture", startTicks: "101" });
+    const terminate = (name: string, startTicks: string | undefined) => client.call("ssh.monitor.tools.process.terminate", { ...target, pid: 55, name, startTicks }, opts);
+    startTicks = "102";
+    await expect(terminate(old!.name, old!.startTicks)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    const [current] = (await list()).rows;
+    await expect(terminate("stale name", current!.startTicks)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    expect(terminations).toBe(0);
+    expect(await terminate(current!.name, current!.startTicks)).toEqual({ ok: true });
+    expect(terminations).toBe(1);
     expect(await client.call("ssh.monitor.tools.container.logs", { ...target, containerId })).toEqual({ stdout: "from A", stderr: "stderr from A" });
     const child = await client.call<{ id: string }>("ssh.monitor.tools.container.shell", { ...target, containerId }, opts);
     expect(a.server.conns).toHaveLength(1);
@@ -175,14 +201,22 @@ test("server tools use only read-only commands on the selected Pane", { timeout:
   try {
     const { client } = f;
     const a = await f.host("Tool A", "linux", (command) => {
-      if (command === PROCESS_LIST) return { stdout: "23 tool-a" };
+      if (command === PROCESS_LIST) return { stdout: "23\t101\ttool-a" };
       if (command === CONTAINER_LIST || command === IMAGE_LIST) return { stderr: "docker: not found", code: 127 };
     });
     let restricted = false;
+    let imageReady = false;
+    let imageClosed = false;
+    let holdImages = false;
     const b = await f.host("Tool B", "linux", (command) => {
-      if (command === PROCESS_LIST) return { stdout: "31 tool-b" };
+      if (command === PROCESS_LIST) return { stdout: "31\t102\ttool-b" };
       if (command === CONTAINER_LIST) return restricted ? { stderr: "permission denied", code: 1 } : { stdout: "abcdef123456|fixture-b|fixture/image|running" };
       if (command === IMAGE_LIST) return { stdout: "abcdef123456|fixture/image:stable|10MB\nabcdef123456|fixture/image:latest|10MB\nmalformed row" };
+    }, (command, _channel, session) => {
+      if (!holdImages || command !== IMAGE_LIST) return false;
+      session.once("close", () => { imageClosed = true; });
+      imageReady = true;
+      return true;
     });
     const left = await shell(client, a.id);
     const right = await shell(client, b.id);
@@ -203,6 +237,14 @@ test("server tools use only read-only commands on the selected Pane", { timeout:
     ] });
     restricted = true;
     expect(await read(b.id, right, "containers")).toMatchObject({ state: "denied", rows: [] });
+    holdImages = true;
+    const request = new AbortController();
+    const pending = client.call("ssh.monitor.tools.read", { hostId: b.id, shellId: right, tool: "images" }, { ...opts, signal: request.signal }).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(imageReady).toBe(true));
+    request.abort();
+    expect(await pending).toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(imageClosed).toBe(true), { timeout: 3000 });
+    expect(await read(a.id, left, "processes")).toMatchObject({ state: "ready" });
     await client.call("ssh.disconnect", { hostId: a.id }, opts);
     await expect(read(a.id, left, "processes")).rejects.toMatchObject({ code: "SSH_DISCONNECTED" });
     expect(await client.call("ssh.shells.list", { hostId: b.id })).toContainEqual(expect.objectContaining({ id: right, state: "running" }));
@@ -219,8 +261,8 @@ test("sudo sampling and sudo server tools select independent commands on the ori
     const host = await f.host("sudo scopes", "linux", (command) => {
       commands.push(command);
       if (command.startsWith("sudo -n -- ") && command.includes("huhu-monitor-linux-v1")) return { stdout: "memory 16384 4096\n" };
-      if (command.startsWith("sudo -n -- ") && command.includes(PROCESS_LIST)) return { stdout: "45 elevated-fixture" };
-      if (command === PROCESS_LIST) return { stdout: "23 normal-fixture" };
+      if (command.startsWith("sudo -n -- ") && command.includes("read_process_stat")) return { stdout: "45\t101\televated-fixture" };
+      if (command === PROCESS_LIST) return { stdout: "23\t101\tnormal-fixture" };
     });
     const shellId = await shell(client, host.id);
     const binding = { hostId: host.id, shellId };
@@ -233,7 +275,7 @@ test("sudo sampling and sudo server tools select independent commands on the ori
     const query = (sudo: boolean) => client.call<MonitorToolResult>("ssh.monitor.tools.read", { ...binding, tool: "processes", sudo }, opts);
     expect(await query(false)).toMatchObject({ state: "ready", rows: [{ id: "23", name: "normal-fixture" }] });
     expect(await query(true)).toMatchObject({ state: "ready", rows: [{ id: "45", name: "elevated-fixture" }] });
-    expect(commands.some((command) => command.startsWith("sudo -n -- ") && command.includes(PROCESS_LIST))).toBe(true);
+    expect(commands.some((command) => command.startsWith("sudo -n -- ") && command.includes("read_process_stat"))).toBe(true);
     expect(host.server.conns).toHaveLength(1);
   } finally {
     await f.close();

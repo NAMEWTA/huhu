@@ -1,6 +1,6 @@
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ConnectionStatus, HostKeyPrompt, KnownHostKey } from "../../../plugins/ssh/src/shared/trust.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
@@ -42,6 +42,59 @@ async function fixtureHost(page: Page, name: string, port: number, password: str
   });
   return saved.hostId;
 }
+
+test("H3.1 缺失本机身份可重开提示并使用一次性密码，旧回复和凭据不留存", async () => {
+  const password = randomUUID();
+  let attempts = 0;
+  const server = await startFakeSsh({ password, onAuth: () => attempts++ });
+  try {
+    const fixture = await openApp();
+    const { page, vault } = fixture;
+    try {
+      await openSsh(page);
+      const saved = await desktopCall<{ hostId: string; revision: string }>(page, "ssh.hosts.configure", {
+        name: "缺失身份夹具", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "identity-file", expectedRevision: null,
+        credentials: [{ purpose: "identityFile", action: "replace", value: path.join(vault, "missing-fixture-identity") }],
+      });
+      const state = () => desktopCall<ConnectionStatus[]>(page, "ssh.connections.status").then((statuses) => statuses.find(({ hostId }) => hostId === saved.hostId));
+      await selectHost(page, "缺失身份夹具");
+      await connect(page);
+      const recovery = page.getByRole("dialog", { name: "恢复本机 SSH 身份" });
+      await expect(recovery).toContainText("本机身份文件不可用");
+      const pending = await state();
+      if (pending?.state !== "auth-waiting") throw new Error("Expected an identity recovery prompt");
+      await recovery.getByRole("button", { name: "稍后回答", exact: true }).click();
+      await expect(recovery).toHaveCount(0);
+      await moduleView(page).getByRole("button", { name: "继续交互认证", exact: true }).click();
+      await recovery.getByLabel("替代凭据").selectOption("keyboard-interactive");
+      await expect(recovery.getByLabel("一次性密码", { exact: true })).toHaveCount(0);
+      await recovery.getByLabel("替代凭据").selectOption("password");
+      await recovery.getByLabel("一次性密码", { exact: true }).fill(password);
+      await recovery.getByRole("button", { name: "提交回答", exact: true }).click();
+      await expect(dialog(page)).toContainText(server.fingerprint);
+      expect(attempts).toBe(0);
+      await page.getByRole("button", { name: "信任并连接", exact: true }).click();
+      await expect.poll(async () => (await state())?.state).toBe("connected");
+      const { attemptId, hop, promptId } = pending.authPrompt;
+      expect(await desktopCall(page, "ssh.authentication.answer", { attemptId, hop, promptId, answers: ["password", password] })).toEqual({ applied: false });
+      expect(await desktopCall(page, "ssh.hosts.list")).toContainEqual(expect.objectContaining({ id: saved.hostId, revision: saved.revision, auth: { kind: "identity-file", source: "ssh" } }));
+      const runtime = path.join(vault, ".huhu", "runtime");
+      for (const machine of readdirSync(runtime)) {
+        const receipts = path.join(runtime, machine, "idempotency.ndjson");
+        if (existsSync(receipts)) expect(readFileSync(receipts, "utf8")).not.toContain("ssh.authentication.answer");
+      }
+      await disconnect(page);
+      await connect(page);
+      await expect(recovery).toBeVisible();
+      await expect(recovery.getByLabel("一次性密码", { exact: true })).toHaveValue("");
+      await recovery.getByRole("button", { name: "取消连接", exact: true }).click();
+    } finally {
+      await fixture.close();
+    }
+  } finally {
+    await server.close();
+  }
+});
 
 async function snapshot(page: Page, hostId: string) {
   return (await desktopCall<ConnectionStatus[]>(page, "ssh.connections.status")).find((item) => item.hostId === hostId);

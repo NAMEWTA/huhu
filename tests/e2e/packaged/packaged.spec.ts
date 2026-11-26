@@ -3,13 +3,18 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { execFile, execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
 import { openImapFixture } from "../../../plugins/mail/test/fixtures/imap.js";
+import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
+import type { FileDocument, FileSession } from "../../../plugins/ssh/src/shared/files.js";
+import type { ForwardRule, ForwardRun } from "../../../plugins/ssh/src/shared/forwarding.js";
 import { candidateEnvironment, candidatePackage, confirmCandidate, disposeCandidate } from "../helpers/candidate-package.js";
+import { desktopCall } from "../ssh/workbench.js";
 
 /**
  * 打包后的 E2E 子集（release.md §5）：对安装/解包后的可执行文件运行。
@@ -19,7 +24,7 @@ import { candidateEnvironment, candidatePackage, confirmCandidate, disposeCandid
 test.afterAll(disposeCandidate);
 
 const EXE = process.env["HUHU_PACKAGED_EXE"];
-const candidateAcceptance = process.env["HUHU_PACKAGED_CREDENTIAL_ACCEPTANCE"] === "1";
+const candidateAcceptance = process.env["HUHU_PACKAGED_CREDENTIAL_ACCEPTANCE"] === "1" || process.env["HUHU_PACKAGED_SSH_ACCEPTANCE"] === "1";
 test.skip(!EXE && !candidateAcceptance, "需要 HUHU_PACKAGED_EXE 指向打包后的可执行文件");
 
 async function start(
@@ -194,6 +199,77 @@ test("打包后：随包命令行 huhu --version 与应用版本一致，huhu ca
     expect(JSON.parse(out).ok).toBe(true);
   } finally {
     await s.stop();
+  }
+});
+
+test("打包后：SSH 连接回环主机、读回测试文件并在退出后回收", async () => {
+  const password = randomUUID();
+  const marker = `packaged-ssh-${randomUUID()}`;
+  const remotePath = "/home/test/packaged.txt";
+  const content = "打包后的 SFTP 文本\n";
+  let shellInput = "";
+  const server = await startFakeSsh({
+    password,
+    onInteractiveShell(channel) {
+      channel.write("packaged-shell-ready\r\n");
+      channel.on("data", (data: Buffer) => {
+        shellInput += data.toString();
+        if (shellInput.endsWith("\r")) channel.write(`echo ${shellInput.trim()}\r\n`);
+      });
+    },
+  });
+  server.fs.files.set(remotePath, Buffer.from(content));
+  async function probePort(port: number) {
+    const probe = createServer();
+    await new Promise<void>((resolve, reject) => {
+      probe.once("error", reject);
+      probe.listen(port, "127.0.0.1", resolve);
+    });
+    const address = probe.address();
+    await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+    if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
+    return address.port;
+  }
+  try {
+    const listenPort = await probePort(0);
+    const { page, stop } = await start();
+    try {
+      const call = <T>(capability: string, input?: unknown) => desktopCall<T>(page, capability, input);
+      const { hostId } = await call<{ hostId: string }>("ssh.hosts.configure", {
+        name: "打包 SSH 主机", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: password }],
+      });
+      await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+      await call("ssh.workspace.runs.start", { name: "打包 SSH 工作区", layout: { kind: "one" }, panes: [{ hostId }] });
+      await page.getByRole("button", { name: "工作区", exact: true }).click();
+      await page.getByRole("button", { name: /打包 SSH 工作区.*代次 1/ }).click();
+      const run = page.getByTestId("ssh-workspace-run");
+      await expect(run).toContainText(server.fingerprint);
+      await run.getByRole("button", { name: "信任并连接", exact: true }).click();
+      const pane = run.getByTestId("ssh-workspace-run-pane");
+      const terminal = pane.getByTestId("terminal-view");
+      await expect(terminal.locator(".xterm-rows")).toContainText("packaged-shell-ready");
+      await terminal.locator(".xterm-helper-textarea").focus();
+      await page.keyboard.insertText(marker);
+      await page.keyboard.press("Enter");
+      await expect(terminal.locator(".xterm-rows")).toContainText(`echo ${marker}`);
+      const shellId = await pane.getAttribute("data-session-id");
+      expect(shellId).toBeTruthy();
+      const { fileSessionId } = await call<FileSession>("ssh.fileSessions.open", { hostId, shellId });
+      const document = await call<FileDocument>("ssh.fileSessions.document.open", { fileSessionId, path: remotePath });
+      expect(document).toMatchObject({ path: remotePath, text: content });
+      const rule = await call<ForwardRule>("ssh.forwarding.rules.save", { name: "打包 SSH 监听", hostId, mode: "socks5", listenPort, resume: false });
+      await call("ssh.forwarding.runs.start", { id: rule.id, expectedRevision: rule.revision });
+      await expect.poll(async () => (await call<ForwardRun[]>("ssh.forwarding.runs.list")).find(({ ruleId }) => ruleId === rule.id)?.state).toBe("running");
+      await expect(probePort(listenPort)).rejects.toMatchObject({ code: "EADDRINUSE" });
+      await call("ssh.disconnect", { hostId });
+    } finally {
+      await stop();
+    }
+    await expect.poll(() => server.closed()).toBe(server.conns.length);
+    await expect(probePort(listenPort)).resolves.toBe(listenPort);
+  } finally {
+    await server.close();
   }
 });
 

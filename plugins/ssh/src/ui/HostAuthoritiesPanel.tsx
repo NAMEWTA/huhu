@@ -76,6 +76,7 @@ export function HostAuthoritiesPanel() {
           </Button>
         )}
       </div>
+      <p>主机证书和签发 CA 仅支持 OpenSSH Ed25519。二进制 OpenSSH KRL 暂不支持，已知主机文件可使用 <code>@revoked</code> 记录。</p>
       {trust.isPending ? <p>正在读取主机证书 CA…</p> : null}
       {trust.isError ? (
         <p role="alert">

@@ -1,5 +1,5 @@
 import { fetchExternalLinkPreview } from "@huhu/editor/link-preview-main";
-import { sshFileWindowUrl, SshFileWindowTarget, sshToolWindowUrl, SshToolWindowTarget } from "@huhu/plugin-ssh/shared";
+import { sshFileWindowUrl, SshFileWindowTarget, sshTerminalWindowUrl, SshTerminalWindowTarget, sshToolWindowUrl, SshToolWindowTarget } from "@huhu/plugin-ssh/shared";
 import { readFile } from "node:fs/promises";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, Notification, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -228,7 +228,7 @@ let flushedForQuit = false;
 let quitting = false;
 let attachAppMenu: ((win: BrowserWindow) => void) | undefined;
 
-function createWindow(chrome: ReturnType<typeof installWindowChrome>, secondary?: { address: string; title: string }): BrowserWindow {
+function createWindow(chrome: ReturnType<typeof installWindowChrome>, secondary?: { address: string; title: string; staged?: boolean }): BrowserWindow {
   const address = secondary?.address ?? rendererAddress();
   const win = new BrowserWindow({
     width: 1280,
@@ -236,6 +236,7 @@ function createWindow(chrome: ReturnType<typeof installWindowChrome>, secondary?
     minWidth: 960,
     minHeight: 600,
     title: secondary?.title ?? "HUHU",
+    ...(secondary?.staged && { show: false }),
     ...(secondary ? { autoHideMenuBar: true } : nativeTitleOptions()),
     icon: iconPath,
     webPreferences: {
@@ -243,6 +244,7 @@ function createWindow(chrome: ReturnType<typeof installWindowChrome>, secondary?
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      ...(secondary?.staged && { backgroundThrottling: false }),
     },
   });
   workbenchAddresses.set(win, address);
@@ -362,6 +364,53 @@ if (!gotLock) {
       const target = SshToolWindowTarget.parse(input);
       assertSshWindow(event, target.vaultId);
       showSshWindow(JSON.stringify(["tool", target.vaultId, target.hostId, target.shellId]), sshToolWindowUrl(rendererAddress(), target), "HUHU · SSH 服务器工具");
+    });
+    const terminalWindows = new Map<number, { address: string; target: SshTerminalWindowTarget; ready(): void }>();
+    ipcMain.handle("huhu:ssh-terminal:ready", (event, handoffId: unknown) => {
+      const pending = terminalWindows.get(event.sender.id);
+      if (!pending || pending.target.handoffId !== handoffId || event.senderFrame?.url !== pending.address) return;
+      assertSshWindow(event, pending.target.vaultId);
+      pending.ready();
+    });
+    ipcMain.handle("huhu:ssh-terminal:window", async (event, input: unknown) => {
+      const target = SshTerminalWindowTarget.parse(input);
+      assertSshWindow(event, target.vaultId);
+      const source = BrowserWindow.fromWebContents(event.sender);
+      const address = sshTerminalWindowUrl(rendererAddress(), target);
+      const win = createWindow(chrome, { address, title: "HUHU · SSH 终端", staged: true });
+      const contentsId = win.webContents.id;
+      const controller = new AbortController();
+      const failed = () => controller.abort();
+      const failedLoad = (_event: Electron.Event, code: number, _description: string, _url: string, mainFrame: boolean) => {
+        if (code !== -3 && mainFrame) failed();
+      };
+      win.once("closed", failed);
+      win.webContents.on("did-fail-load", failedLoad);
+      win.webContents.once("render-process-gone", failed);
+      event.sender.once("destroyed", failed);
+      const timeout = setTimeout(failed, 12_000);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          controller.signal.addEventListener("abort", () => reject(new Error("新窗口未能接管 SSH 终端，原窗口仍可使用。")), { once: true });
+          terminalWindows.set(contentsId, { address, target, ready: resolve });
+        });
+        if (win.isDestroyed() || controller.signal.aborted) throw new Error("新窗口已关闭，原窗口仍可使用。");
+        win.show();
+        win.focus();
+      } catch (error) {
+        if (!win.isDestroyed()) win.destroy();
+        if (!source?.isDestroyed()) source?.focus();
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+        terminalWindows.delete(contentsId);
+        win.removeListener("closed", failed);
+        if (!win.isDestroyed()) {
+          win.webContents.removeListener("did-fail-load", failedLoad);
+          win.webContents.removeListener("render-process-gone", failed);
+        }
+        if (!event.sender.isDestroyed()) event.sender.removeListener("destroyed", failed);
+      }
     });
     const shownNotices = new Map<string, number>();
     ipcMain.handle("huhu:show-automation-notification", (event, notice: unknown, vaultId: unknown) => {

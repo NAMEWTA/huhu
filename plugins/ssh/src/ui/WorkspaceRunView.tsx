@@ -1,6 +1,6 @@
 import { Button, Dialog, type TerminalInput } from "@huhu/ui";
 import { queryKey, useEngine, useQueryClient } from "@huhu/workbench";
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useState } from "react";
 import { MAX_WORKSPACE_PANES, splitTree, type ChangeWorkbenchWorkspaceRun, type WorkspaceLayout, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
 import { LAYOUT_LABELS } from "./WorkspaceLayout.js";
 import { WorkspaceCanvas, type WorkspaceTabAction } from "./WorkspaceCanvas.js";
@@ -9,11 +9,12 @@ import { AttachedFiles } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
 import type { ConnectionStatus } from "../shared/trust.js";
 import { MonitorSidebar } from "./MonitorSidebar.js";
-import { SshTerminal } from "./SshTerminal.js";
+import { MovableSshTerminal } from "./SshTerminalWindow.js";
 import { deviceDefaults, saveDevicePreferences, useDevicePreferences, type DevicePreferences } from "./device-preferences.js";
 import { AuthenticationDialog } from "./AuthenticationDialog.js";
 import { TerminalActions } from "./TerminalActions.js";
 import { RecordTerminal } from "./TerminalRecordings.js";
+import { broadcastTerminalKey, currentBroadcastTargets, type TerminalTarget } from "./terminal-broadcast.js";
 
 const PHASES: Record<WorkspaceRunPane["phase"], string> = {
   reconnect: "等待重连",
@@ -43,7 +44,7 @@ export function WorkspaceRunView({
   const engine = useEngine();
   const { endpoint } = engine;
   const qc = useQueryClient();
-  const { paneTools, paneToolSize, paneToolOrder, groupVerticalTabs, showPaneFiles, tabs } = useDevicePreferences();
+  const { paneTools, paneToolSize, paneToolOrder, paneToolsMovable, groupVerticalTabs, collapseVerticalGroups, showPaneFiles, paneFilePosition, tabs } = useDevicePreferences();
   const [deciding, setDeciding] = useState<Record<string, boolean>>({});
   const [authentication, setAuthentication] = useState<string>();
   const [active, setActive] = useState(run.panes[0]?.paneId);
@@ -56,6 +57,7 @@ export function WorkspaceRunView({
   const [deviceNotice, setDeviceNotice] = useState("");
   const [locked, setLocked] = useState<Record<string, boolean>>({});
   const [inputs, setInputs] = useState<Record<string, TerminalInput>>({});
+  const [broadcast, setBroadcast] = useState<TerminalTarget[]>([]);
   const [inputCallbacks] = useState(() => new Map<string, (input: TerminalInput | undefined) => void>());
   const [showFiles, setShowFiles] = useState(showPaneFiles && paneTools !== "hidden");
   const [showMonitor, setShowMonitor] = useState(false);
@@ -132,6 +134,9 @@ export function WorkspaceRunView({
   const tree = run.layout.kind === "custom" ? run.layout.tree : undefined;
   const visiblePanes = shown ? run.panes.filter((pane) => (!(maximized || run.layout.kind === "tabs") || pane.paneId === activePane?.paneId) && pane.phase === "ready" && pane.sessionId) : [];
   const targetInputs = visiblePanes.map((pane) => ({ id: pane.paneId, label: pane.label, sessionId: pane.sessionId!, send: locked[pane.paneId] ? undefined : inputs[pane.sessionId!] }));
+  const liveBroadcast = currentBroadcastTargets(broadcast, targetInputs);
+  const broadcastLost = broadcast.length > 0 && liveBroadcast.length === 0;
+  useLayoutEffect(() => { if (broadcastLost) setBroadcast([]); }, [broadcastLost]);
   function inputCallback(sessionId: string) {
     let send = inputCallbacks.get(sessionId);
     if (!send) {
@@ -147,6 +152,13 @@ export function WorkspaceRunView({
     }
     return send;
   }
+  const attachedFiles = shown && showFiles && activePane && (
+    <div key="attached-files" className="ssh-workspace-attached-files">
+      {activePane.phase === "ready" && activePane.sessionId ? (
+        <AttachedFiles key={activePane.sessionId} hostId={activePane.hostId} shellId={activePane.sessionId} onOpen={onOpenFiles} title={`活动分栏文件 · ${activePane.label}`} followDirectory />
+      ) : <p role="status">{activePane.label}的连接尚未就绪</p>}
+    </div>
+  );
   return (
     <section data-testid="ssh-workspace-run" data-run-id={run.id} data-generation={run.generation} aria-label="工作区分栏" inert={!shown}>
       <p>连接代次 {run.generation}</p>
@@ -236,7 +248,7 @@ export function WorkspaceRunView({
               <option value="large">大</option>
             </select>
           </label>
-          <Button onClick={() => setDeviceLayout({ paneTools: deviceDefaults.paneTools, paneToolOrder: deviceDefaults.paneToolOrder, paneToolSize: deviceDefaults.paneToolSize }, "已恢复工具栏默认布局。")}>恢复工具栏默认布局</Button>
+          <Button onClick={() => setDeviceLayout({ paneTools: deviceDefaults.paneTools, paneToolOrder: deviceDefaults.paneToolOrder, paneToolSize: deviceDefaults.paneToolSize, paneToolsMovable: deviceDefaults.paneToolsMovable }, "已恢复工具栏默认布局。")}>恢复工具栏默认布局</Button>
         </div>
         <div className="ssh-workspace-controls">
           <label className="hu-field">
@@ -253,8 +265,14 @@ export function WorkspaceRunView({
         </div>
       </details>
       <div role="status">{deviceNotice}</div>
-      {shown && <TerminalActions targets={targetInputs} activeTargetId={activePane?.paneId} />}
-      <div className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
+      {shown && <TerminalActions targets={targetInputs} activeTargetId={activePane?.paneId} onBroadcast={setBroadcast} />}
+      {liveBroadcast.length > 0 && <div className="ssh-workspace-controls">
+        <span role="status">键入广播中 · {liveBroadcast.map(({ label }) => label).join("、")}</span>
+        <Button type="button" onClick={() => setBroadcast([])}>停止键入广播</Button>
+      </div>}
+      <div className="ssh-workspace-file-layout" data-file-position={shown && showFiles ? paneFilePosition : "below"}>
+      {paneFilePosition === "left" && attachedFiles}
+      <div key="terminal" className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
         <div className={showMonitor ? "ssh-monitor-terminal" : undefined}>
           <WorkspaceCanvas
             layout={run.layout}
@@ -263,6 +281,7 @@ export function WorkspaceRunView({
             maximized={maximized}
             tabs={tabs}
             groupVerticalTabs={groupVerticalTabs}
+            collapseVerticalGroups={collapseVerticalGroups}
             connections={connections}
             layoutRevision={run.layoutRevision ?? run.id}
             resizingDisabled={saving}
@@ -324,6 +343,7 @@ export function WorkspaceRunView({
                       position={paneTools}
                       size={paneToolSize}
                       order={paneToolOrder}
+                      movable={paneToolsMovable}
                       onMove={(dock) => setDeviceLayout({ paneTools: dock }, `已将工具栏移至分栏${dock === "top" ? "上方" : "下方"}。`)}
                       onStatus={setDeviceNotice}
                       onFiles={() => {
@@ -337,14 +357,19 @@ export function WorkspaceRunView({
                     >
                       {pane.sessionId && (
                         <div key="terminal" className="ssh-workspace-terminal">
-                          <SshTerminal
+                          <MovableSshTerminal
                             key={pane.sessionId}
+                            name={pane.label}
+                            visible={shown && visible}
                             ariaLabel={`${pane.label} 终端`}
                             baseUrl={endpoint.baseUrl}
                             token={endpoint.token}
                             sessionId={pane.sessionId}
                             observe={Boolean(locked[pane.paneId])}
                             onTerminalInput={inputCallback(pane.sessionId)}
+                            onTerminalKey={(keys) => {
+                              if (document.visibilityState === "visible") broadcastTerminalKey(liveBroadcast, pane.paneId, keys);
+                            }}
                           />
                         </div>
                       )}
@@ -365,14 +390,8 @@ export function WorkspaceRunView({
             </aside>
           ))}
       </div>
-      {shown &&
-        showFiles &&
-        activePane &&
-        (activePane.phase === "ready" && activePane.sessionId ? (
-          <AttachedFiles key={activePane.sessionId} hostId={activePane.hostId} shellId={activePane.sessionId} onOpen={onOpenFiles} title={`活动分栏文件 · ${activePane.label}`} followDirectory />
-        ) : (
-          <p role="status">{activePane.label}的连接尚未就绪</p>
-        ))}
+      {paneFilePosition !== "left" && attachedFiles}
+      </div>
       {renaming && shown && (
         <Dialog
           open

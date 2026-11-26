@@ -169,6 +169,78 @@ test("快捷文本排序持久化，预览仅向显式选定的可输入分栏�
   }
 });
 
+for (const entry of ["桌面", "独立 Web"] as const) {
+  test(`H5.2 ${entry} 键入只广播到显式选定的可输入分栏并可一键停止`, async () => {
+    test.skip(entry === "独立 Web" && !browserBinary, "需要 Playwright Chromium 或 Microsoft Edge");
+    test.setTimeout(55_000);
+    const password = randomUUID();
+    const input = ["", "", ""];
+    const servers = await Promise.all(input.map((_, index) => startFakeSsh({ password, onShellInput: (text) => { input[index] += text; } })));
+    const fixture = await openApp();
+    let browser: Browser | undefined;
+    try {
+      const { page } = fixture;
+      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      const hosts = [];
+      const names = ["键入甲", "键入乙", "键入丙"];
+      for (let index = 0; index < names.length; index++) hosts.push(await saveHost(page, names[index]!, servers[index]!.port, password));
+      await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "持续键入验收", layout: { kind: "three" }, panes: hosts });
+      for (const { hostId } of hosts) await trustHost(page, hostId);
+      let view = page;
+      if (entry === "独立 Web") {
+        const link = await localWebLink(page);
+        browser = await chromium.launch({ executablePath: browserBinary, headless: true });
+        view = await browser.newPage();
+        await view.goto(link);
+        await expect(view.getByTestId("home-dashboard")).toBeVisible();
+      }
+      async function openRun(target: Page) {
+        await openSsh(target);
+        await target.getByRole("button", { name: "工作区", exact: true }).click();
+        await target.getByRole("button", { name: /持续键入验收.*代次 1/ }).click();
+        return target.getByTestId("ssh-workspace-run");
+      }
+      const run = await openRun(view);
+      await run.getByText("快捷文本与广播", { exact: true }).click();
+      const checkbox = (label: string) => run.getByRole("checkbox", { name: new RegExp(label) });
+      await checkbox("键入甲").check();
+      await checkbox("键入乙").check();
+      await expect(checkbox("键入丙")).not.toBeChecked();
+      if (entry === "独立 Web") {
+        const observer = await openRun(page);
+        await expect(observer.getByTestId("terminal-observer")).toHaveCount(3);
+        await observer.getByText("快捷文本与广播", { exact: true }).click();
+        await expect(observer.getByRole("checkbox", { name: /键入乙/ })).toBeDisabled();
+      }
+      const start = run.getByRole("button", { name: "开始键入广播", exact: true });
+      const stop = run.getByRole("button", { name: "停止键入广播", exact: true });
+      await start.click();
+      await expect(run.getByText("键入广播中 · 键入甲、键入乙")).toBeVisible();
+      const terminal = run.getByRole("article", { name: "键入甲", exact: true }).locator(".xterm-helper-textarea");
+      await terminal.focus();
+      await view.keyboard.type("ab");
+      await view.keyboard.press("Backspace");
+      await view.keyboard.press("Enter");
+      await expect.poll(() => input.slice()).toEqual(["ab\u007f\r", "ab\u007f\r", ""]);
+      await stop.click();
+      await terminal.focus();
+      await view.keyboard.type("c");
+      await expect.poll(() => input.slice()).toEqual(["ab\u007f\rc", "ab\u007f\r", ""]);
+      await start.click();
+      await run.getByRole("article", { name: "键入乙", exact: true }).getByRole("button", { name: "锁定输入", exact: true }).click();
+      await expect(stop).toHaveCount(0);
+      await expect(checkbox("键入乙")).toBeDisabled();
+      await terminal.focus();
+      await view.keyboard.type("d");
+      await expect.poll(() => input.slice()).toEqual(["ab\u007f\rcd", "ab\u007f\r", ""]);
+    } finally {
+      await browser?.close();
+      await fixture.close();
+      await Promise.all(servers.map((server) => server.close()));
+    }
+  });
+}
+
 test("独立 Web 工作台可管理 Vault 快捷文本，桌面读取同一版本", async () => {
   test.skip(!browserBinary, "需要 Playwright Chromium 或 Microsoft Edge");
   const { page, close } = await openApp();

@@ -78,18 +78,20 @@ export type MonitorPanelRun = z.infer<typeof MonitorPanelRun>;
 export const MonitorTool = z.enum(["processes", "containers", "images"]);
 export type MonitorTool = z.infer<typeof MonitorTool>;
 export const MonitorToolRequest = MonitorSessionOpen.omit({ interval: true }).extend({ tool: MonitorTool });
+const ProcessStartTicks = z.string().regex(/^\d{1,20}$/u);
 export const MonitorToolResult = z.object({
   connectionId: z.string(),
   tool: MonitorTool,
   state: z.enum(["ready", "denied", "unsupported", "failed"]),
   message: z.string().optional(),
-  rows: z.array(z.object({ id: z.string(), name: z.string(), detail: z.string().optional() })).max(64),
+  rows: z.array(z.object({ id: z.string(), name: z.string(), detail: z.string().optional(), startTicks: ProcessStartTicks.optional() })).max(64),
 });
 export type MonitorToolResult = z.infer<typeof MonitorToolResult>;
 
 export const MonitorProcessTarget = MonitorSessionOpen.omit({ interval: true }).extend({
   pid: z.int().min(2).max(4194304),
   name: z.string().min(1).max(120).regex(/^[^\p{Cc}]+$/u),
+  startTicks: ProcessStartTicks,
 });
 export const MonitorContainerTarget = MonitorSessionOpen.omit({ interval: true }).extend({
   containerId: z.string().regex(/^[a-f0-9]{12,64}$/u),

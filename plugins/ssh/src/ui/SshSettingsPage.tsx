@@ -7,16 +7,21 @@ import { canScaleTerminal } from "./SshTerminal.js";
 import { KnownHostsPanel } from "./KnownHostsPanel.js";
 import { SshVaultSettings } from "./SshVaultSettings.js";
 import { SshSharedTools } from "./SshSharedTools.js";
+import { SshStartupSettings } from "./SshStartupSettings.js";
+import { authLabels } from "./host-record.js";
+import { AuthKind } from "../shared/host-auth.js";
 
 const labels = { layout: "通用与布局", terminal: "终端", files: "文件与传输", connection: "连接", sharedTools: "MCP 与共享工具权限" };
 type Category = keyof typeof labels;
-type DeviceCategory = Exclude<Category, "connection" | "sharedTools">;
+type DeviceCategory = Exclude<Category, "sharedTools">;
 const fields = {
   tabs: "工作区标签方向",
   paneTools: "分栏工具栏位置",
   paneToolOrder: "工具栏顺序",
   paneToolSize: "工具栏尺寸",
+  paneToolsMovable: "允许在工作区移动工具栏",
   groupVerticalTabs: "纵向标签按同目标分组",
+  collapseVerticalGroups: "默认收起纵向标签组",
   restoreWorkspace: "打开工作区时恢复上次视图",
   hiddenNavigation: "导航显隐",
   fontSize: "终端字号",
@@ -27,21 +32,38 @@ const fields = {
   terminalScrollback: "终端回滚行数",
   terminalWordSeparator: "终端选词分隔符",
   terminalLinkActivation: "允许在终端打开链接",
+  terminalCopyOnSelect: "终端选中即复制",
+  terminalRightClickWord: "终端右键选择单词",
+  terminalScrollOnInput: "键入时滚动到终端底部",
+  terminalHighlight: "终端关键词高亮",
+  terminalCompletion: "从快捷命令补全终端输入",
+  terminalBellNotice: "显示终端响铃通知",
+  defaultAuthKind: "新建主机默认认证方式",
   localShellEnvironment: "默认本地 Shell",
   showDotFiles: "显示以点开头的文件",
   fileSort: "文件排序方式",
   remoteOnLeft: "双栏默认将远端放在左侧",
   fileOpenMode: "独立文件窗口打开方式",
   showPaneFiles: "进入工作区时展开分栏文件",
+  paneFilePosition: "附属文件面板位置",
+  filePathMode: "远端路径栏模式",
+  showFileTree: "显示远端目录树",
+  hiddenFileColumns: "文件表列显示",
+  downloadDirectory: "默认下载目录",
+  initialRemoteDirectory: "新文件视图的远端起始目录",
   followShellDirectory: "文件面板跟随 Shell",
   followFileDirectory: "Shell 跟随文件面板",
 } satisfies Partial<Record<keyof DevicePreferences, string>>;
 const keys = {
-  layout: ["tabs", "paneTools", "groupVerticalTabs", "paneToolOrder", "paneToolSize", "restoreWorkspace", "hiddenNavigation"],
-  terminal: ["fontSize", "font", "terminalLineHeight", "terminalCursor", "terminalCursorBlink", "terminalScrollback", "terminalWordSeparator", "terminalLinkActivation", "localShellEnvironment"],
-  files: ["showDotFiles", "fileSort", "remoteOnLeft", "fileOpenMode", "showPaneFiles", "followShellDirectory", "followFileDirectory"],
+  layout: ["tabs", "paneTools", "groupVerticalTabs", "collapseVerticalGroups", "paneToolOrder", "paneToolSize", "paneToolsMovable", "restoreWorkspace", "hiddenNavigation"],
+  terminal: ["fontSize", "font", "terminalLineHeight", "terminalCursor", "terminalCursorBlink", "terminalScrollback", "terminalWordSeparator", "terminalLinkActivation",
+    "terminalCopyOnSelect", "terminalRightClickWord", "terminalScrollOnInput", "terminalHighlight", "terminalCompletion", "terminalBellNotice", "localShellEnvironment"],
+  files: ["showDotFiles", "fileSort", "remoteOnLeft", "fileOpenMode", "showPaneFiles", "paneFilePosition", "filePathMode", "showFileTree", "hiddenFileColumns",
+    "downloadDirectory", "initialRemoteDirectory", "followShellDirectory", "followFileDirectory"],
+  connection: ["defaultAuthKind"],
 } as const satisfies Record<DeviceCategory, readonly (keyof typeof fields)[]>;
 const navigationSearch = `${fields.hiddenNavigation} ${Object.values(sshNavigation).join(" ")}`;
+const startupSearch = "SSH 启动与恢复 启动时自动连接的主机 工作区恢复策略";
 const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时（秒） 协议保活间隔（秒） 协议保活最大次数 断线后自动重连一次 同主机的新终端复用 SSH 连接", terminal: "录制与历史 允许开始新的终端录制 录制历史上限" };
 
 function DeviceForm({ category, filter }: { category: DeviceCategory; filter: string }) {
@@ -77,7 +99,7 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
   }
   return (
     <form className="hu-settings-section hu-card-alt" aria-labelledby={headingId} onSubmit={submit}>
-      <h2 id={headingId}>{category === "files" ? "本机文件视图" : labels[category]}</h2>
+      <h2 id={headingId}>{category === "files" ? "本机文件视图" : category === "connection" ? "本机新建主机设置" : labels[category]}</h2>
       <p>保存后应用到本机。</p>
       {shown("tabs") && (
         <label className="hu-setting-row">
@@ -104,6 +126,9 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
           <input type="checkbox" checked={draft.groupVerticalTabs} onChange={(event) => set("groupVerticalTabs", event.target.checked)} />
         </label>
       )}
+      {shown("collapseVerticalGroups") && <label className="hu-setting-row">{fields.collapseVerticalGroups}
+        <input type="checkbox" checked={draft.collapseVerticalGroups} onChange={(event) => set("collapseVerticalGroups", event.currentTarget.checked)} />
+      </label>}
       {shown("paneToolOrder") && (
         <label className="hu-setting-row">
           {fields.paneToolOrder}
@@ -123,6 +148,9 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
           </select>
         </label>
       )}
+      {shown("paneToolsMovable") && <label className="hu-setting-row">{fields.paneToolsMovable}
+        <input type="checkbox" checked={draft.paneToolsMovable} onChange={(event) => set("paneToolsMovable", event.currentTarget.checked)} />
+      </label>}
       {shown("restoreWorkspace") && (
         <label className="hu-setting-row">
           {fields.restoreWorkspace}
@@ -206,6 +234,19 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
           <input type="checkbox" checked={draft.terminalLinkActivation} onChange={(event) => set("terminalLinkActivation", event.currentTarget.checked)} />
         </label>
       )}
+      {(["terminalCopyOnSelect", "terminalRightClickWord", "terminalScrollOnInput", "terminalCompletion", "terminalBellNotice"] as const).map((field) => shown(field) && (
+        <label key={field} className="hu-setting-row">{fields[field]}
+          <input type="checkbox" checked={draft[field]} onChange={(event) => set(field, event.currentTarget.checked)} />
+        </label>
+      ))}
+      {shown("terminalHighlight") && <label className="hu-setting-row">{fields.terminalHighlight}
+        <input value={draft.terminalHighlight} maxLength={80} onChange={(event) => set("terminalHighlight", event.currentTarget.value)} />
+      </label>}
+      {shown("defaultAuthKind") && (desktop ? <label className="hu-setting-row">{fields.defaultAuthKind}
+        <select value={draft.defaultAuthKind} onChange={(event) => set("defaultAuthKind", AuthKind.parse(event.currentTarget.value))}>
+          {AuthKind.options.map((kind) => <option key={kind} value={kind}>{authLabels[kind]}</option>)}
+        </select>
+      </label> : <p>在桌面应用中设置新建 SSH 主机的默认认证。</p>)}
       {shown("localShellEnvironment") && (desktop ? (
         <>
           <label className="hu-setting-row">
@@ -255,6 +296,33 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
         </label>
       )}
       {shown("showPaneFiles") && <p>打开工作区时，工具栏可见的已连接分栏会展开文件视图。</p>}
+      {shown("paneFilePosition") && <label className="hu-setting-row">{fields.paneFilePosition}
+        <select value={draft.paneFilePosition} onChange={(event) => set("paneFilePosition", event.currentTarget.value as DevicePreferences["paneFilePosition"])}>
+          <option value="below">下方</option><option value="left">左侧</option><option value="right">右侧</option>
+        </select>
+      </label>}
+      {shown("filePathMode") && <label className="hu-setting-row">{fields.filePathMode}
+        <select value={draft.filePathMode} onChange={(event) => set("filePathMode", event.currentTarget.value === "breadcrumbs" ? "breadcrumbs" : "input")}>
+          <option value="input">输入框</option><option value="breadcrumbs">路径导航</option>
+        </select>
+      </label>}
+      {shown("showFileTree") && <label className="hu-setting-row">{fields.showFileTree}
+        <input type="checkbox" checked={draft.showFileTree} onChange={(event) => set("showFileTree", event.currentTarget.checked)} />
+      </label>}
+      {shown("hiddenFileColumns") && <fieldset className="hu-stack"><legend>{fields.hiddenFileColumns}</legend>
+        {Object.entries({ size: "大小", mtime: "修改时间", mode: "权限" } as const).map(([key, label]) => {
+          const column = key as DevicePreferences["hiddenFileColumns"][number];
+          return <label key={column} className="hu-setting-row">显示{label}
+            <input type="checkbox" checked={!draft.hiddenFileColumns.includes(column)} onChange={(event) => set("hiddenFileColumns", event.currentTarget.checked ? draft.hiddenFileColumns.filter((id) => id !== column) : [...draft.hiddenFileColumns, column])} />
+          </label>;
+        })}
+      </fieldset>}
+      {shown("initialRemoteDirectory") && <label className="hu-setting-row">{fields.initialRemoteDirectory}
+        <input value={draft.initialRemoteDirectory} maxLength={4096} placeholder="远端登录目录" onChange={(event) => set("initialRemoteDirectory", event.currentTarget.value)} />
+      </label>}
+      {shown("downloadDirectory") && (desktop ? <label className="hu-setting-row">{fields.downloadDirectory}
+        <input value={draft.downloadDirectory} maxLength={4096} placeholder="本机绝对目录" onChange={(event) => set("downloadDirectory", event.currentTarget.value)} />
+      </label> : <p>浏览器管理本地下载位置。</p>)}
       {shown("fileOpenMode") && desktop && (
         <div className="hu-setting-row">
           <label htmlFor={fileOpenModeId}>{fields.fileOpenMode}</label>
@@ -313,7 +381,8 @@ export function SshSettingsPage() {
   const matchesCategory = (key: Category) => labels[key].toLowerCase().includes(filter);
   const isDevice = (key: Category): key is DeviceCategory => Object.hasOwn(keys, key);
   const matchesKnownHosts = filter !== "" && "凭据、已知主机与日志".includes(filter);
-  const categories = (Object.keys(labels) as Category[]).filter((key) => matchesCategory(key) || (isDevice(key) && matchesDevice(key)) || ((key === "connection" || key === "files" || key === "terminal") && matchesVault(key)) || (key === "layout" && matchesKnownHosts));
+  const matchesStartup = startupSearch.toLowerCase().includes(filter);
+  const categories = (Object.keys(labels) as Category[]).filter((key) => matchesCategory(key) || (isDevice(key) && matchesDevice(key)) || ((key === "connection" || key === "files" || key === "terminal") && matchesVault(key)) || (key === "connection" && matchesStartup) || (key === "layout" && matchesKnownHosts));
   const selected = categories.includes(category) ? category : categories[0];
   return (
     <section data-testid="ssh-settings" aria-label="SSH 设置" className="hu-stack">
@@ -327,7 +396,8 @@ export function SshSettingsPage() {
       </div>
       {!selected && <EmptyState title="没有匹配的 SSH 设置" />}
       {selected && isDevice(selected) && (matchesCategory(selected) || matchesDevice(selected)) && <DeviceForm key={selected} category={selected} filter={filter} />}
-      {selected === "connection" && <SshVaultSettings section="connection" />}
+      {selected === "connection" && (matchesCategory("connection") || matchesVault("connection")) && <SshVaultSettings section="connection" />}
+      {selected === "connection" && (matchesCategory("connection") || matchesStartup) && <SshStartupSettings />}
       {selected === "files" && (labels.files.includes(filter) || matchesVault("files")) && <SshVaultSettings section="transfer" />}
       {selected === "terminal" && (matchesCategory("terminal") || matchesVault("terminal")) && <SshVaultSettings section="recording" />}
       {selected === "sharedTools" && <SshSharedTools />}

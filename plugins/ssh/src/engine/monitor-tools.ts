@@ -4,8 +4,29 @@ import type { MonitorContainerTarget, MonitorProcessTarget, MonitorTool, Monitor
 import type { MonitorConnection, SshManager } from "./manager.js";
 import { detectPlatform, monitorExec, monitorWithSudo, powershellProbe, SampleError } from "./monitor-sample.js";
 
-// Fixed Linux queries adapted from Motty remotetools.
-export const PROCESS_LIST = "LC_ALL=C ps -e -o pid= -o comm=";
+// /proc stat field 22 follows the last ") " because comm may contain parentheses.
+const readProcessStat = `read_process_stat() {
+  IFS= read -r stat 2>/dev/null < "$1" || return 1
+  fields=\${stat##*) }
+  [ "$fields" != "$stat" ] || return 1
+  name=\${stat%"$fields"}
+  name=\${name#*(}
+  name=\${name%') '}
+  set -f
+  set -- $fields
+  start=\${20}
+  case "$start" in ''|*[!0-9]*) return 1 ;; esac
+}`;
+export const PROCESS_LIST = `${readProcessStat}
+[ -r /proc/self/stat ] || exit 127
+count=0
+for path in /proc/[0-9]*/stat; do
+  pid=\${path#/proc/}; pid=\${pid%/stat}
+  read_process_stat "$path" || continue
+  printf '%s\\t%s\\t%s\\n' "$pid" "$start" "$name"
+  count=$((count+1))
+  [ "$count" -lt 64 ] || break
+done`;
 export const CONTAINER_LIST = "docker ps -a --format '{{.ID}}|{{.Names}}|{{.Image}}|{{.State}}'";
 export const IMAGE_LIST = "docker images --format '{{.ID}}|{{.Repository}}:{{.Tag}}|{{.Size}}'";
 const WIN_PROCESS_LIST = powershellProbe("Get-Process | Sort-Object Id | Select-Object -First 64 | ForEach-Object { '{0} {1}' -f $_.Id,$_.ProcessName }");
@@ -17,10 +38,14 @@ exit $LASTEXITCODE
 const linuxCommands = { processes: PROCESS_LIST, containers: CONTAINER_LIST, images: IMAGE_LIST } satisfies Record<MonitorTool, string>;
 const windowsCommands = { processes: WIN_PROCESS_LIST, containers: windowsDockerList(CONTAINER_LIST), images: windowsDockerList(IMAGE_LIST) } satisfies Record<MonitorTool, string>;
 
-function processRows(text: string): MonitorToolResult["rows"] {
+function processRows(text: string, linux: boolean): MonitorToolResult["rows"] {
   return text
     .split(/\r?\n/)
     .flatMap((line) => {
+      if (linux) {
+        const match = /^([1-9]\d{0,9})\t(\d{1,20})\t([^\p{Cc}]{1,120})$/u.exec(line);
+        return match ? [{ id: match[1]!, startTicks: match[2]!, name: match[3]! }] : [];
+      }
       const match = /^\s*([1-9]\d{0,9})\s+([^\p{Cc}]{1,120})$/u.exec(line.trimEnd());
       return match ? [{ id: match[1]!, name: match[2]! }] : [];
     })
@@ -70,7 +95,7 @@ export async function readMonitorConnection(connection: MonitorConnection, tool:
     if (read.code === 127 || /(?:docker|ps): (?:command )?not found/i.test(read.stderr)) return status("unsupported", isProcess ? "系统未提供进程列表工具" : "当前主机缺少 Docker 命令");
     if (/permission denied|access (?:is )?denied|not permitted/i.test(read.stderr)) return status("denied", "当前账户没有读取权限");
     if (read.code !== 0 && read.code !== undefined) return status("failed", isProcess ? "进程查询失败" : "无法读取 Docker 状态，服务可能不可用");
-    return { ...base, state: "ready", rows: parseRows[tool](read.stdout) };
+    return { ...base, state: "ready", rows: parseRows[tool](read.stdout, platform === "linux") };
   } catch (cause) {
     if (close.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "服务器工具的原分栏已关闭");
     request.throwIfAborted();
@@ -114,8 +139,11 @@ async function withLinuxTool<T>(
 export function terminateMonitorProcess(manager: SshManager, input: z.infer<typeof MonitorProcessTarget>, signal: AbortSignal) {
   return withLinuxTool(manager, input, signal, async (run) => {
     const name = "'" + input.name.replaceAll("'", "'\\''") + "'";
-    const response = await run(`actual=$(LC_ALL=C ps -p ${input.pid} -o comm=) || exit 3; [ "$actual" = ${name} ] || exit 3; kill -TERM ${input.pid}`);
-    if (response.code === 3) throw new HuhuError("VERSION_CONFLICT", "此 PID 已退出或进程名已变更，请刷新查询");
+    const response = await run(`${readProcessStat}
+read_process_stat /proc/${input.pid}/stat || exit 3
+[ "$name" = ${name} ] && [ "$start" = '${input.startTicks}' ] || exit 3
+kill -TERM ${input.pid}`);
+    if (response.code === 3) throw new HuhuError("VERSION_CONFLICT", "无法确认原进程，进程可能已退出或 PID 已被复用，请刷新查询");
     if (response.code !== 0) throw new HuhuError("PERMISSION_DENIED", "远端未能向进程发送终止信号");
     return { ok: true as const };
   });

@@ -22,7 +22,7 @@ import { authAvailability, authLabels, isManagedHost, type Host, type ManagedHos
 import { WorkspaceLibrary } from "./WorkspaceLibrary.js";
 import { ForwardingPanel } from "./ForwardingPanel.js";
 import { MonitorDashboard } from "./MonitorDashboard.js";
-import { SshTerminal } from "./SshTerminal.js";
+import { MovableSshTerminal } from "./SshTerminalWindow.js";
 import { RoutePanel } from "./RoutePanel.js";
 import { QuickConnectionDialog } from "./QuickConnectionDialog.js";
 import { ShortcutPanel } from "./ShortcutPanel.js";
@@ -913,7 +913,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                       {t.endShell}
                     </Button>
                   </div>
-                  <SshTerminal key={selectedShell.id} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={selectedShell.id} ariaLabel={t.terminalLabel} />
+                  <MovableSshTerminal key={selectedShell.id} name={selectedShell.name} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={selectedShell.id} ariaLabel={t.terminalLabel} />
                 </div>
               </div>
             ) : (

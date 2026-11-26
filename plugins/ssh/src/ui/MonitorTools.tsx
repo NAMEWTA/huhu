@@ -58,7 +58,7 @@ export function MonitorTools({ hostId, shellId, name, onClose }: { hostId: strin
     const origin = { hostId, shellId, sudo };
     try {
       if (kind === "terminate") {
-        await engine.call("ssh.monitor.tools.process.terminate", { ...origin, pid: Number(row.id), name: row.name }, options);
+        await engine.call("ssh.monitor.tools.process.terminate", { ...origin, pid: Number(row.id), name: row.name, startTicks: row.startTicks }, options);
         setTerminate(undefined);
         read("processes");
       } else if (kind === "logs") {
@@ -107,7 +107,7 @@ export function MonitorTools({ hostId, shellId, name, onClose }: { hostId: strin
               <li key={`${row.id}:${row.name}`}>
                 <code>{row.id}</code> {row.name}
                 {row.detail && ` · ${row.detail}`}
-                {current.tool === "processes" && Number(row.id) > 1 && (
+                {current.tool === "processes" && row.startTicks !== undefined && Number(row.id) > 1 && (
                   <Button variant="danger" disabled={working} aria-label={`终止进程 ${row.name} ${row.id}`} onClick={() => { setError(""); setTerminate(row); }}>终止进程</Button>
                 )}
                 {current.tool === "containers" && (

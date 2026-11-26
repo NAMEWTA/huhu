@@ -4,9 +4,30 @@ import type { ConnectionHop, ConnectionStatus } from "../src/shared/trust.js";
 import { paneCount, resizeSplit, splitPaneAt, workspaceTree, type SplitTree, type WorkspaceRunPane } from "../src/shared/workspace.js";
 import { deviceDefaults, saveDevicePreferences, type DevicePreferences } from "../src/ui/device-preferences.js";
 import { groupWorkspaceTabs } from "../src/ui/workspace-tab-groups.js";
+import { defaultStartupPreferences, readStartupPreferences, restoredRuns, saveStartupPreferences } from "../src/ui/startup-preferences.js";
+import type { WorkspaceRun } from "../src/shared/workspace.js";
 
 const preferenceKey = "huhu.ssh.device-preferences.v1";
 afterEach(() => localStorage.clear());
+
+test("startup settings stay on this device and Vault, restoring eligible runs within the pane limit", () => {
+  const host = `host-owned-${"a".repeat(32)}`;
+  const values = { hostIds: [host], restore: "last" } as const;
+  saveStartupPreferences("primary", { ...values, hostIds: [...values.hostIds] });
+  expect(readStartupPreferences("primary")).toEqual(values);
+  expect(readStartupPreferences("other")).toEqual(defaultStartupPreferences);
+  expect(() => saveStartupPreferences("primary", { hostIds: [host, host], restore: "all" })).toThrow();
+  const run = (id: string, count: number, phase: WorkspaceRunPane["phase"] = "reconnect"): WorkspaceRun => ({
+    id, name: id, generation: 1, layout: { kind: "one" }, panes: Array.from({ length: count }, (_, index) => pane(String(index), phase)),
+  });
+  const first = run("first", 7);
+  const last = run("last", 7);
+  const small = run("small", 2);
+  const list = [first, last, run("live", 1, "ready"), { ...run("external", 1), source: "external" } as const, small];
+  expect(restoredRuns("manual", list, "last")).toEqual([]);
+  expect(restoredRuns("last", list, "last")).toEqual([last]);
+  expect(restoredRuns("all", list, "last")).toEqual([first, small]);
+});
 
 test("resize only changes the targeted nested split and clamps its ratio", () => {
   const pane = { kind: "pane" } as const;
@@ -82,6 +103,15 @@ test("终端选词和链接设置使用本机存储并可恢复默认", () => {
   expect(() => saveDevicePreferences({ terminalWordSeparator: "\n" })).toThrow();
   const reset = saveDevicePreferences({ terminalWordSeparator: deviceDefaults.terminalWordSeparator, terminalLinkActivation: deviceDefaults.terminalLinkActivation });
   expect(reset).toMatchObject({ terminalWordSeparator: " ()[]{}',\"`", terminalLinkActivation: true });
+});
+
+test("关键词、复制和输入设置可保存，旧记录使用原来默认行为", () => {
+  localStorage.setItem(preferenceKey, JSON.stringify({ fontSize: 18 }));
+  const next = saveDevicePreferences({ terminalHighlight: " 告警 ", terminalCompletion: true, paneToolsMovable: false });
+  expect(next).toMatchObject({ fontSize: 18, terminalHighlight: "告警", terminalCompletion: true, paneToolsMovable: false,
+    terminalCopyOnSelect: false, terminalRightClickWord: false, terminalScrollOnInput: true });
+  expect(() => saveDevicePreferences({ terminalHighlight: "embedded\nnewline" })).toThrow();
+  expect(JSON.parse(localStorage.getItem(preferenceKey)!)).toEqual(next);
 });
 
 const pane = (name: string, phase: WorkspaceRunPane["phase"] = "ready"): WorkspaceRunPane => ({

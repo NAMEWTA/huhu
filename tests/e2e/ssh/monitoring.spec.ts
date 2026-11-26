@@ -89,18 +89,18 @@ test("H9.3 原生服务器工具复用原窗口并只取消自身查询", async 
   let imagesClosed = false;
   const a = await startFakeSsh({ onExec(command) {
     if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
-    if (command === PROCESS_LIST) return { stdout: "21 process-a" };
+    if (command === PROCESS_LIST) return { stdout: "21\t101\tprocess-a" };
     if (command === CONTAINER_LIST) return { stderr: "docker: not found", code: 127 };
   } });
   const b = await startFakeSsh({
     onExec(command) {
       if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
-      if (command === PROCESS_LIST) return { stdout: "31 process-b" };
+      if (command === PROCESS_LIST) return { stdout: "31\t102\tprocess-b" };
       if (command === CONTAINER_LIST) return { stderr: "permission denied", code: 1 };
     },
-    onInteractiveExec(command, channel) {
+    onInteractiveExec(command, _channel, session) {
       if (command !== IMAGE_LIST) return false;
-      channel.once("close", () => { imagesClosed = true; });
+      session.once("close", () => { imagesClosed = true; });
       readingImages.resolve();
       return true;
     },
@@ -167,11 +167,16 @@ test("H9.3 原生服务器工具复用原窗口并只取消自身查询", async 
 test("Workbench monitors a saved panel in the background and controls the active Pane separately", async () => {
   let reads = 0;
   let terminated = 0;
+  let startTicks = "101";
   const server = await startFakeSsh({
     onExec(command) {
       if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
-      if (command === PROCESS_LIST) return { stdout: "42 monitor-fixture" };
-      if (command.endsWith("kill -TERM 42")) { terminated++; return { code: 0 }; }
+      if (command === PROCESS_LIST) return { stdout: `42\t${startTicks}\tmonitor-fixture` };
+      if (command.endsWith("kill -TERM 42")) {
+        if (!command.includes(`[ "$start" = '${startTicks}' ]`)) return { code: 3 };
+        terminated++;
+        return { code: 0 };
+      }
       if (command === CONTAINER_LIST) return { stderr: "permission denied", code: 1 };
       if (command === IMAGE_LIST) return { stdout: "abcdef123456|monitor/fixture:stable|10MB" };
       if (command !== LINUX_SAMPLE) return;
@@ -251,6 +256,13 @@ test("Workbench monitors a saved panel in the background and controls the active
     expect(terminated).toBe(0);
     await confirmation.getByRole("button", { name: "取消", exact: true }).click();
     expect(terminated).toBe(0);
+    await tools.getByRole("button", { name: "终止进程 monitor-fixture 42" }).click();
+    startTicks = "102";
+    await confirmation.getByRole("button", { name: "确认终止", exact: true }).click();
+    await expect(confirmation.getByRole("alert")).toContainText("PID 已被复用");
+    expect(terminated).toBe(0);
+    await confirmation.getByRole("button", { name: "取消", exact: true }).click();
+    await tools.getByRole("button", { name: "刷新", exact: true }).click();
     await tools.getByRole("button", { name: "终止进程 monitor-fixture 42" }).click();
     await confirmation.getByRole("button", { name: "确认终止", exact: true }).click();
     await expect.poll(() => terminated).toBe(1);

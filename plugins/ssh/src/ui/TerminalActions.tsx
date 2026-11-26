@@ -2,8 +2,8 @@ import { Button, type TerminalInput } from "@huhu/ui";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { hasShortcutControl, MAX_SHORTCUT_TEXT } from "../shared/shortcuts.js";
 import { ShortcutPicker } from "./ShortcutPanel.js";
+import type { TerminalTarget as Target } from "./terminal-broadcast.js";
 
-type Target = { id: string; label: string; sessionId: string; send: TerminalInput | undefined };
 type Preview = { text: string; targets: Target[]; fromLibrary: boolean };
 
 const INPUT_ERRORS = {
@@ -12,7 +12,7 @@ const INPUT_ERRORS = {
   "bracketed-paste-required": "当前终端需要单行文本才能插入，也不能接收制表符",
 } satisfies Record<Exclude<ReturnType<TerminalInput>, "sent">, string>;
 
-export function TerminalActions({ targets, activeTargetId }: { targets: Target[]; activeTargetId?: string | undefined }) {
+export function TerminalActions({ targets, activeTargetId, onBroadcast }: { targets: Target[]; activeTargetId?: string | undefined; onBroadcast(targets: Target[]): void }) {
   const details = useRef<HTMLDetailsElement>(null);
   const textId = useId();
   const [open, setOpen] = useState(false);
@@ -41,6 +41,7 @@ export function TerminalActions({ targets, activeTargetId }: { targets: Target[]
 
   function choose(next: Record<string, string>) {
     setSelected(next);
+    onBroadcast([]);
     setFeedback("");
     setPreview(preview?.fromLibrary ? { ...preview, targets: eligible.filter(({ id, sessionId }) => next[id] === sessionId) } : undefined);
   }
@@ -116,6 +117,9 @@ export function TerminalActions({ targets, activeTargetId }: { targets: Target[]
             {send ? "" : " · 无输入控制"}
           </label>
         ))}
+        <Button type="button" disabled={current.length < 2 || current.some(({ send }) => !send?.sendKeys)} onClick={() => onBroadcast(current)}>
+          开始键入广播
+        </Button>
       </fieldset>
       <label className="hu-field" htmlFor={textId}>
         快捷文本

@@ -35,6 +35,7 @@ export const SshAuthenticationPrompt = z.strictObject({
   hop: z.int().nonnegative(),
   name: z.string().max(2048),
   instructions: z.string().max(4096),
+  recovery: z.literal("identity-file-unavailable").optional(),
   questions: z
     .array(z.strictObject({ text: z.string().max(2048), echo: z.boolean() }))
     .min(1)
