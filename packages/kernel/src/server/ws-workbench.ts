@@ -4,7 +4,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { EventBus } from "../context.js";
 import { EventReplay, EVENT_SOCKET_BYTES, eventFrame, type EventFrame } from "./ws-events.js";
 
-export type TerminalBridge = (sessionId: string, ws: WebSocket, opts: { cols: number; rows: number; observe: boolean }) => Promise<boolean> | boolean;
+export type TerminalBridge = (sessionId: string, ws: WebSocket, opts: { cols: number; rows: number; observe: boolean; allowHandoff?: boolean }) => Promise<boolean> | boolean;
 
 interface StreamOptions {
   events: EventBus;
@@ -91,7 +91,7 @@ export function attachWorkbenchStreams(server: Server, options: StreamOptions) {
         void Promise.resolve()
           .then(() => {
             if (ws.readyState !== WebSocket.OPEN || signal.aborted) return true;
-            return terminal(terminalId, ws, { cols: dims("cols", 80), rows: dims("rows", 24), observe: url.searchParams.get("mode") === "observe" });
+            return terminal(terminalId, ws, { cols: dims("cols", 80), rows: dims("rows", 24), observe: url.searchParams.get("mode") === "observe", ...(principal.caller === "desktop" && { allowHandoff: true }) });
           })
           .then((ok) => {
             if (!ok) ws.close(4404, "会话不存在");

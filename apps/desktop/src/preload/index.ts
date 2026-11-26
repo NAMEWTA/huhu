@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld("huhuHost", {
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("huhu:openExternal", url),
   openSshFileWindow: (target: import("@huhu/plugin-ssh/shared").SshFileWindowTarget): Promise<void> => ipcRenderer.invoke("huhu:ssh-files:window", target),
   openSshToolWindow: (target: import("@huhu/plugin-ssh/shared").SshToolWindowTarget): Promise<void> => ipcRenderer.invoke("huhu:ssh-tools:window", target),
+  openSshTerminalWindow: (target: import("@huhu/plugin-ssh/shared").SshTerminalWindowTarget): Promise<void> => ipcRenderer.invoke("huhu:ssh-terminal:window", target),
+  readySshTerminalWindow: (handoffId: string): Promise<void> => ipcRenderer.invoke("huhu:ssh-terminal:ready", handoffId),
   sshExternalEditor: {
     open: (name, text) => ipcRenderer.invoke("huhu:ssh-external-editor:open", name, text),
     read: (id) => ipcRenderer.invoke("huhu:ssh-external-editor:read", id),

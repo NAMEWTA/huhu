@@ -90,7 +90,7 @@ test("H5.1 SSH Linux 真实分页器显示宽字符并还原原终端画面", as
     await page.keyboard.type("printf 'origin-%s\\n' 42");
     await page.keyboard.press("Enter");
     await expect(rows).toContainText("origin-42");
-    // The local script PTY does not receive SSH window-change messages. Keep less's
+    // The local script PTY doesn't receive SSH window-change messages. Keep less's
     // page smaller than the rendered pane so the initial line stays in view.
     await page.keyboard.type("stty rows 8 cols 60 && less pager-fixture.txt");
     await page.keyboard.press("Enter");
@@ -105,6 +105,62 @@ test("H5.1 SSH Linux 真实分页器显示宽字符并还原原终端画面", as
     await fixture.close();
     await server.close();
     await ptyClosed;
+  }
+});
+
+test("H4.3 原生窗口接管同一 SSH 终端并回放，启动失败保留原窗口输入", async () => {
+  test.skip(process.platform !== "linux", "需要 Linux 桌面");
+  test.setTimeout(65_000);
+  const password = randomUUID();
+  let keys = "";
+  const server = await startFakeSsh({ password, onShellInput: (text) => { keys += text; } });
+  try {
+    const fixture = await openApp();
+    const { app, page } = fixture;
+    try {
+      await openSsh(page);
+      const { hostId } = await saveHost(page, "换窗终端", server.port, password);
+      await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "换窗工作区", layout: { kind: "one" }, panes: [{ hostId }] });
+      await page.getByRole("button", { name: "工作区", exact: true }).click();
+      await page.getByRole("button", { name: /换窗工作区.*代次 1/ }).click();
+      const run = page.getByTestId("ssh-workspace-run");
+      await run.getByRole("button", { name: "信任并连接", exact: true }).click();
+      const pane = run.getByTestId("ssh-workspace-run-pane");
+      const terminal = pane.getByTestId("terminal-view");
+      const move = pane.getByRole("button", { name: "将终端移至新窗口", exact: true });
+      await expect(terminal.locator(".xterm-rows")).toContainText("welcome");
+      await terminal.locator(".xterm-helper-textarea").focus();
+      await page.keyboard.insertText("handoff-history");
+      await expect(terminal.locator(".xterm-rows")).toContainText("handoff-history");
+
+      const [destination] = await Promise.all([app.waitForEvent("window"), move.click()]);
+      const view = destination.getByTestId("ssh-terminal-window");
+      const shellId = await pane.getAttribute("data-session-id");
+      await expect(view).toHaveAttribute("data-shell-id", shellId!);
+      await expect(view.locator(".xterm-rows")).toContainText("handoff-history");
+      await expect(terminal.getByTestId("terminal-observer")).toBeVisible();
+      await expect(view.locator(".xterm-helper-textarea")).toBeFocused();
+      await terminal.locator(".xterm-helper-textarea").focus();
+      await page.keyboard.insertText("blocked-source");
+      await view.locator(".xterm-helper-textarea").focus();
+      await destination.keyboard.insertText("destination-control");
+      await expect.poll(() => keys).toBe("handoff-historydestination-control");
+      await destination.close();
+      await expect(terminal.getByTestId("terminal-observer")).toHaveCount(0);
+
+      await page.context().routeWebSocket((url) => url.pathname.endsWith(`/${shellId}`) && url.searchParams.get("mode") === "observe", (socket) => socket.close());
+      await move.click();
+      await expect(pane.getByRole("alert")).toContainText("原窗口仍可使用", { timeout: 18_000 });
+      await terminal.locator(".xterm-helper-textarea").focus();
+      await page.keyboard.insertText("source-retained");
+      await expect.poll(() => keys).toBe("handoff-historydestination-controlsource-retained");
+      await expect(pane).toHaveAttribute("data-session-id", shellId!);
+      expect(server.conns).toHaveLength(1);
+    } finally {
+      await fixture.close();
+    }
+  } finally {
+    await server.close();
   }
 });
 

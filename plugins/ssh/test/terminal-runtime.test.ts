@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { randomUUID } from "node:crypto";
 import { HuhuError } from "@huhu/contracts";
 import type { WebSocket } from "ws";
 import { expect, test, vi } from "vitest";
@@ -91,6 +92,43 @@ test("慢终端视图退出时释放控制，其他视图仍收到输出", async
   expect(next.sent).toContain("live output");
   expect(next.sent).toContainEqual(expect.stringContaining("control-free"));
   next.close();
+});
+
+test("原生窗口交接绑定原控制者和 shell，失败保留输入，关闭目标将输入交回", async () => {
+  const write = vi.fn();
+  const attach = makeSshTerminalBridge((_id, view) => {
+    view.onData(Buffer.from("existing history"));
+    return { write, resize: vi.fn(), detach: vi.fn() };
+  });
+  const source = new ViewSocket();
+  const target = new ViewSocket();
+  const invalid = new ViewSocket();
+  const browser = new ViewSocket();
+  const id = randomUUID();
+  const shellId = "ssh-original";
+  const control = { cols: 80, rows: 24, observe: false, allowHandoff: true };
+  const stage = { ...control, observe: true };
+  const send = (socket: ViewSocket, type: string, id: string) => socket.emit("message", Buffer.from(JSON.stringify({ type, id })), false);
+  await attach(shellId, source.asSocket(), control);
+  await attach(shellId, invalid.asSocket(), stage);
+  await attach(shellId, browser.asSocket(), { ...stage, allowHandoff: false });
+  send(source, "prepare-handoff", id);
+  expect(source.sent).toContain(JSON.stringify({ type: "handoff-prepared", id }));
+  send(invalid, "claim-handoff", randomUUID());
+  send(browser, "claim-handoff", id);
+  expect(invalid.readyState).toBe(3);
+  source.emit("message", Buffer.from("before handoff"), true);
+  await attach(shellId, target.asSocket(), stage);
+  expect(target.sent).toContain("existing history");
+  send(target, "claim-handoff", id);
+  expect(source.sent.at(-1)).toContain('"mode":"observe"');
+  expect(target.sent.at(-1)).toContain('"mode":"control"');
+  source.emit("message", Buffer.from("stale source"), true);
+  target.emit("message", Buffer.from("new owner"), true);
+  target.close();
+  expect(source.sent.at(-1)).toContain('"mode":"control"');
+  source.emit("message", Buffer.from("restored"), true);
+  expect(write.mock.calls.map(([data]) => data.toString())).toEqual(["before handoff", "new owner", "restored"]);
 });
 
 test("本机终端重连沿用原环境，环境移除后不启动回退进程", async () => {

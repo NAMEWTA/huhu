@@ -9,8 +9,8 @@ import { createLedgerContributions } from "@huhu/plugin-ledger/ui";
 import { createMailContributions, requestMailNotification } from "@huhu/plugin-mail/ui";
 import { DocumentSessionConnection, contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
-import { readSshFileWindow, readSshToolWindow } from "@huhu/plugin-ssh/shared";
-import { contributions as sshUi, SshFileWindow, SshToolWindow } from "@huhu/plugin-ssh/ui";
+import { readSshFileWindow, readSshTerminalWindow, readSshToolWindow } from "@huhu/plugin-ssh/shared";
+import { contributions as sshUi, SshFileWindow, SshTerminalWindow, SshToolWindow } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
 import { contributions as tasksUi, TaskRunDetails, taskRunLabel } from "@huhu/plugin-tasks/ui";
 import {
@@ -104,7 +104,8 @@ interface AppProps {
 export function WorkbenchApp(props: AppProps) {
   const files = readSshFileWindow(location.hash);
   const tools = props.browser ? undefined : readSshToolWindow(location.hash);
-  const target = files ?? tools;
+  const terminal = props.browser ? undefined : readSshTerminalWindow(location.hash);
+  const target = files ?? tools ?? terminal;
   if (!target) return <WorkbenchShell {...props} />;
   const { endpoint, state, onConnection } = props;
   if (!endpoint || target.vaultId !== endpoint.vaultId) {
@@ -112,7 +113,7 @@ export function WorkbenchApp(props: AppProps) {
   }
   return (
     <EngineProvider endpoint={endpoint} {...(onConnection ? { onConnection } : {})}>
-      {"fileSessionId" in target ? <SshFileWindow id={target.fileSessionId} /> : <SshToolWindow hostId={target.hostId} shellId={target.shellId} name={target.name} />}
+      {"fileSessionId" in target ? <SshFileWindow id={target.fileSessionId} /> : "handoffId" in target ? <SshTerminalWindow target={target} /> : <SshToolWindow hostId={target.hostId} shellId={target.shellId} name={target.name} />}
     </EngineProvider>
   );
 }

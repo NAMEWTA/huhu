@@ -8,6 +8,7 @@ import { searchTerminal, terminalHttpUrl, terminalLinks } from "./terminal-conte
 /** Input is sent only through the socket currently controlling this terminal. */
 export type TerminalInput = (text: string, enter: boolean) => "sent" | "unavailable" | ShortcutPasteError;
 export type TerminalControl = { id: string; canInput: boolean };
+export type PrepareTerminalHandoff = (id: string) => Promise<boolean>;
 type DisplayOptions = Pick<ITerminalOptions, "cursorBlink" | "cursorStyle" | "lineHeight" | "scrollback" | "wordSeparator">;
 const defaultDisplayOptions = { cursorBlink: true, cursorStyle: "block", lineHeight: 1, scrollback: 5000 } satisfies DisplayOptions;
 
@@ -30,6 +31,9 @@ export interface TerminalViewProps {
   onTerminalInput?(input: TerminalInput | undefined): void;
   /** 当前连接的 Agent 审查控制证明，离开连接时撤回。 */
   onTerminalControl?(control: TerminalControl | undefined): void;
+  handoffId?: string;
+  onTerminalHandoff?(prepare: PrepareTerminalHandoff | undefined): void;
+  onHandoffControl?(): void;
 }
 
 const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
@@ -44,7 +48,7 @@ function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily
 }
 
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
-export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl }: TerminalViewProps) {
+export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl, handoffId, onTerminalHandoff, onHandoffControl }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
   const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
@@ -63,6 +67,10 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
   exit.current = onExit;
   const controlChanged = useRef(onTerminalControl);
   controlChanged.current = onTerminalControl;
+  const handoffChanged = useRef(onTerminalHandoff);
+  handoffChanged.current = onTerminalHandoff;
+  const handoffControl = useRef(onHandoffControl);
+  handoffControl.current = onHandoffControl;
   const currentDisplay = useRef(displayOptions);
   currentDisplay.current = displayOptions;
   const applyDisplay = useRef<((options: DisplayOptions | undefined) => void) | undefined>(undefined);
@@ -138,8 +146,9 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     let sentSize: { cols: number; rows: number } | undefined;
     let ended = false;
     let disposed = false; // 本次连接已被清理（切换会话 / 卸载 / 重连）：旧 socket 的回调不再改状态
-    let observing = observe;
+    let observing = observe || handoffId !== undefined;
     let inputGranted = false;
+    let prepared: { id: string; resolve(ready: boolean): void } | undefined;
     let control: TerminalControl | undefined;
     const enc = new TextEncoder();
     const canSend = () => !disposed && !ended && !observing && ws?.readyState === WebSocket.OPEN;
@@ -149,9 +158,23 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       controlChanged.current?.(next);
     };
     const revokeInput = () => {
+      prepared?.resolve(false);
+      handoffChanged.current?.(undefined);
       if (!inputGranted) return;
       inputGranted = false;
       onTerminalInput?.(undefined);
+    };
+    const prepareHandoff: PrepareTerminalHandoff = (id) => {
+      if (!canSend() || prepared) return Promise.resolve(false);
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => prepared?.resolve(false), 3000);
+        prepared = { id, resolve: (ready) => {
+          clearTimeout(timeout);
+          prepared = undefined;
+          resolve(ready);
+        } };
+        ws!.send(JSON.stringify({ type: "prepare-handoff", id }));
+      });
     };
     const sendInput: TerminalInput = (text, enter) => {
       if (!inputGranted || !canSend()) return "unavailable";
@@ -173,7 +196,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       sentSize = { cols, rows };
       url.searchParams.set("cols", String(cols));
       url.searchParams.set("rows", String(rows));
-      if (observe) url.searchParams.set("mode", "observe");
+      if (observe || handoffId) url.searchParams.set("mode", "observe");
       const socket = new WebSocket(url.toString(), token ? [`bearer.${token}`] : undefined);
       ws = socket;
       socket.binaryType = "arraybuffer";
@@ -182,25 +205,34 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       socket.onopen = () => {
         if (!disposed) {
           setState("open");
-          syncSize();
+          if (handoffId) socket.send(JSON.stringify({ type: "claim-handoff", id: handoffId }));
+          else syncSize();
         }
       };
       socket.onmessage = (m) => {
         if (disposed) return;
         if (typeof m.data === "string") {
           try {
-            const msg = JSON.parse(m.data) as { type?: string; mode?: string; controlId?: string; reason?: { reason?: string; exit_code?: number | null } | null };
+            const msg = JSON.parse(m.data) as { type?: string; mode?: string; id?: string; controlId?: string; reason?: { reason?: string; exit_code?: number | null } | null };
+            if (msg.type === "handoff-prepared" && prepared && prepared.id === msg.id) prepared.resolve(true);
             if (msg.type === "mode" && msg.mode === "control" && !observe) {
               observing = false;
               syncSize();
               setDemoted(false);
               setControl(msg.controlId ? { id: msg.controlId, canInput: true } : undefined);
+              if (handoffId) {
+                term.focus();
+                handoffControl.current?.();
+              } else {
+                handoffChanged.current?.(prepareHandoff);
+              }
               if (onTerminalInput && !inputGranted && canSend()) {
                 inputGranted = true;
                 onTerminalInput(sendInput);
               }
             } else if (msg.type === "mode" && msg.mode === "observe") {
               observing = true;
+              sentSize = undefined;
               revokeInput();
               setControl(!observe && msg.controlId ? { id: msg.controlId, canInput: false } : undefined);
               setDemoted(true);
@@ -289,7 +321,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       ws?.close(); // detach
       term.dispose();
     };
-  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput, hasLinkHandler, scrollbackSearch]);
+  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput, hasLinkHandler, scrollbackSearch, handoffId]);
 
   useEffect(() => applyDisplay.current?.(displayOptions), [displayOptions]);
   useEffect(() => { if (searching) searchInput.current?.focus(); }, [searching]);

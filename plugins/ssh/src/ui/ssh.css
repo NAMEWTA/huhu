@@ -1231,6 +1231,18 @@
     block-size: 100%;
   }
 
+  .ssh-movable-terminal {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-block-size: 0;
+    block-size: 100%;
+  }
+
+  .ssh-terminal-native-window {
+    block-size: 100dvh;
+  }
+
   .ssh-terminal-scale {
     position: absolute;
     inset: 0;

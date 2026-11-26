@@ -9,7 +9,7 @@ import { AttachedFiles } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
 import type { ConnectionStatus } from "../shared/trust.js";
 import { MonitorSidebar } from "./MonitorSidebar.js";
-import { SshTerminal } from "./SshTerminal.js";
+import { MovableSshTerminal } from "./SshTerminalWindow.js";
 import { deviceDefaults, saveDevicePreferences, useDevicePreferences, type DevicePreferences } from "./device-preferences.js";
 import { AuthenticationDialog } from "./AuthenticationDialog.js";
 import { TerminalActions } from "./TerminalActions.js";
@@ -337,8 +337,10 @@ export function WorkspaceRunView({
                     >
                       {pane.sessionId && (
                         <div key="terminal" className="ssh-workspace-terminal">
-                          <SshTerminal
+                          <MovableSshTerminal
                             key={pane.sessionId}
+                            name={pane.label}
+                            visible={shown && visible}
                             ariaLabel={`${pane.label} 终端`}
                             baseUrl={endpoint.baseUrl}
                             token={endpoint.token}
