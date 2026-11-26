@@ -28,7 +28,7 @@ export type SaveMonitorPanel = z.infer<typeof SaveMonitorPanel>;
 export const MonitorPanel = z.strictObject({ ...panel, id: z.uuid(), revision: z.uuid(), plan: PlanSummarySchema.optional() });
 export type MonitorPanel = z.infer<typeof MonitorPanel>;
 
-export const MonitorSessionOpen = z.strictObject({ hostId: z.string().min(1), shellId: z.string().min(1), interval: SessionInterval });
+export const MonitorSessionOpen = z.strictObject({ hostId: z.string().min(1), shellId: z.string().min(1), interval: SessionInterval, sudo: z.boolean().optional() });
 export const MonitorSessionId = z.strictObject({ id: z.uuid() });
 export const MonitorSessionChange = z.discriminatedUnion("action", [
   MonitorSessionId.extend({ action: z.enum(["pause", "continue", "retry", "close"]) }),

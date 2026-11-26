@@ -2,7 +2,7 @@ import { HuhuError } from "@huhu/contracts";
 import type { z } from "zod";
 import type { MonitorTool, MonitorToolRequest, MonitorToolResult } from "../shared/monitoring.js";
 import type { MonitorConnection, SshManager } from "./manager.js";
-import { detectPlatform, monitorExec, powershellProbe, SampleError } from "./monitor-sample.js";
+import { detectPlatform, monitorExec, monitorWithSudo, powershellProbe, SampleError } from "./monitor-sample.js";
 
 // Read-only command subset adapted from Motty remotetools. Process arguments,
 // environment, container configuration and logs are outside this response.
@@ -54,10 +54,10 @@ function imageRows(text: string): MonitorToolResult["rows"] {
 const parseRows = { processes: processRows, containers: containerRows, images: imageRows };
 
 export async function readMonitorTool(manager: SshManager, input: z.infer<typeof MonitorToolRequest>, request: AbortSignal): Promise<MonitorToolResult> {
-  return readMonitorConnection(manager.monitorPane(input.hostId, input.shellId), input.tool, request);
+  return readMonitorConnection(manager.monitorPane(input.hostId, input.shellId), input.tool, request, input.sudo);
 }
 
-export async function readMonitorConnection(connection: MonitorConnection, tool: z.infer<typeof MonitorToolRequest>["tool"], request: AbortSignal): Promise<MonitorToolResult> {
+export async function readMonitorConnection(connection: MonitorConnection, tool: z.infer<typeof MonitorToolRequest>["tool"], request: AbortSignal, elevated = false): Promise<MonitorToolResult> {
   const close = new AbortController();
   const off = connection.onClose(() => close.abort());
   const signal = AbortSignal.any([request, close.signal, AbortSignal.timeout(12_000)]);
@@ -67,7 +67,7 @@ export async function readMonitorConnection(connection: MonitorConnection, tool:
     const platform = await detectPlatform(connection.client, signal);
     const isProcess = tool === "processes";
     const command = (platform === "linux" ? linuxCommands : windowsCommands)[tool];
-    const read = await monitorExec(connection.client, command, signal);
+    const read = await (elevated ? monitorWithSudo(connection.client, platform, command, signal) : monitorExec(connection.client, command, signal));
     if (read.code === 127 || /(?:docker|ps): (?:command )?not found/i.test(read.stderr)) return status("unsupported", isProcess ? "系统未提供进程列表工具" : "当前主机缺少 Docker 命令");
     if (/permission denied|access (?:is )?denied|not permitted/i.test(read.stderr)) return status("denied", "当前账户没有读取权限");
     if (read.code !== 0 && read.code !== undefined) return status("failed", isProcess ? "进程查询失败" : "无法读取 Docker 状态，服务可能不可用");

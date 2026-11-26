@@ -3,6 +3,7 @@ import { host as desktopHost, useCapability, useEngine } from "@huhu/workbench";
 import { useEffect, useState } from "react";
 import { SESSION_INTERVALS, SessionInterval, type MonitorHost, type MonitorSession, type MonitorSessionChange } from "../shared/monitoring.js";
 import type { z } from "zod";
+import type { SshToolWindowHost } from "../shared/tool-window.js";
 import { MonitorTools } from "./MonitorTools.js";
 
 const phase: Record<MonitorHost["state"], string> = {
@@ -160,13 +161,15 @@ function ActiveMonitorSidebar({ hostId, shellId, name, shown, dock, onDock, onCl
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [tools, showTools] = useState(false);
+  const [sudo, setSudo] = useState(false);
+  const toolHost = (globalThis as { huhuHost?: SshToolWindowHost }).huhuHost;
   const reading = useCapability<MonitorSession>("ssh.monitor.session.get", { id: session?.id ?? "" }, { enabled: Boolean(session && active) });
   useMonitorPoll(Boolean(session && active), reading.refetch);
   useEffect(() => {
     let cancelled = false;
     let id: string | undefined;
     const close = (value: string) => void engine.call("ssh.monitor.session.change", { id: value, action: "close" }, { write: true }).catch(() => undefined);
-    void engine.call<MonitorSession>("ssh.monitor.session.open", { hostId, shellId, interval: 2 }, { write: true }).then(
+    void engine.call<MonitorSession>("ssh.monitor.session.open", { hostId, shellId, interval: 2, sudo }, { write: true }).then(
       (result) => {
         id = result.id;
         if (cancelled) close(id);
@@ -180,7 +183,7 @@ function ActiveMonitorSidebar({ hostId, shellId, name, shown, dock, onDock, onCl
       cancelled = true;
       if (id) close(id);
     };
-  }, [engine, hostId, shellId]);
+  }, [engine, hostId, shellId, sudo]);
   const current = reading.data ?? session;
   async function change(action: Omit<z.infer<typeof MonitorSessionChange>, "id"> | { action: "interval"; interval: z.infer<typeof SessionInterval> }) {
     if (!session || busy) return;
@@ -231,7 +234,21 @@ function ActiveMonitorSidebar({ hostId, shellId, name, shown, dock, onDock, onCl
           </Button>
         )}
         <Button onClick={onClose}>关闭监控</Button>
+        <Button aria-pressed={sudo} disabled={!current || busy || current.host.state === "disconnected"} onClick={() => {
+          setSession(undefined);
+          setError("");
+          setSudo(!sudo);
+        }}>
+          监控 sudo
+        </Button>
         {current?.host.state !== "disconnected" && <Button onClick={() => showTools(true)}>服务器工具</Button>}
+        {toolHost?.openSshToolWindow && current?.host.state !== "disconnected" && (
+          <Button onClick={() => void toolHost.openSshToolWindow({ vaultId: engine.vaultId, hostId, shellId, name }).catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : "无法打开服务器工具窗口");
+          })}>
+            在新窗口打开服务器工具
+          </Button>
+        )}
       </div>
       {(error || reading.error) && <p role="alert">{error || reading.error?.message}</p>}
       {current && <MonitorMetrics host={current.host} />}

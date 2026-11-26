@@ -9,8 +9,8 @@ import { createLedgerContributions } from "@huhu/plugin-ledger/ui";
 import { createMailContributions, requestMailNotification } from "@huhu/plugin-mail/ui";
 import { DocumentSessionConnection, contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
-import { readSshFileWindow } from "@huhu/plugin-ssh/shared";
-import { contributions as sshUi, SshFileWindow } from "@huhu/plugin-ssh/ui";
+import { readSshFileWindow, readSshToolWindow } from "@huhu/plugin-ssh/shared";
+import { contributions as sshUi, SshFileWindow, SshToolWindow } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
 import { contributions as tasksUi, TaskRunDetails, taskRunLabel } from "@huhu/plugin-tasks/ui";
 import {
@@ -102,15 +102,17 @@ interface AppProps {
 }
 
 export function WorkbenchApp(props: AppProps) {
-  const target = readSshFileWindow(location.hash);
+  const files = readSshFileWindow(location.hash);
+  const tools = props.browser ? undefined : readSshToolWindow(location.hash);
+  const target = files ?? tools;
   if (!target) return <WorkbenchShell {...props} />;
   const { endpoint, state, onConnection } = props;
   if (!endpoint || target.vaultId !== endpoint.vaultId) {
-    return <EmptyState title={state === "starting" || (state === "ready" && !endpoint) ? "正在连接原文件会话…" : "原文件会话所在的 Vault 未连接"} />;
+    return <EmptyState title={state === "starting" || (state === "ready" && !endpoint) ? "正在连接原 SSH 会话…" : "原 SSH 会话所在的 Vault 未连接"} />;
   }
   return (
     <EngineProvider endpoint={endpoint} {...(onConnection ? { onConnection } : {})}>
-      <SshFileWindow id={target.fileSessionId} />
+      {"fileSessionId" in target ? <SshFileWindow id={target.fileSessionId} /> : <SshToolWindow hostId={target.hostId} shellId={target.shellId} name={target.name} />}
     </EngineProvider>
   );
 }

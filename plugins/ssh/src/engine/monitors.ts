@@ -13,6 +13,8 @@ const PANE_LEASE_MS = 120_000;
 
 type Source = {
   id: string;
+  key: string;
+  elevated: boolean;
   client: Client;
   users: Set<Binding>;
   previous?: Counters | undefined;
@@ -27,6 +29,7 @@ type Binding = {
   interval: number;
   retention: number;
   enabled: boolean;
+  elevated?: boolean;
   panelId?: string;
   source?: Source;
   release?: () => void;
@@ -63,14 +66,15 @@ export class Monitors {
   ) {}
 
   open(input: z.infer<typeof MonitorSessionOpen>): MonitorSession {
-    return this.openConnection(input.hostId, input.interval, () => this.manager.monitorPane(input.hostId, input.shellId));
+    return this.openConnection(input.hostId, input.interval, () => this.manager.monitorPane(input.hostId, input.shellId), input.sudo);
   }
 
-  openConnection(hostId: string, interval: z.infer<typeof SessionInterval>, acquire: () => MonitorConnection): MonitorSession {
+  openConnection(hostId: string, interval: z.infer<typeof SessionInterval>, acquire: () => MonitorConnection, elevated = false): MonitorSession {
     this.assertOpen();
     if (this.panes.size >= 24) throw errors.invalidInput("监控侧栏已达上限");
     const connection = acquire();
     const binding = this.binding(hostId, interval, 15);
+    binding.elevated = elevated;
     const pane = { id: randomUUID(), binding, interval };
     this.panes.set(pane.id, pane);
     this.attach(binding, connection);
@@ -338,8 +342,10 @@ export class Monitors {
       delete host.latest;
       delete host.platform;
     }
-    const source = this.sources.get(connection.id) ?? { id: connection.id, client: connection.client, users: new Set<Binding>() };
-    this.sources.set(source.id, source);
+    const elevated = binding.elevated ?? false;
+    const key = JSON.stringify([connection.id, elevated]);
+    const source = this.sources.get(key) ?? { id: connection.id, key, elevated, client: connection.client, users: new Set<Binding>() };
+    this.sources.set(key, source);
     source.users.add(binding);
     binding.source = source;
     const off = connection.onClose(() => this.disconnect(binding, "disconnected"));
@@ -395,7 +401,7 @@ export class Monitors {
     if (source) {
       source.users.delete(binding);
       delete binding.source;
-      if (!source.users.size) this.sources.delete(source.id);
+      if (!source.users.size) this.sources.delete(source.key);
       this.schedule(source);
     }
     binding.release?.();
@@ -474,7 +480,7 @@ export class Monitors {
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12_000)]);
     try {
       const platform = source.platform ?? (await detectPlatform(source.client, signal));
-      const reading = await readSample(source.client, platform, signal, source.previous);
+      const reading = await readSample(source.client, platform, signal, source.previous, source.elevated);
       if (request.signal.aborted) return;
       source.platform = platform;
       source.previous = reading.counters;

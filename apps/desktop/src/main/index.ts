@@ -1,5 +1,5 @@
 import { fetchExternalLinkPreview } from "@huhu/editor/link-preview-main";
-import { sshFileWindowUrl, SshFileWindowTarget } from "@huhu/plugin-ssh/shared";
+import { sshFileWindowUrl, SshFileWindowTarget, sshToolWindowUrl, SshToolWindowTarget } from "@huhu/plugin-ssh/shared";
 import { readFile } from "node:fs/promises";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, Notification, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -228,15 +228,15 @@ let flushedForQuit = false;
 let quitting = false;
 let attachAppMenu: ((win: BrowserWindow) => void) | undefined;
 
-function createWindow(chrome: ReturnType<typeof installWindowChrome>, fileTarget?: SshFileWindowTarget): BrowserWindow {
-  const address = fileTarget ? sshFileWindowUrl(rendererAddress(), fileTarget) : rendererAddress();
+function createWindow(chrome: ReturnType<typeof installWindowChrome>, secondary?: { address: string; title: string }): BrowserWindow {
+  const address = secondary?.address ?? rendererAddress();
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 960,
     minHeight: 600,
-    title: fileTarget ? "HUHU · SSH 文件" : "HUHU",
-    ...(fileTarget ? { autoHideMenuBar: true } : nativeTitleOptions()),
+    title: secondary?.title ?? "HUHU",
+    ...(secondary ? { autoHideMenuBar: true } : nativeTitleOptions()),
     icon: iconPath,
     webPreferences: {
       preload: path.join(import.meta.dirname, "../preload/index.cjs"),
@@ -246,7 +246,7 @@ function createWindow(chrome: ReturnType<typeof installWindowChrome>, fileTarget
     },
   });
   workbenchAddresses.set(win, address);
-  if (!fileTarget) {
+  if (!secondary) {
     chrome.attach(win);
     attachAppMenu?.(win);
   }
@@ -335,23 +335,33 @@ if (!gotLock) {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send("huhu:engineState", state);
     };
     let current: { path: string; readOnly: boolean } | null = null;
-    const fileWindows = new Map<string, BrowserWindow>();
-    ipcMain.handle("huhu:ssh-files:window", (event, input: unknown) => {
+    const sshWindows = new Map<string, BrowserWindow>();
+    function assertSshWindow(event: Electron.IpcMainInvokeEvent, vaultId: string) {
       assertTrusted(event.senderFrame?.url);
-      const target = SshFileWindowTarget.parse(input);
-      if (event.senderFrame !== event.sender.mainFrame || supervisor?.activeVaultId !== target.vaultId) throw new Error("原文件会话所在的 Vault 已关闭。");
-      const key = JSON.stringify(target);
-      const existing = fileWindows.get(key);
+      if (event.senderFrame !== event.sender.mainFrame || supervisor?.activeVaultId !== vaultId) throw new Error("原 SSH 会话所在的 Vault 已关闭。");
+    }
+    function showSshWindow(key: string, address: string, title: string) {
+      const existing = sshWindows.get(key);
       if (existing && !existing.isDestroyed()) {
         if (existing.isMinimized()) existing.restore();
         existing.focus();
         return;
       }
-      const win = createWindow(chrome, target);
-      fileWindows.set(key, win);
+      const win = createWindow(chrome, { address, title });
+      sshWindows.set(key, win);
       win.once("closed", () => {
-        if (fileWindows.get(key) === win) fileWindows.delete(key);
+        if (sshWindows.get(key) === win) sshWindows.delete(key);
       });
+    }
+    ipcMain.handle("huhu:ssh-files:window", (event, input: unknown) => {
+      const target = SshFileWindowTarget.parse(input);
+      assertSshWindow(event, target.vaultId);
+      showSshWindow(JSON.stringify(["file", target.vaultId, target.fileSessionId]), sshFileWindowUrl(rendererAddress(), target), "HUHU · SSH 文件");
+    });
+    ipcMain.handle("huhu:ssh-tools:window", (event, input: unknown) => {
+      const target = SshToolWindowTarget.parse(input);
+      assertSshWindow(event, target.vaultId);
+      showSshWindow(JSON.stringify(["tool", target.vaultId, target.hostId, target.shellId]), sshToolWindowUrl(rendererAddress(), target), "HUHU · SSH 服务器工具");
     });
     const shownNotices = new Map<string, number>();
     ipcMain.handle("huhu:show-automation-notification", (event, notice: unknown, vaultId: unknown) => {

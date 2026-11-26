@@ -161,6 +161,35 @@ test("server tools use only read-only commands on the selected Pane", { timeout:
   }
 });
 
+test("sudo sampling and sudo server tools select independent commands on the original transport", { timeout: 20_000 }, async () => {
+  const f = await fixture();
+  try {
+    const { client } = f;
+    const commands: string[] = [];
+    const host = await f.host("sudo scopes", "linux", (command) => {
+      commands.push(command);
+      if (command.startsWith("sudo -n -- ") && command.includes("huhu-monitor-linux-v1")) return { stdout: "memory 16384 4096\n" };
+      if (command.startsWith("sudo -n -- ") && command.includes(PROCESS_LIST)) return { stdout: "45 elevated-fixture" };
+      if (command === PROCESS_LIST) return { stdout: "23 normal-fixture" };
+    });
+    const shellId = await shell(client, host.id);
+    const binding = { hostId: host.id, shellId };
+    const basic = await client.call<MonitorSession>("ssh.monitor.session.open", { ...binding, interval: 2 }, opts);
+    const elevated = await client.call<MonitorSession>("ssh.monitor.session.open", { ...binding, interval: 2, sudo: true }, opts);
+    const get = (id: string) => client.call<MonitorSession>("ssh.monitor.session.get", { id });
+    await expect.poll(async () => (await get(basic.id)).host.latest?.sample?.memory?.total).toBe(8192);
+    await expect.poll(async () => (await get(elevated.id)).host.latest?.sample?.memory?.total).toBe(16384);
+    expect((await get(elevated.id)).host).toMatchObject({ connectionId: (await get(basic.id)).host.connectionId, subscribers: 1 });
+    const query = (sudo: boolean) => client.call<MonitorToolResult>("ssh.monitor.tools.read", { ...binding, tool: "processes", sudo }, opts);
+    expect(await query(false)).toMatchObject({ state: "ready", rows: [{ id: "23", name: "normal-fixture" }] });
+    expect(await query(true)).toMatchObject({ state: "ready", rows: [{ id: "45", name: "elevated-fixture" }] });
+    expect(commands.some((command) => command.startsWith("sudo -n -- ") && command.includes(PROCESS_LIST))).toBe(true);
+    expect(host.server.conns).toHaveLength(1);
+  } finally {
+    await f.close();
+  }
+});
+
 test("Pane monitor binds the original shell and separates Linux counters, Windows readings, and reconnect history", { timeout: 25_000 }, async () => {
   const f = await fixture();
   try {
