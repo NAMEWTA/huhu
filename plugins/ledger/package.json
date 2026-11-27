@@ -18,6 +18,8 @@
     "@huhu/vault": "workspace:*",
     "@huhu/workbench": "workspace:*",
     "d3-dsv": "3.0.2",
+    "echarts": "5.6.0",
+    "echarts-for-react": "3.0.6",
     "lucide-react": "^1.70.0",
     "react": "^19.3.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
