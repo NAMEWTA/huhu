@@ -394,6 +394,126 @@ test("L5 同一业务午夜在日历和报表可下钻，离线节假日与卡�
   }
 });
 
+for (const host of ["桌面", "独立 Web"] as const) {
+  test(`L5 ${host}图表随主题重绘，画布与键盘下钻得到同一组流水`, async () => {
+    const { app, page: desktop, close } = await openApp();
+    let browser: Browser | undefined;
+    try {
+      await engineReady(desktop);
+      const desktopLedger = await enterLedger(desktop);
+      await desktopLedger.getByRole("button", { name: "创建第一个账本" }).click();
+      await createBook(desktop, "图表验收账本", "余额账户");
+      const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
+      const accounts = () => call<{ book: { revision: string; timeZone: string }; businessDate: string; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
+      const {
+        book,
+        businessDate: day,
+        accounts: [account],
+      } = await accounts();
+      const { id: categoryId } = await call<{ id: string }>(desktop, "ledger.dictionaries.save", { bookId, expectedRevision: book.revision, kind: "category", name: "交通" });
+      const start = day.slice(0, 7) + "-01";
+      const outside = new Date(Date.parse(start) - 86_400_000).toISOString().slice(0, 10);
+      for (const [title, type, date, amountMinor] of [
+        ["午夜车资", "expense", day, "123"],
+        ["返程车资", "expense", day, "456"],
+        ["同名分类收入", "income", day, "10000"],
+        ["上月车资", "expense", outside, "999"],
+      ] as const) {
+        await call(desktop, "ledger.records.create", {
+          bookId,
+          expectedRevision: (await accounts()).book.revision,
+          intentKey: randomUUID(),
+          title,
+          record: { type, accountId: account!.id, currency: "TWD", amountMinor, occurredAt: ledgerBusinessDayRange(date, book.timeZone).from, categoryId, tagIds: [], payee: null, memo: null, attachmentIds: [] },
+        });
+      }
+      const [budget] = await call<{ id: string }[]>(desktop, "ledger.budgets.saveBatch", {
+        bookId,
+        expectedRevision: (await accounts()).book.revision,
+        budgets: [{ definition: { type: "fixed", name: "交通预算", month: day.slice(0, 7), direction: "expense", currency: "TWD", limitMinor: "20000", categoryIds: [categoryId] } }],
+      });
+
+      let page = desktop;
+      let ledger = desktopLedger;
+      if (host === "独立 Web") {
+        const link = await inviteWorkbench(desktop);
+        browser = await chromium.launch();
+        page = await browser.newPage({ viewport: { width: 950, height: 760 } });
+        await page.goto(link);
+        ledger = await enterLedger(page);
+      } else {
+        // Seed through the bridge, then navigate back to the overview to refresh the visible queries.
+        await page.getByTestId("ledger-nav-reports").click();
+        await page.getByTestId("ledger-nav-overview").click();
+      }
+
+      const chart = (id: string) => page.getByTestId(`ledger-chart-${id}`).locator("canvas").first();
+      const expectCanvas = async (id: string) => {
+        await expect(chart(id)).toBeVisible();
+        await expect.poll(() => chart(id).evaluate((canvas: HTMLCanvasElement) => canvas.width > 0 && canvas.height > 0)).toBe(true);
+      };
+      await expectCanvas("overview-trend");
+      await expectCanvas("overview-spending");
+      await page.getByTestId("ledger-nav-reports").click();
+      const category = chart("category-expense");
+      for (const id of ["monthly-trend", "period-spending", "category-expense", "account-expense", "account-balances", "net-worth", "health-overview", "health-period"]) await expectCanvas(id);
+      const draw = () => category.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
+      const image = await draw();
+      const mode = await page.locator("html").getAttribute("data-mode");
+      await page.getByTestId("theme-toggle").click();
+      await expect(page.locator("html")).toHaveAttribute("data-mode", mode === "dark" ? "light" : "dark");
+      await expect.poll(draw).not.toBe(image);
+
+      const listed = await call<RecordsPage>(desktop, "ledger.records.list", { bookId, filters: { from: start, to: day, currency: "TWD", type: "expense", categoryId, offset: false } });
+      const expected = listed.rows.map(({ title }) => title);
+      expect(expected).toHaveLength(2);
+
+      const box = (await category.boundingBox())!;
+      const ringHeight = box.height - 24;
+      await category.click({ position: { x: box.width / 2 + Math.min(box.width, ringHeight) * 0.29, y: ringHeight * 0.45 } });
+      const drill = page.getByRole("dialog", { name: "交通", exact: true });
+      await expect(drill.getByRole("rowheader")).toHaveText(expected);
+      await drill.getByRole("button", { name: "关闭" }).click();
+
+      const data = ledger.getByText("支出分类分布数据", { exact: true });
+      await data.focus();
+      await page.keyboard.press("Enter");
+      const table = ledger.getByRole("table", { name: "支出分类分布", exact: true });
+      await expect(table.getByRole("cell", { name: "TWD 5.79" })).toBeVisible();
+      await table.getByRole("button", { name: "交通", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      await expect(drill.getByRole("rowheader")).toHaveText(expected);
+      await drill.getByRole("button", { name: "关闭" }).click();
+
+      if (host === "桌面") {
+        await app.evaluate(({ BrowserWindow }) => {
+          const window = BrowserWindow.getAllWindows()[0]!;
+          window.setContentSize(660, 780);
+          window.webContents.setZoomFactor(1.5);
+        });
+      } else {
+        await page.setViewportSize({ width: 520, height: 780 });
+        await page.locator("html").evaluate((root) => {
+          root.style.zoom = "1.5";
+        });
+      }
+      await expectCanvas("category-expense");
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      await expect.poll(() => ledger.locator(".ledger-content").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+
+      await page.getByTestId("ledger-nav-budgets").click();
+      await ledger.getByTestId(`ledger-budget-${budget!.id}`).getByRole("button", { name: "查看 交通预算 明细" }).click();
+      const detail = page.getByRole("dialog", { name: "预算明细 · 交通预算" });
+      await expectCanvas("budget-trend");
+      await expectCanvas("budget-distribution");
+      await expect(detail.getByRole("table", { name: "预算匹配流水" }).getByRole("rowheader")).toHaveText(expected);
+    } finally {
+      await browser?.close().catch(() => undefined);
+      await close();
+    }
+  });
+}
+
 test("L7 账本启用和中心暂停操作同一个固定收支计划，预览未来期次无记账副作用", async () => {
   const { page, close } = await openApp();
   try {

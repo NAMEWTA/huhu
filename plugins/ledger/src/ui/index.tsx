@@ -12,6 +12,7 @@ import { LedgerLoans } from "./Loans.js";
 import type { CycleTarget } from "./OverviewActivity.js";
 import { LedgerBackupsSection } from "./Backups.js";
 import { bookVersion as version, currencies, LedgerField, useLedgerAction } from "./primitives.js";
+import "./ledger.css";
 
 const zones = ["Asia/Taipei", "Asia/Shanghai", "America/New_York", "UTC"];
 type Editor = { mode: "create" } | { mode: "rename"; book: Book } | { mode: "remove"; preview: RemovalPreview };
@@ -100,7 +101,7 @@ function LedgerPage({ section, onSection, onNavigate, quick, registerLeaveGuard 
 
   return (
     <div className="hu-module-layout" data-testid="ledger-module">
-      <div className="hu-stack">
+      <div className="hu-stack ledger-content">
         <div className="hu-toolbar">
           <LedgerField label="当前账本">
             <Select

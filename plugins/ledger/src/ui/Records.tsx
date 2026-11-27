@@ -10,7 +10,7 @@ import type { CsvResult } from "../shared/imports.js";
 import { defaultCards, type ReportCards } from "../shared/reports.js";
 import { FinancialNotesButton } from "./FinancialNotes.js";
 import { ImportWizard } from "./ImportWizard.js";
-import { OverviewActivityCards, type CycleTarget } from "./OverviewActivity.js";
+import { OverviewActivityCards, OverviewReportCharts, type CycleTarget } from "./OverviewActivity.js";
 import { ReconciliationDialog, type ReconciliationTarget } from "./ReconciliationDialog.js";
 import { AttachmentsDialog, RecordEditor, recordKinds } from "./RecordEditor.js";
 import { bookVersion, currencies, displayMoney, downloadFile, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
@@ -583,6 +583,7 @@ export function Overview({
                 <p>本月暂无收支。</p>
               )
             ) : null}
+            {id === "summary" && day ? <OverviewReportCharts book={book} today={day} /> : null}
             {id === "recent" && records.data ? (
               records.data.rows.length ? (
                 <ul>

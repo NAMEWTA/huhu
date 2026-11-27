@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { checkLedgerReference, errors, ledgerBalanceFromBase, ledgerBusinessDayRange, type LedgerAccount, type LedgerBalanceBase } from "@huhu/contracts";
+import { checkLedgerReference, errors, ledgerBalanceFromBase, ledgerBusinessDayRange, type LedgerAccount, type LedgerBalanceBase, type LedgerRecord } from "@huhu/contracts";
 import type { z } from "zod";
 import type { AccountLabels, AccountsView, DictionaryInput, InputBase } from "../shared/entries.js";
 import type { BookState } from "./store.js";
@@ -59,13 +59,13 @@ export function updateAccount(state: BookState, accountId: string, input: Accoun
   return row;
 }
 
+function currentBase(bases: Base[], day: string) {
+  return bases.reduce<Base | undefined>((chosen, base) => (base.effectiveBusinessDate <= day && (!chosen || base.effectiveBusinessDate >= chosen.effectiveBusinessDate) ? base : chosen), undefined);
+}
+
 function balance(state: BookState, row: Account, day: string) {
   const bases = state.bases.filter((base) => base.accountId === row.id);
-  const applicable = bases
-    .slice()
-    .reverse()
-    .filter((base) => base.effectiveBusinessDate <= day)
-    .sort((a, b) => b.effectiveBusinessDate.localeCompare(a.effectiveBusinessDate))[0];
+  const applicable = currentBase(bases, day);
   const until = Date.parse(ledgerBusinessDayRange(day, state.book.timeZone).until);
   return {
     bases,
@@ -87,6 +87,51 @@ export function accountsView(state: BookState, businessDate: string): AccountsVi
     dictionary: state.dictionary,
     accounts: state.accounts.map((row) => ({ ...row, labels: state.accountLabels[row.id] ?? noLabels, ...balance(state, row, businessDate) })),
   };
+}
+
+export function balanceCheckpoints(state: BookState, dates: string[]) {
+  const indexed = new Map<string, { record: LedgerRecord; time: number }[]>();
+  for (const record of state.records) {
+    const ids = record.type === "transfer" ? new Set([record.fromAccountId, record.toAccountId]) : [record.accountId];
+    const time = Date.parse(record.occurredAt);
+    for (const id of ids) {
+      const entries = indexed.get(id);
+      if (entries) entries.push({ record, time });
+      else indexed.set(id, [{ record, time }]);
+    }
+  }
+  const checkpoints = dates.map((date) => ({
+    date,
+    until: Date.parse(ledgerBusinessDayRange(date, state.book.timeZone).until),
+    accounts: [] as (Account & { balanceMinor: string })[],
+  }));
+  for (const account of state.accounts) {
+    const records = indexed.get(account.id)?.sort((a, b) => a.time - b.time) ?? [];
+    const bases = state.bases.filter(({ accountId }) => accountId === account.id);
+    let applied: Base | undefined;
+    let preceding = 0;
+    let balanceMinor = "0";
+    for (const { date, until, accounts } of checkpoints) {
+      let end = preceding;
+      while (end < records.length && records[end]!.time < until) end++;
+      const base = currentBase(bases, date);
+      if (base && (base !== applied || end > preceding)) {
+        // Reapply the ledger's normal balance rule when a calibration takes effect.
+        const sameBase = base === applied;
+        const start = sameBase ? preceding : 0;
+        balanceMinor = ledgerBalanceFromBase(
+          state.book,
+          account,
+          sameBase ? { ...base, balanceMinor } : base,
+          records.slice(start, end).map(({ record }) => record),
+        );
+      }
+      applied = base;
+      preceding = end;
+      accounts.push({ ...account, balanceMinor });
+    }
+  }
+  return checkpoints;
 }
 
 export function previewBalance(state: BookState, input: z.infer<typeof InputBase>) {

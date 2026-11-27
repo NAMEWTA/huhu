@@ -51,11 +51,22 @@ export const BudgetDetailQuery = BudgetQuery.extend({
   budgetId: EntryId,
   page: RecordsQuery.shape.page,
   pageSize: RecordsQuery.shape.pageSize,
+  slice: z
+    .strictObject({
+      from: LedgerBusinessDate.optional(),
+      to: LedgerBusinessDate.optional(),
+      categoryId: EntryId.nullable().optional(),
+    })
+    .optional(),
 });
+const budgetCategory = z.strictObject({ id: EntryId.nullable(), label: z.string(), amountMinor: totals.shape.actualMinor });
 export const BudgetDetail = budgetProgress.extend({
   page: z.int().positive(),
   pageSize: z.int().positive(),
   rows: z.array(RecordView),
+  filteredCount: z.int().nonnegative(),
+  categories: z.array(budgetCategory),
+  periods: z.array(z.strictObject({ from: LedgerBusinessDate, to: LedgerBusinessDate, categories: z.array(budgetCategory) })),
 });
 export const SaveBudgets = BookVersion.extend({
   budgets: z

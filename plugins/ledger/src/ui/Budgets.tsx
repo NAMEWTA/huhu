@@ -7,8 +7,8 @@ import type { Book } from "../shared/books.js";
 import { SaveBudgets, type Budget, type BudgetDetail, type BudgetOverview, type CopyBudgetResult } from "../shared/budgets.js";
 import type { AccountsView } from "../shared/entries.js";
 import { FinancialNotesButton } from "./FinancialNotes.js";
+import { CategoryTrend, DistributionChart } from "./ReportCharts.js";
 import { currencies, displayMoney, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
-import "./ledger.css";
 
 const months = Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0"));
 const monthPattern = "[0-9]{4}-(0[1-9]|1[0-2])";
@@ -248,14 +248,32 @@ function BudgetDetails({
   close(): void;
 }) {
   const [page, setPage] = useState(1);
+  const [slice, setSlice] = useState<{ label: string; categoryId: string | null; from?: string; to?: string }>();
   const caption = useId();
   const done = useRef<HTMLButtonElement>(null);
-  const detail = useCapability<BudgetDetail>("ledger.budgets.detail", { ...query, page, pageSize });
+  const base = useCapability<BudgetDetail>("ledger.budgets.detail", { ...query, page: 1, pageSize });
+  const narrowed = slice || page !== 1;
+  const filtered = useCapability<BudgetDetail>(
+    "ledger.budgets.detail",
+    {
+      ...query,
+      page,
+      pageSize,
+      ...(slice && { slice: { categoryId: slice.categoryId, from: slice.from, to: slice.to } }),
+    },
+    { enabled: !!narrowed },
+  );
+  const detail = narrowed ? filtered : base;
   const data = detail.data;
-  const latest = data ?? budget;
-  const last = Math.min(100_000, Math.max(1, Math.ceil(latest.count / pageSize)));
+  const latest = base.data ?? budget;
+  const count = data?.filteredCount ?? (slice ? undefined : latest.count);
+  const last = Math.min(100_000, Math.max(1, Math.ceil((count ?? 0) / pageSize)));
   const shownPage = Math.min(page, last);
-  if (shownPage !== page) setPage(shownPage);
+  if (count !== undefined && shownPage !== page) setPage(shownPage);
+  const select = (category: { id: string | null; label: string }, period?: { from: string; to: string }) => {
+    setPage(1);
+    setSlice({ categoryId: category.id, label: category.label, ...period });
+  };
   return (
     <Dialog
       open
@@ -275,6 +293,31 @@ function BudgetDetails({
     >
       <div className="hu-stack">
         <BudgetProgress budget={latest} />
+        {base.data && base.data.categories.length > 0 && (
+          <div className="ledger-chart-grid">
+            <DistributionChart id="budget-distribution" title="预算分类分布" currency={latest.definition.currency} entries={base.data.categories} open={select} />
+            <section className="ledger-chart-section">
+              <h4>预算分类趋势</h4>
+              <CategoryTrend id="budget-trend" currency={latest.definition.currency} categories={base.data.categories} periods={base.data.periods} open={select} />
+            </section>
+          </div>
+        )}
+        {slice && (
+          <div className="hu-toolbar">
+            <p role="status">
+              筛选 {slice.label}
+              {slice.from ? ` · ${slice.from} 至 ${slice.to}` : ""}
+            </p>
+            <Button
+              onClick={() => {
+                setPage(1);
+                setSlice(undefined);
+              }}
+            >
+              查看全部预算流水
+            </Button>
+          </div>
+        )}
         {detail.isPending && <p role="status">正在读取预算明细…</p>}
         {data &&
           (data.rows.length ? (
@@ -313,9 +356,7 @@ function BudgetDetails({
           <Button disabled={shownPage <= 1} onClick={() => setPage(shownPage - 1)}>
             上一页
           </Button>
-          <span role="status">
-            第 {shownPage} / {last} 页 · 共 {latest.count} 笔
-          </span>
+          <span role="status">{count === undefined ? "正在读取筛选条数…" : `第 ${shownPage} / ${last} 页 · 共 ${count} 笔`}</span>
           <Button disabled={shownPage >= last} onClick={() => setPage(shownPage + 1)}>
             下一页
           </Button>

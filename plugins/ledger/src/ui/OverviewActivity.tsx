@@ -1,11 +1,51 @@
 import { Button } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
+import { useState } from "react";
 import type { z } from "zod";
 import type { Book } from "../shared/books.js";
 import type { OverviewActivity } from "../shared/overview.js";
+import { shiftMonth, type ReportView } from "../shared/reports.js";
 import { BudgetTotals } from "./Budgets.js";
+import { DistributionChart, MonthlyTrend, categoryFilter, type OpenDrill } from "./ReportCharts.js";
+import { RecordDrill, type Drill } from "./Reports.js";
 
 export type CycleTarget = "fixed" | "loan";
+
+export function OverviewReportCharts({ book, today }: { book: Book; today: string }) {
+  const [drill, setDrill] = useState<Drill | null>(null);
+  const month = today.slice(0, 7);
+  const from = shiftMonth(month, -5) + "-01";
+  const result = useCapability<ReportView>("ledger.reports.query", { bookId: book.id, from, to: today, chartDetail: true });
+  if (result.isPending) return <p role="status">正在读取近六个月的报表…</p>;
+  if (result.isError) return <p role="alert">{result.error.message}</p>;
+  const series = result.data.series.filter(({ count }) => count > 0);
+  if (!series.length) return <p>近六个月暂无流水。</p>;
+  return (
+    <>
+      {series.map(({ currency, charts }) => {
+        if (!charts) return null;
+        const latest = charts.periods.at(-1);
+        const open: OpenDrill = (title, filters) => setDrill({ title, filters: { ...filters, currency, offset: false } });
+        return (
+          <section key={currency} className="ledger-chart-grid" aria-label={currency + " 总览图表"}>
+            <div className="ledger-chart-section">
+              <h4>近六个月收支趋势 · {currency}</h4>
+              <MonthlyTrend id="overview-trend" currency={currency} months={charts.months} open={open} compact />
+            </div>
+            <DistributionChart
+              id="overview-spending"
+              title={`本月支出分类 · ${currency}`}
+              currency={currency}
+              entries={latest?.categories.filter(({ kind }) => kind === "expense") ?? []}
+              open={(category) => open(category.label, { from: month + "-01", to: today, type: "expense", ...categoryFilter(category.id) })}
+            />
+          </section>
+        );
+      })}
+      {drill && <RecordDrill book={book} drill={drill} close={() => setDrill(null)} />}
+    </>
+  );
+}
 
 export function OverviewActivityCards({ book, openBudgets, openCycles }: { book: Book; openBudgets(): void; openCycles(target: CycleTarget): void }) {
   const query = useCapability<z.infer<typeof OverviewActivity>>("ledger.overview.activity", { bookId: book.id });

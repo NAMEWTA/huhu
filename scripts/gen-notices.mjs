@@ -1,6 +1,7 @@
 // 生成 THIRD_PARTY_NOTICES.md：运行时依赖闭包的许可证清单 + 复制来源台账 + 随包二进制。
 // 遇到不在允许列表里的许可证时退出非 0（发布前必须人工确认）。
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -87,6 +88,15 @@ const mcpSdk = path.join(root, "packages", "kernel", "node_modules", "@modelcont
 const mcpSdkVersion = JSON.parse(readFileSync(path.join(mcpSdk, "package.json"), "utf8")).version;
 const mcpSdkLicense = readFileSync(path.join(mcpSdk, "LICENSE"), "utf8").trim();
 
+const ledgerModules = path.join(root, "plugins", "ledger", "node_modules");
+const echarts = path.join(ledgerModules, "echarts");
+const zrender = path.dirname(createRequire(path.join(realpathSync(echarts), "package.json")).resolve("zrender/package.json"));
+const chartLicenses = [echarts, zrender, path.join(ledgerModules, "echarts-for-react")].flatMap((dir) => {
+  const { name, version } = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
+  const files = ["LICENSE", "NOTICE"].filter((name) => existsSync(path.join(dir, name)));
+  return [`### ${name} ${version}`, "", ...files.flatMap((name) => ["```text", readFileSync(path.join(dir, name), "utf8").trim(), "```", ""])];
+});
+
 const ledger = readFileSync(path.join(root, "docs/upstream/ledger.md"), "utf8");
 const rootLedger = ledger.trim().replace(/\]\(([^\s)#]+)(#[^\s)]*)?\)/g, (link, target, anchor = "") => {
   if (/^(?:[a-z]+:|\/)/i.test(target)) return link;
@@ -122,6 +132,9 @@ const lines = [
   mcpSdkLicense,
   "```",
   "",
+  "## 账本图表依赖",
+  "",
+  ...chartLicenses,
   "## 复制或改造的源码（`docs/upstream/ledger.md`）",
   "",
   rootLedger,
