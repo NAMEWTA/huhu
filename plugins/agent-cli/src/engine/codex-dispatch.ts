@@ -1,16 +1,16 @@
 import { execFile } from "node:child_process";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { accessSync, closeSync, constants, createReadStream, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, closeSync, constants, createReadStream, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { errors, ExecutionReceiptAckSchema, ExecutionReceiptSchema, HuhuError, type ExecutionBinding, type ExecutionReceipt, type ExecutionReceiptAck } from "@huhu/contracts";
+import { errors, ExecutionReceiptAckSchema, ExecutionReceiptSchema, HuhuError, type ExecutionBinding, type ExecutionReceipt, type ExecutionReceiptAck, type TaskMcpAuthorization } from "@huhu/contracts";
 import { executionReceiptIdentity, validateExecutionReceiptAck } from "@huhu/contracts/execution-receipt/engine";
 import { z } from "zod";
 import { entryOf, type AgentSettingsFile } from "../shared/settings.js";
 import { launchHash } from "./launch-binding.js";
-import { ProviderAcceptance } from "./dispatch-store.js";
+import { ProviderAcceptance, type DispatchLookup } from "./dispatch-store.js";
 import { putReceiptFile } from "./execution-receipts.js";
 import { answerFingerprint, NativeAnswerIntents, NativeAnswerStatus, type NativeAnswer } from "./native-answer.js";
 import { NativeStopStatus, stopFingerprint, type NativeStop } from "./native-stop.js";
@@ -62,7 +62,16 @@ const NativeReport = z.strictObject({
 });
 const exec = promisify(execFile);
 
+export interface TaskMcpDispatch {
+  key: DispatchLookup;
+  authorization: TaskMcpAuthorization;
+}
+
 export interface CodexDispatchOptions {
+  taskMcp?: {
+    available(): boolean;
+    issue(dispatch: TaskMcpDispatch, runtime: { live(): boolean; submitted(): boolean; cleanup(): void }): { url: string; token: string } | undefined;
+  };
   root: string;
   helper?: string | undefined;
   nodeBin?: string | undefined;
@@ -176,6 +185,10 @@ export class CodexDispatch {
     private readonly settings: () => AgentSettingsFile,
   ) {
     this.answerIntents = new NativeAnswerIntents(path.join(options.root, "native-answer-intents.json"));
+  }
+
+  get taskMcpAvailable(): boolean {
+    return this.options.taskMcp?.available() === true;
   }
 
   get configured(): boolean {
@@ -296,12 +309,33 @@ export class CodexDispatch {
     return path.join(this.options.root, launchHash([vaultId, machineId, attempt]));
   }
 
-  start(plan: CodexPlan, identity: Identity): string[] {
+  start(plan: CodexPlan, identity: Identity, taskMcp?: TaskMcpDispatch): string[] {
     const directory = this.directory(identity.vaultId, identity.machineId, identity.attempt);
     mkdirSync(this.options.root, { recursive: true, mode: 0o700 });
     mkdirSync(directory, { mode: 0o700 });
     const file = path.join(directory, "launch.json");
     writeFileSync(file, JSON.stringify({ ...identity, ...plan, secret: randomBytes(32).toString("hex") }), { flag: "wx", flush: true, mode: 0o600 });
+    if (taskMcp) {
+      const tokenFile = path.join(directory, "task-mcp-token.json");
+      const control = this.control(identity)!;
+      const providerSettings = launchHash(entryOf(this.settings(), "codex"));
+      const activeHelper = z.strictObject({ pid: z.int().positive(), processStart: z.string().optional() });
+      const credential = this.options.taskMcp?.issue(taskMcp, {
+        live: () => {
+          const helper = signedFile(control, "task-mcp-active", activeHelper);
+          if (!helper) return false;
+          process.kill(helper.pid, 0);
+          if (process.platform === "linux" && statSync(`/proc/${helper.pid}`, { bigint: true }).ino.toString() !== helper.processStart) return false;
+          return launchHash(entryOf(this.settings(), "codex")) === providerSettings &&
+            stamp(plan.command) === plan.binaryStamp && stamp(plan.helper) === plan.helperStamp &&
+            (statSync(path.join(plan.home, "config.toml"), { throwIfNoEntry: false }) ? stamp(path.join(plan.home, "config.toml")) : null) === plan.configStamp;
+        },
+        submitted: () => !!signedFile(control, "task-mcp-submitted", activeHelper),
+        cleanup: () => rmSync(tokenFile, { force: true }),
+      });
+      if (!credential) throw new HuhuError("PERMISSION_DENIED", "任务 MCP 授权已失效", { details: { reason: "task_mcp_authorization_inactive" } });
+      writeFileSync(tokenFile, JSON.stringify({ ...credential, key: taskMcp.key }), { flag: "wx", flush: true, mode: 0o600 });
+    }
     return [plan.node, plan.helper, file];
   }
 

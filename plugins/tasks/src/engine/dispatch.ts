@@ -187,6 +187,21 @@ function stopView({ receipt }: DispatchRecord, stop: StopRecord): StopReceipt {
 }
 
 export class TaskDispatch {
+  currentMcpAuthorization(key: { taskId: string; runId: string; attempt: number; dispatchId: string }, authorization: NonNullable<DispatchSnapshot["mcpAuthorization"]>): boolean {
+    const { revision } = authorization;
+    if (this.abort.signal.aborted) return false;
+    const record = this.store.read(eventIdOf(key.dispatchId))?.record;
+    if (!record || !this.store.owns(record) || record.claim?.machineId !== this.machineId) return false;
+    const { receipt, snapshot } = record;
+    // The native helper may still be starting while Tasks returns the same attempt to claimed.
+    if (receipt.taskId !== key.taskId || receipt.runId !== key.runId || receipt.attempt !== key.attempt ||
+        !["claimed", "sending", "running", "unknown"].includes(receipt.state) || snapshot.mcpAuthorization?.revision !== revision) return false;
+    const task = this.tasks.read(key.taskId);
+    return task.type === "agent" && task.mcpAuthorization?.revision === revision &&
+      fingerprint(task.mcpAuthorization) === fingerprint(snapshot.mcpAuthorization) &&
+      fingerprint(authorization) === fingerprint(snapshot.mcpAuthorization);
+  }
+
   private readonly acceptance = new WriteQueue();
   private readonly abort = new AbortController();
   private checking = false;
@@ -661,6 +676,7 @@ export class TaskDispatch {
         const priorRuns = this.recordsFor(task.id);
         const existing = priorRuns.find((record) => holdsRun(record, outcomes, task));
         if (existing) rejectDispatch("task_occupied", "该任务已有待派或活动运行", existing.receipt);
+        if (task.mcpAuthorization && source.kind === "desktop" && task.version !== input.expectedVersion) throw errors.versionConflict(task.version);
         if (!sameInput(task, input)) rejectDispatch("stale_input", "任务输入已变化，请重新读取任务");
         const execution = this.dispatchable(task, input.newRound);
         if (!execution) rejectDispatch("task_unavailable", "只有配置齐全且未开始的 Agent 任务可以派遣");
@@ -681,6 +697,7 @@ export class TaskDispatch {
           inputHash: task.inputHash,
           body: task.body,
           execution,
+          ...(source.kind !== "tool" && task.mcpAuthorization && { mcpAuthorization: task.mcpAuthorization }),
           references: task.references.filter((ref) => ref.from === "task").map((ref) => ref.path),
           source,
           ...(input.allowEarly !== undefined && { allowEarly: input.allowEarly }),

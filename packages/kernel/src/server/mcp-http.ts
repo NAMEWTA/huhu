@@ -13,9 +13,7 @@ import { mcpRouteError } from "../mcp-routing.js";
 import { discoverCapabilities, unknownTool } from "./capability-http.js";
 import type { EngineServerDeps } from "./http-app.js";
 import { MAX_BODY_BYTES, MAX_CONCURRENT_PER_TOKEN } from "./ingress.js";
-import type { TokenTable } from "./tokens.js";
-
-type Credential = NonNullable<ReturnType<TokenTable["principal"]>>;
+import type { TaskMcpCredential as Credential } from "./task-mcp.js";
 type Session = McpSessionPrincipal & {
   credential: Credential;
   transport: WebStandardStreamableHTTPServerTransport;
@@ -149,7 +147,7 @@ export class McpSessions {
   }
 
   private current(session: Session): boolean {
-    if (session.expires() || !this.enabled()) session.close();
+    if (session.expires() || !this.enabled() || (session.credential.task && !session.credential.task.active())) session.close();
     return !session.signal.aborted;
   }
 
@@ -191,13 +189,13 @@ export class McpSessions {
   }
 
   private recoveryBinding(credential: Credential): RecoveryBinding | undefined {
-    if (!this.recovery || !this.deps.vaultInstance) return undefined;
+    if (credential.task || !this.recovery || !this.deps.vaultInstance) return undefined;
     const generation = this.deps.mcpRecovery?.generation();
     return generation ? { generation, vaultInstance: this.deps.vaultInstance, credentialId: credential.credentialId } : undefined;
   }
 
   private create(credential: Credential, service: AbortSignal | undefined, binding: RecoveryBinding | undefined, previous: RecoveryRecord | undefined): Session {
-    const { caller, credentialId } = credential;
+    const { caller, credentialId, task } = credential;
     if (caller !== "http") throw new Error("Invalid MCP credential");
     const identity: McpSessionIdentity = {
       caller,
@@ -259,22 +257,25 @@ export class McpSessions {
       return {
         identity, signal: request ? AbortSignal.any([signal, request]) : signal,
         ...(session.recovered && { recovered: true as const }),
+        ...(task && { taskTools: task.tools, taskActive: () => this.current(session) }),
       };
     };
+    const allowsBuiltin = (capability: string) => !task || task.tools.some((tool) => tool.sourceId === "builtin" && tool.upstreamIdentity === capability);
     const call = async (capability: string, input: unknown, intentKey?: string) => {
-      if (!this.current(session)) return closed();
+      if (!this.current(session) || (task && (!task.submitted() || !allowsBuiltin(capability)))) return closed();
       const result = await dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID(), ...(intentKey && { intentKey }) }, requestSignal.getStore(), session);
       return this.current(session) ? result : closed();
     };
     const mcp = createMcpServer(
       {
-        list: () => (this.current(session) ? discoverCapabilities(dispatcher, caller) : []),
+        list: () => (this.current(session) ? discoverCapabilities(dispatcher, caller).filter(({ name }) => allowsBuiltin(name)) : []),
+        ...(task && { toolsOnly: true }),
         callTool: async (name, input, intentKey) => {
           const capability = this.resolveTool(name);
           return !this.current(session) ? closed() : capability ? call(capability, input, intentKey) : unknownTool(name);
         },
         call,
-        operation: (lookup) => (this.current(session) ? dispatcher.readOperation(caller, session, lookup) : closed()),
+        ...(!task && { operation: (lookup) => (this.current(session) ? dispatcher.readOperation(caller, session, lookup) : closed()) }),
         ...(this.deps.externalMcpTools && {
           external: {
             list: async (kind: McpEntryKind) => {
@@ -283,7 +284,7 @@ export class McpSessions {
               return this.current(session) ? result : [];
             },
             call: async (name, input) => {
-              if (!this.current(session)) return undefined;
+              if (!this.current(session) || (task && !task.submitted())) return undefined;
               const upstream = this.deps.externalMcpTools?.();
               if (this.resolveTool(name)) {
                 if (upstream?.ownsName(name)) throw mcpRouteError("ambiguous-entry");
@@ -305,7 +306,7 @@ export class McpSessions {
       if (params.requestId !== undefined) session.requests.get(params.requestId)?.abort();
     });
     mcp.onclose = session.close;
-    if (this.deps.externalMcpTools) {
+    if (this.deps.externalMcpTools && !task) {
       let initialized = false;
       mcp.oninitialized = () => {
         if (initialized || !this.current(session)) return;

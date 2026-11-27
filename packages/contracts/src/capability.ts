@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { TaskMcpTool } from "./mcp-routing.js";
 import { HuhuErrorSchema } from "./errors.js";
 
 export const CALLER_KINDS = ["desktop", "cli", "mcp", "http"] as const;
@@ -21,6 +22,8 @@ export interface McpSessionPrincipal {
   readonly signal: AbortSignal;
   /** A resumed transport can read existing state and replay receipts, without admitting writes. */
   readonly recovered?: true;
+  readonly taskTools?: readonly TaskMcpTool[];
+  taskActive?(): boolean;
 }
 
 /** Owner keys survive transport changes within the same logical session. */

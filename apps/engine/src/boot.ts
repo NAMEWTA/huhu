@@ -15,6 +15,7 @@ import {
   IdempotencyStore,
   OperationReceipts,
   TokenTable,
+  TaskMcpCredentials,
   NotificationStore,
   EventLog,
   describeEvent,
@@ -165,6 +166,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const rootIdentity = directoryInstance(vault.root);
   const mcpVaultInstance = rootIdentity ? JSON.stringify([vault.id, ...rootIdentity]) : vault.id;
   const tokens = new TokenTable();
+  const taskMcp = new TaskMcpCredentials();
+  let server: RunningServer | undefined;
   const gatewayTokens = new GatewayTokens(path.join(vault.stateDir, "gateways.json"), tokens);
   let mcpListener: LocalMcpListener;
   let dispatchBudget: DeviceDispatchBudget | undefined;
@@ -179,6 +182,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const index = new VaultIndex(vault.root);
   registerVaultCapabilities(registry, vault, index);
   const events = new EventBus(() => vault.id);
+  events.subscribe((event) => {
+    if (event.type === "plugin.stateChanged" || (event.type === "entity.changed" && "kind" in event.payload &&
+        ["task", "task-run"].includes(event.payload.kind ?? ""))) taskMcp.recheck();
+  });
   const operations = new OperationLog(vault.files, path.join(vault.stateDir, "operations"));
   const repo = new SemanticRepository(vault.files, operations);
   repo.onWritten = (paths) => index.refreshPaths(paths);
@@ -335,6 +342,19 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
             nodeBin: process.env["HUHU_NODE_BIN"],
             binary: process.env["HUHU_CODEX_DISPATCH_BIN"],
             home: process.env["HUHU_CODEX_DISPATCH_HOME"],
+            taskMcp: {
+              available: () => !!server && mcpListener.enabled() && plugins.isEnabled("mcp") && plugins.isEnabled("tasks"),
+              issue: ({ key, authorization }, runtime) => {
+                if (!server || !mcpListener.enabled() || !plugins.isEnabled("mcp")) return;
+                const generation = gatewayTokens.mcpSignal();
+                const current = () => !generation.aborted && mcpListener.enabled() && plugins.isEnabled("mcp") &&
+                  plugins.isEnabled("agent-cli") && plugins.isEnabled("tasks") &&
+                  getService<(dispatchKey: typeof key, grant: typeof authorization) => boolean>("taskMcpAuthorization")?.(key, authorization) === true;
+                if (!current()) return;
+                const token = taskMcp.issue({ ...runtime, current, tools: authorization.tools });
+                return { url: `http://127.0.0.1:${server.port}/mcp`, token };
+              },
+            },
           },
         }),
       }),
@@ -635,9 +655,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   // 所有插件启用、Web 分享能力登记之后再补写 / 升级指南：能力表取决于完整的注册表
   await guideRef.current?.maintain().catch(() => undefined);
   const port = mcpListener.port ?? opts.port;
-  let server: RunningServer | undefined;
   try {
     server = await startEngineServer({
+      taskMcp,
       mcpHttp: { enabled: () => mcpListener.enabled() && plugins.isEnabled("mcp") },
       externalMcpTools: () => plugins.isEnabled("mcp") ? getService<ExternalMcpTools>(MCP_SOURCES_SERVICE) : undefined,
       mcpSignal: () => gatewayTokens.mcpSignal(),

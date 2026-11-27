@@ -12,10 +12,22 @@ const question = {
     { label: "Square", description: "Four corners" },
   ],
 };
-export async function startCodexResponsesFixture({ seedReply, seedReplies = seedReply === undefined ? [] : [seedReply], result = "You chose Circle.", failedTurn, workspaceCommand }: {
+type ModelRequest = { path: string | undefined; tools: { name?: string; tools?: { name?: string }[] }[]; input: { type?: string; call_id?: string; output?: unknown }[] };
+type ModelStep = { tool: string; arguments: object; namespace?: string } | { result: string } | { error: string } | { noFinal: true };
+
+export function huhuMcpStep(tool: string, args: object) {
+  return { tool, arguments: args, namespace: "mcp__huhu" };
+}
+
+export function huhuMcpTools(request: ModelRequest | undefined): string[] {
+  return request?.tools.find(({ name }) => name === "mcp__huhu")?.tools?.flatMap(({ name }) => name ? [name] : []) ?? [];
+}
+
+export async function startCodexResponsesFixture({ seedReply, seedReplies = seedReply === undefined ? [] : [seedReply], result = "You chose Circle.", failedTurn, workspaceCommand, step }: {
   seedReply?: string; seedReplies?: readonly string[]; result?: string; failedTurn?: string; workspaceCommand?: { command: string; cwd: string };
+  step?: (request: ModelRequest, index: number) => ModelStep | Promise<ModelStep>;
 } = {}) {
-  const requests: { path: string | undefined; tools: { name?: string }[]; input: { type?: string; call_id?: string; output?: unknown }[] }[] = [];
+  const requests: ModelRequest[] = [];
   const questionRequest = seedReplies.length + 1;
   const server = createServer(async (req, res) => {
     try {
@@ -23,29 +35,36 @@ export async function startCodexResponsesFixture({ seedReply, seedReplies = seed
       for await (const chunk of req) chunks.push(Buffer.from(chunk));
       const { tools, input } = JSON.parse(Buffer.concat(chunks).toString("utf8")) as (typeof requests)[number];
       requests.push({ path: req.url, tools, input });
-      if (req.method !== "POST" || req.url !== "/v1/responses" || requests.length > questionRequest + 1) {
+      if (req.method !== "POST" || req.url !== "/v1/responses" || (!step && requests.length > questionRequest + 1)) {
         res.writeHead(400).end();
         return;
       }
-      if (failedTurn && requests.length === questionRequest) {
-        res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: { type: "invalid_request_error", message: failedTurn } }));
+      const index = requests.length;
+      const scripted = await step?.(requests[index - 1]!, index);
+      const failure = scripted && "error" in scripted ? scripted.error : index === questionRequest ? failedTurn : undefined;
+      if (failure !== undefined) {
+        res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: { type: "invalid_request_error", message: failure } }));
         return;
       }
-      const ask = requests.length === questionRequest;
-      const reply = seedReplies[requests.length - 1] ?? result;
+      const ask = scripted ? "tool" in scripted : index === questionRequest;
+      const reply = scripted && "result" in scripted ? scripted.result : seedReplies[index - 1] ?? result;
       const shell = workspaceCommand && tools.find(({ name }) => name === "exec_command" || name === "shell_command")?.name;
-      if (ask && workspaceCommand && !shell) throw new Error("App Server did not offer the approved shell tool");
+      if (!scripted && ask && workspaceCommand && !shell) throw new Error("App Server did not offer the approved shell tool");
       const command = workspaceCommand && shell && (shell === "exec_command" ? { cmd: workspaceCommand.command, workdir: workspaceCommand.cwd } : { command: workspaceCommand.command, workdir: workspaceCommand.cwd });
-      const item = ask
-        ? { id: "fc_fixture", type: "function_call", status: "completed", call_id: callId, name: shell ?? toolName, arguments: JSON.stringify(command || { questions: [question] }) }
-        : { id: "msg_fixture_" + requests.length, type: "message", status: "completed", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: reply, annotations: [] }] };
+      const name = scripted && "tool" in scripted ? scripted.tool : shell ?? toolName;
+      const args = scripted && "tool" in scripted ? scripted.arguments : command || { questions: [question] };
+      const item = scripted && "noFinal" in scripted ? undefined : ask
+        ? { id: "fc_fixture_" + index, type: "function_call", status: "completed", call_id: step ? callId + "_" + index : callId, name, ...(scripted && "namespace" in scripted && { namespace: scripted.namespace }), arguments: JSON.stringify(args) }
+        : { id: "msg_fixture_" + index, type: "message", status: "completed", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: reply, annotations: [] }] };
       // Reuse the Responses lifecycle from deepseek-harness's subagent-codex fixture.
-      const response = { id: "resp_fixture_" + requests.length, object: "response", output: [item], usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } };
+      const response = { id: "resp_fixture_" + index, object: "response", output: item ? [item] : [], usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } };
       const events = [
         { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
-        { type: "response.output_item.added", output_index: 0, item: ask ? { ...item, arguments: "", status: "in_progress" } : { ...item, content: [], status: "in_progress" } },
-        ...(ask ? [] : [{ type: "response.output_text.delta", item_id: item.id, output_index: 0, content_index: 0, delta: reply }]),
-        { type: "response.output_item.done", output_index: 0, item },
+        ...(item ? [
+          { type: "response.output_item.added", output_index: 0, item: ask ? { ...item, arguments: "", status: "in_progress" } : { ...item, content: [], status: "in_progress" } },
+          ...(ask ? [] : [{ type: "response.output_text.delta", item_id: item.id, output_index: 0, content_index: 0, delta: reply }]),
+          { type: "response.output_item.done", output_index: 0, item },
+        ] : []),
         { type: "response.completed", response: { ...response, status: "completed" } },
       ];
       res.writeHead(200, { "content-type": "text/event-stream" });

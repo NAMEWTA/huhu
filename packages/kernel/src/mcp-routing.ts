@@ -92,6 +92,12 @@ function sourceStatus(route: McpExternalRoute, snapshot: McpRoutingSnapshot): Mc
 }
 
 function confirmRoute(route: McpRoute, snapshot: McpRoutingSnapshot, principal: McpSessionPrincipal, backend: McpRoutingBackend, calling: boolean): void {
+  if (principal.taskActive && !principal.taskActive()) throw mcpRouteError("permission-denied");
+  if (principal.taskTools && (route.kind !== "tool" || !principal.taskTools.some((tool) =>
+    route.origin === "builtin"
+      ? tool.sourceId === "builtin" && tool.upstreamIdentity === route.capability
+      : tool.sourceId === route.sourceId && tool.upstreamIdentity === route.upstreamIdentity && tool.sourceRevision === route.configRevision
+  ))) throw mcpRouteError("permission-denied");
   if (route.origin === "external") {
     if (!snapshot.policy.selected.some(({ sourceId, kind, upstreamIdentity }) =>
       sourceId === route.sourceId && kind === route.kind && upstreamIdentity === route.upstreamIdentity)) {

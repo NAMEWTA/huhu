@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TaskAvailableAtSchema, TaskExecutionSchema, TaskOriginSchema, TaskReminderSchema, TaskStatusSchema, TaskTypeSchema } from "../kinds/task.js";
+import { TaskMcpAuthorizationSchema } from "../mcp-routing.js";
 import { normalizeTags } from "../tags.js";
 
 export const TaskCategorySchema = z.enum(["all", "today", "tomorrow", "week", "ended"]);
@@ -45,6 +46,7 @@ export const TaskDtoSchema = z.object({
   project: z.string().nullable(),
   origin: TaskOriginSchema,
   execution: TaskExecutionSchema.nullable(),
+  mcpAuthorization: TaskMcpAuthorizationSchema.optional(),
   /** 旧任务文档的提醒数据，仅供迁移。 */
   reminders: z.array(TaskReminderSchema),
   inputRevision: z.number().int(),

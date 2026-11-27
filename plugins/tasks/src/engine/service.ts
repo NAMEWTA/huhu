@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   errors,
   HuhuError,
@@ -11,6 +12,7 @@ import {
   type EventType,
   type TaskComment,
   type TaskDto,
+  type TaskMcpTool,
   type TaskOrigin,
   type TaskPatch,
   type TaskReference,
@@ -46,6 +48,7 @@ type TaskData = {
   project: string | null;
   origin: TaskOrigin;
   execution: TaskDto["execution"];
+  mcpAuthorization?: TaskDto["mcpAuthorization"] | null;
   reminders: TaskDto["reminders"];
   inputRevision: number;
   createdAt: string;
@@ -136,6 +139,7 @@ export function toDto(e: Entity, pathKind: TasksDeps["pathKind"] = () => null): 
   };
   return {
     ...editable,
+    ...(d.mcpAuthorization && { mcpAuthorization: d.mcpAuthorization }),
     reminders: d.reminders,
     availableAt: d.availableAt ?? null,
     id: e.id,
@@ -307,6 +311,9 @@ export class TasksService {
         changes["execution"] = nextExec;
       }
       await authorize?.(cur, patch.type ?? cur.type, nextExec);
+      if (cur.mcpAuthorization && ((patch.type ?? cur.type) !== "agent" || taskInputHash("", nextExec) !== taskInputHash("", cur.execution))) {
+        changes["mcpAuthorization"] = null;
+      }
       const body = patch.body !== undefined ? replaceTaskSection(entity.body, patch.body) : undefined;
       const nextBody = body === undefined ? cur.body : (parseTaskBody(body).task ?? "");
       const inputDidChange = taskInputHash(nextBody, nextExec) !== cur.inputHash;
@@ -316,6 +323,20 @@ export class TasksService {
       this.d.publish("entity.changed", { kind: "task", id, op: "updated" });
       if (inputDidChange) this.d.publish("task.inputChanged", { taskId: id, inputRevision: dto.inputRevision, inputHash: dto.inputHash });
       return dto;
+    });
+  }
+
+  async authorizeMcp(id: string, expectedVersion: string, tools: TaskMcpTool[], signal: AbortSignal): Promise<TaskDto> {
+    return this.withTaskWrite(id, async () => {
+      const cur = this.read(id);
+      if (cur.version !== expectedVersion) throw errors.versionConflict(cur.version);
+      if (tools.length && (cur.type !== "agent" || cur.execution?.provider !== "codex" || (cur.execution.target?.mode ?? "new") !== "new")) {
+        throw errors.invalidInput("仅新的受控 Codex 会话可授权 MCP 工具");
+      }
+      const mcpAuthorization = tools.length ? { revision: randomUUID(), tools } : null;
+      const entity = await this.d.repo.patch("task", id, { mcpAuthorization, updatedAt: iso(this.d.now()) }, cur.version, undefined, () => signal.throwIfAborted());
+      this.d.publish("entity.changed", { kind: "task", id, op: "updated" });
+      return this.dto(entity);
     });
   }
 

@@ -14,6 +14,7 @@ import {
   TaskDispatchReceiptSchema,
   TaskDispatchViewSchema,
   TaskRunSummarySchema,
+  TaskMcpAuthorizationSchema,
   RecentTaskRunSchema,
 } from "@huhu/contracts";
 import { AgentDispatchTargetSchema } from "@huhu/plugin-agent-cli/engine";
@@ -73,6 +74,7 @@ const Snapshot = InputIdentity.extend({
   taskVersion: z.string(),
   body: z.string(),
   execution: TaskExecutionSchema,
+  mcpAuthorization: TaskMcpAuthorizationSchema.optional(),
   references: z.array(z.string()),
   source: Source,
   allowEarly: z.boolean().optional(),

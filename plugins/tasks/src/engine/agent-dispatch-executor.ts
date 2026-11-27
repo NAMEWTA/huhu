@@ -38,6 +38,7 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
       inputSnapshotHash: work.snapshotHash,
       input: textOf(work),
       target: work.agentTarget,
+      ...(work.snapshot.mcpAuthorization && { mcpAuthorization: work.snapshot.mcpAuthorization }),
     });
 
   const outcome = (receipt: z.infer<typeof AgentDispatchResponseSchema>, work: TaskDispatchWork): Exclude<TaskDispatchResult, "unsupported"> => {

@@ -19,6 +19,7 @@
       "tasks.create",
       "tasks.agent.create",
       "tasks.update",
+      "tasks.mcp.authorize",
       "tasks.duplicate",
       "tasks.delete",
       "tasks.setStatus",

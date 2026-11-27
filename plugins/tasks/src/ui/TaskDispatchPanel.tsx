@@ -11,6 +11,7 @@ import type { TaskQuestionView } from "../engine/receipt-inbox.js";
 import type { resultDeliveryDescriptors } from "../engine/result-delivery.js";
 import { TaskRunMarkdownView } from "./compact.js";
 import { t } from "./i18n.js";
+import { TaskMcpAuthorization } from "./TaskMcpAuthorization.js";
 import { NewTaskRoundDialog } from "./NewTaskRoundDialog.js";
 import { useReferenceIndex } from "./references.js";
 
@@ -97,6 +98,7 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
   }, [destination, rows]);
   const [request, setRequest] = useState<DispatchInput | null>(null);
   const [retry, setRetry] = useState<RetryDispatch | null>(null);
+  const [mcpOpen, setMcpOpen] = useState(false);
   const [earlyDialog, setEarlyDialog] = useState(false);
   const [newRoundOpen, setNewRoundOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -174,6 +176,13 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
         <History size={14} aria-hidden /> Agent 派遣
       </h3>
       <TaskResources zone={zone} />
+      {(task.mcpAuthorization || (task.execution?.provider === "codex" && (task.execution.target?.mode ?? "new") === "new")) ? (
+        <div className="row">
+          <Button onClick={() => setMcpOpen(true)}>任务 MCP 授权</Button>
+          <span>{task.mcpAuthorization ? `已授权 ${task.mcpAuthorization.tools.length} 项工具` : "未授权工具"}</span>
+        </div>
+      ) : null}
+      {mcpOpen ? <TaskMcpAuthorization task={task} close={() => setMcpOpen(false)} refresh={refresh} /> : null}
       {request ? (
         <Button loading={submitting} onClick={() => void submit(request)}>核对原请求</Button>
       ) : task.status === "not_started" ? (
