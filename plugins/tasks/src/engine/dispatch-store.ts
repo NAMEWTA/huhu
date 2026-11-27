@@ -88,7 +88,9 @@ export function dispatchSnapshotText({ body, source, context }: z.infer<typeof S
   const messages = context?.messages.map(({ body }) => body);
   const artifacts = context?.artifacts.map(({ path, version, text }) => `文件 ${path}（版本 ${version}）\n${text}`);
   return [body, instructions, ...(messages?.length ? ["选取的任务消息", ...messages] : []), ...(artifacts?.length ? ["选取的关联产物", ...artifacts] : [])]
-    .filter((part): part is string => part !== undefined && part !== "").join("\n\n").replace(/\r\n/g, "\n");
+    .filter((part): part is string => part !== undefined && part !== "")
+    .join("\n\n")
+    .replace(/\r\n/g, "\n");
 }
 const RecordFields = z.object({
   receipt: DispatchReceipt,
@@ -296,8 +298,13 @@ export class DispatchStore {
       const { taskId, inputHash, inputRevision, expectedVersion, source, allowEarly, newRound, previousRunId, context } = snapshot;
       if (receipt.parentRunId !== (newRound ? previousRunId : "parent" in source ? source.parent?.runId : undefined)) throw new Error("后续运行关联不一致");
       const input = {
-        taskId, dispatchId: receipt.dispatchId, inputHash, inputRevision, expectedVersion,
-        ...(allowEarly !== undefined && { allowEarly }), ...(newRound && { newRound }),
+        taskId,
+        dispatchId: receipt.dispatchId,
+        inputHash,
+        inputRevision,
+        expectedVersion,
+        ...(allowEarly !== undefined && { allowEarly }),
+        ...(newRound && { newRound }),
         ...(context && { context: { messageIds: context.messages.map(({ id }) => id), artifacts: context.artifacts.map(({ path, expectedVersion }) => ({ path, ...(expectedVersion !== undefined && { expectedVersion }) })) } }),
       };
       if (receipt.eventId !== eventId || eventIdOf(receipt.dispatchId) !== eventId || receipt.taskId !== taskId || !isId(receipt.runId, "run")) throw new Error("派遣身份校验失败");

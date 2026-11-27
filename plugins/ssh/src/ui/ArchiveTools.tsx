@@ -86,9 +86,7 @@ function Actions({ side, directory, entries, id, ready, refresh, device }: Props
   return (
     <section aria-label={`${device}归档能力`}>
       {supportError && <p role="alert">{supportError}</p>}
-      <p role="status">
-        {capability && `${capability.zip && ready ? "ZIP 可用" : "ZIP 不可用"} · ${ready ? capability.reason : "原 SSH 连接已断开"}`}
-      </p>
+      <p role="status">{capability && `${capability.zip && ready ? "ZIP 可用" : "ZIP 不可用"} · ${ready ? capability.reason : "原 SSH 连接已断开"}`}</p>
       {support && (
         <p>
           {support.otherFormats} {side === "local" && support.nativeSelection}

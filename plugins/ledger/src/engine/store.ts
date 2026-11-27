@@ -64,7 +64,13 @@ const tails = new WeakMap<VaultFiles, Promise<void>>();
 
 export function withLedgerSnapshot<T>(files: VaultFiles, operation: () => T | Promise<T>): Promise<T> {
   const result = (tails.get(files) ?? Promise.resolve()).then(operation);
-  tails.set(files, result.then(() => undefined, () => undefined));
+  tails.set(
+    files,
+    result.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
   return result;
 }
 
@@ -77,15 +83,23 @@ export class LedgerStore {
   private pending?: { index: IndexSnapshot; bookId: string; state: Versioned<BookState> | null };
   private recoveryRequired = false;
 
-  constructor(readonly files: VaultFiles, private readonly events: Pick<EventBus, "publish">, private readonly now = () => new Date()) {
+  constructor(
+    readonly files: VaultFiles,
+    private readonly events: Pick<EventBus, "publish">,
+    private readonly now = () => new Date(),
+  ) {
     this.operations = ledgerOperations(files);
     try {
       if (!files.readOnly) this.operations.recover();
       this.inspectRecovery();
-    } catch { this.recoveryRequired = true; }
+    } catch {
+      this.recoveryRequired = true;
+    }
   }
 
-  idle(): Promise<void> { return tails.get(this.files) ?? Promise.resolve(); }
+  idle(): Promise<void> {
+    return tails.get(this.files) ?? Promise.resolve();
+  }
 
   private inspectRecovery() {
     this.recoveryRequired = this.operations.list().some(({ state }) => state === "prepared" || state === "needs_attention");
@@ -113,8 +127,7 @@ export class LedgerStore {
     this.requireReady();
     if (this.pending) return this.pending.index;
     const current = this.files.read(indexPath);
-    return current ? { data: indexSchema.parse(JSON.parse(current.bytes.toString("utf8"))), version: current.version } :
-      { data: { format: 1, ids: [], activeBookId: null, restores: {} }, version: null };
+    return current ? { data: indexSchema.parse(JSON.parse(current.bytes.toString("utf8"))), version: current.version } : { data: { format: 1, ids: [], activeBookId: null, restores: {} }, version: null };
   }
 
   private state(bookId: string): Versioned<BookState> {
@@ -127,9 +140,13 @@ export class LedgerStore {
     return { data: state, version: saved.version };
   }
 
-  snapshot(bookId: string): BookState { return this.state(bookId).data; }
+  snapshot(bookId: string): BookState {
+    return this.state(bookId).data;
+  }
 
-  businessDate(book: Book): string { return ledgerBusinessDate(this.now().toISOString(), book.timeZone); }
+  businessDate(book: Book): string {
+    return ledgerBusinessDate(this.now().toISOString(), book.timeZone);
+  }
 
   list(): BookList {
     const { data } = this.index();
@@ -146,8 +163,11 @@ export class LedgerStore {
     try {
       await this.operations.run(randomUUID(), kind, steps, { beforeCommit: verify, afterStep: verify });
     } catch (error) {
-      try { this.inspectRecovery(); }
-      catch { this.recoveryRequired = true; }
+      try {
+        this.inspectRecovery();
+      } catch {
+        this.recoveryRequired = true;
+      }
       throw error;
     } finally {
       delete this.pending;
@@ -167,14 +187,15 @@ export class LedgerStore {
       const book: Book = { id: randomUUID(), name, defaultCurrency, timeZone, status: "active", schemaVersion: 1, revision: randomUUID() };
       const account = LedgerAccount.parse({ id: randomUUID(), bookId: book.id, name: firstAccount.name, type: firstAccount.type, currency: defaultCurrency, status: "active" });
       const base = LedgerBalanceBase.parse({
-        bookId: book.id, accountId: account.id, effectiveBusinessDate: ledgerBusinessDate(this.now().toISOString(), timeZone), balanceMinor: "0", revision: randomUUID(),
+        bookId: book.id,
+        accountId: account.id,
+        effectiveBusinessDate: ledgerBusinessDate(this.now().toISOString(), timeZone),
+        balanceMinor: "0",
+        revision: randomUUID(),
       });
       const state = stateSchema.parse({ book, accounts: [account], bases: [base], records: [] });
       const next: BookIndex = { ...index.data, ids: [...index.data.ids, book.id], activeBookId: book.id };
-      await this.transaction(context, "ledger-book-create", [
-        write(bookPath(book.id), state, null),
-        write(indexPath, next, index.version),
-      ], { index, bookId: book.id, state: null });
+      await this.transaction(context, "ledger-book-create", [write(bookPath(book.id), state, null), write(indexPath, next, index.version)], { index, bookId: book.id, state: null });
       this.emit(book.id, "created");
       return book;
     });
@@ -186,8 +207,7 @@ export class LedgerStore {
     return receipt?.owner === owner && index.ids.includes(receipt.bookId) ? this.snapshot(receipt.bookId).book : null;
   }
 
-  restore(context: Context, input: { previewId: string; owner: string; fingerprint: string; name: string },
-    prepare: () => { state: BookState; attachments: ReadonlyMap<string, Uint8Array> }): Promise<Book> {
+  restore(context: Context, input: { previewId: string; owner: string; fingerprint: string; name: string }, prepare: () => { state: BookState; attachments: ReadonlyMap<string, Uint8Array> }): Promise<Book> {
     return this.enqueue(context, async () => {
       const index = this.index();
       const received = index.data.restores[input.previewId];
@@ -202,7 +222,8 @@ export class LedgerStore {
       const book = state.book;
       const next: BookIndex = {
         ...index.data,
-        ids: [...index.data.ids, book.id], activeBookId: book.id,
+        ids: [...index.data.ids, book.id],
+        activeBookId: book.id,
         restores: { ...index.data.restores, [input.previewId]: { bookId: book.id, owner: input.owner, fingerprint: input.fingerprint } },
       };
       const steps: OpStep[] = [...attachments].map(([id, data]) => ({ action: "write", path: attachmentPath(book.id, id), bytes: Buffer.from(data), expectedVersion: null }));
@@ -282,11 +303,11 @@ export class LedgerStore {
         const expectedVersion = this.files.currentVersion(target);
         return expectedVersion === null ? [] : [{ action: "delete", path: target, expectedVersion }];
       });
-      await this.transaction(context, "ledger-book-remove", [
-        { action: "delete", path: bookPath(bookId), expectedVersion: state.version },
-        write(indexPath, { ...index.data, ids, activeBookId }, index.version),
-        ...attachments,
-      ], { index, bookId, state });
+      await this.transaction(context, "ledger-book-remove", [{ action: "delete", path: bookPath(bookId), expectedVersion: state.version }, write(indexPath, { ...index.data, ids, activeBookId }, index.version), ...attachments], {
+        index,
+        bookId,
+        state,
+      });
       this.emit(bookId, "deleted");
       return { ok: true as const };
     });

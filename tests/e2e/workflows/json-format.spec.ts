@@ -8,19 +8,7 @@ import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 const fileName = "JSON 保真.json";
 const invalidName = "JSON 语法错误.json";
 const original = "\ufeff" + String.raw`{"2":9007199254740993,"1":1e+309,"2":-0,"a":[{"s":"  \u0061\t [,}]  "}]}` + "\r\n";
-const formatted = [
-  "\ufeff{",
-  '  "2": 9007199254740993,',
-  '  "1": 1e+309,',
-  '  "2": -0,',
-  '  "a": [',
-  "    {",
-  String.raw`      "s": "  \u0061\t [,}]  "`,
-  "    }",
-  "  ]",
-  "}",
-  "",
-].join("\r\n");
+const formatted = ["\ufeff{", '  "2": 9007199254740993,', '  "1": 1e+309,', '  "2": -0,', '  "a": [', "    {", String.raw`      "s": "  \u0061\t [,}]  "`, "    }", "  ]", "}", ""].join("\r\n");
 const invalid = '{"a": 1,}\n';
 
 for (const surface of ["Linux 桌面", "独立 Web"]) {

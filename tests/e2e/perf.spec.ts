@@ -750,7 +750,6 @@ for (const scenario of noteScenarios) {
   });
 }
 
-
 test("F09 Agent 历史分页与原记录预览", async () => {
   test.skip(process.env.HUHU_AGENT_HISTORY_PERF !== "1", "按需采集历史分页");
   test.setTimeout(90_000);
@@ -765,14 +764,12 @@ test("F09 Agent 历史分页与原记录预览", async () => {
     const jsonl = (...rows: object[]) => rows.map((row) => JSON.stringify(row) + "\n").join("");
     const writeCodex = (cwd: string, id: string, title: string) => {
       const file = path.join(rolls, `rollout-${id}.jsonl`);
-      writeFileSync(file, jsonl({ type: "session_meta", payload: { id, cwd } },
-        { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: title }] } }));
+      writeFileSync(file, jsonl({ type: "session_meta", payload: { id, cwd } }, { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: title }] } }));
       return file;
     };
     const writePi = (cwd: string, id: string, title: string) => {
       const file = path.join(pi, `${id}.jsonl`);
-      writeFileSync(file, jsonl({ type: "session", version: 3, id, cwd },
-        { type: "message", message: { role: "user", content: title } }));
+      writeFileSync(file, jsonl({ type: "session", version: 3, id, cwd }, { type: "message", message: { role: "user", content: title } }));
       return file;
     };
     fixture = await openApp({ CODEX_HOME: codex, PI_CODING_AGENT_SESSION_DIR: pi, CLAUDE_CONFIG_DIR: path.join(directory, "empty") }, (vault) => {
@@ -789,7 +786,7 @@ test("F09 Agent 历史分页与原记录预览", async () => {
     await engineReady(page);
     const [space] = await engineCall<{ id: string }[]>(page, "agent.spaces.list", {});
     const samples = [];
-    const measure = async <T,>(stage: string, capability: string, input: object) => {
+    const measure = async <T>(stage: string, capability: string, input: object) => {
       const start = performance.now();
       const result = await engineCall<T>(page, capability, input);
       samples.push({ stage, wallMs: performance.now() - start, responseBytes: Buffer.byteLength(JSON.stringify(result)) });
@@ -821,11 +818,22 @@ test("F12 同一 MIME 邮件正文的首次读取和重复读取", async () => {
   const title = "F12 MIME fixture";
   const body = "F12 known body " + "record data\r\n".repeat(8_192);
   const source = [
-    "From: Sender <sender@example.test>", "To: fixture@example.test", `Subject: ${title}`,
-    "MIME-Version: 1.0", 'Content-Type: multipart/alternative; boundary="f12-fixture"', "",
-    "--f12-fixture", 'Content-Type: text/plain; charset="utf-8"', "", body,
-    "--f12-fixture", 'Content-Type: text/html; charset="utf-8"', "", "<p>F12 known HTML</p>",
-    "--f12-fixture--", "",
+    "From: Sender <sender@example.test>",
+    "To: fixture@example.test",
+    `Subject: ${title}`,
+    "MIME-Version: 1.0",
+    'Content-Type: multipart/alternative; boundary="f12-fixture"',
+    "",
+    "--f12-fixture",
+    'Content-Type: text/plain; charset="utf-8"',
+    "",
+    body,
+    "--f12-fixture",
+    'Content-Type: text/html; charset="utf-8"',
+    "",
+    "<p>F12 known HTML</p>",
+    "--f12-fixture--",
+    "",
   ].join("\r\n");
   const imap = await openImapFixture({ allowIdle: false, message: { uid: 1, uidValidity: 42, subject: title, source } });
   let fixture: Awaited<ReturnType<typeof openApp>> | undefined;
@@ -835,8 +843,7 @@ test("F12 同一 MIME 邮件正文的首次读取和重复读取", async () => {
     await engineReady(page);
     const endpoint = { host: "127.0.0.1", port: imap.port, security: "none" };
     const { setupId } = await engineCall<{ setupId: string }>(page, "mail.accounts.testConnection", {
-      settings: { provider: "custom_imap", email: "fixture@example.test", label: title, auth: "password",
-        imap: endpoint, smtpEnabled: false, smtp: endpoint },
+      settings: { provider: "custom_imap", email: "fixture@example.test", label: title, auth: "password", imap: endpoint, smtpEnabled: false, smtp: endpoint },
       password: "f12-loopback-fixture",
     });
     const { accountId } = await engineCall<{ accountId: string }>(page, "mail.accounts.save", { setupId, folders: ["INBOX"] });
@@ -904,7 +911,9 @@ test("F23 大库正文保存记录路径树 RPC、字节和交互耗时", async 
     // The file follows the 50 folders, outside the initial window of the virtualized tree.
     const treeScroll = page.getByTestId("notes-resource-tree").locator("[data-file-tree-virtualized-scroll]");
     await expect(treeScroll).toBeVisible();
-    await treeScroll.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await treeScroll.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
     await treeItem(page, name).click();
     const editor = page.getByTestId("markdown-editor").locator(".ProseMirror");
     await expect(editor).toContainText("原始正文");
@@ -950,10 +959,11 @@ test("F23 大库正文保存记录路径树 RPC、字节和交互耗时", async 
       if (initialAutosave) await engineCall(page, "settings.update", { patch: { editor: { autosave: true } } });
     } finally {
       try {
-        if (appearance !== undefined) await page.evaluate((previous) => {
-          if (previous === null) localStorage.removeItem("huhu.appearance");
-          else localStorage.setItem("huhu.appearance", previous);
-        }, appearance);
+        if (appearance !== undefined)
+          await page.evaluate((previous) => {
+            if (previous === null) localStorage.removeItem("huhu.appearance");
+            else localStorage.setItem("huhu.appearance", previous);
+          }, appearance);
       } finally {
         await close();
       }

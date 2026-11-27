@@ -215,11 +215,13 @@ engineTest(
       success(await control("gateway.mcp.update", { enabled: true }));
       const endpoint = `${urlOf(live)}/mcp`;
       const handle = await openMcpSession(endpoint, principal.token);
-      const client = (handle: string) => async (method: string, params?: object): Promise<Rpc> => {
-        const response = await mcpRequest(endpoint, principal.token, mcpRpc(method, params), handle);
-        if (!response.ok) throw new Error(`Safe MCP HTTP ${response.status}`);
-        return (await response.json()) as Rpc;
-      };
+      const client =
+        (handle: string) =>
+        async (method: string, params?: object): Promise<Rpc> => {
+          const response = await mcpRequest(endpoint, principal.token, mcpRpc(method, params), handle);
+          if (!response.ok) throw new Error(`Safe MCP HTTP ${response.status}`);
+          return (await response.json()) as Rpc;
+        };
       const mcp = client(handle);
       const data = <T>(reply: Rpc): T => {
         if (reply.result?.isError || !reply.result?.structuredContent) throw new Error("Safe MCP tool failed");

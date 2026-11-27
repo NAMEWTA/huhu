@@ -65,7 +65,14 @@ describe("ui-store", () => {
     const store = createUiStore({ activeModule: "home", openTabs: ["home"] });
     const opened: string[] = [];
     let decide!: (allowed: boolean) => void;
-    registerModuleLeaveGuard(store, "home", () => new Promise<boolean>((resolve) => { decide = resolve; }));
+    registerModuleLeaveGuard(
+      store,
+      "home",
+      () =>
+        new Promise<boolean>((resolve) => {
+          decide = resolve;
+        }),
+    );
     let current = true;
     const open = (id: string) => store.getState().openModule("inbox", { onOpen: () => opened.push(id), isCurrent: () => current });
     const declined = open("first");

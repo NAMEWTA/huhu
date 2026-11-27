@@ -46,14 +46,15 @@ export function previewLoan(store: LedgerStore, state: BookState, input: z.infer
   const loan = findLoan(state, input.loanId);
   const { definition } = loan;
   const accountId = input.accountId ?? definition.accountId;
-  const accountAvailable = state.accounts.some(({ id, status, currency }) =>
-    id === accountId && status === "active" && currency === definition.currency);
+  const accountAvailable = state.accounts.some(({ id, status, currency }) => id === accountId && status === "active" && currency === definition.currency);
   const through = store.businessDate(state.book);
   const identity = { bookId: state.book.id, expectedRevision: state.book.revision, loanId: loan.id, accountId, through };
   const generated = new Set(state.loanPayments.filter(({ loanId }) => loanId === loan.id).map(({ number }) => number));
   const refs = new Map(state.recordReferences.filter(({ kind }) => kind === "occurrence").map(({ targetId, recordId }) => [targetId, recordId]));
   return {
-    loan, accountAvailable, preview: { ...identity, previewId: digest(identity) },
+    loan,
+    accountAvailable,
+    preview: { ...identity, previewId: digest(identity) },
     installments: loanSchedule(definition).map((row) => ({
       ...row,
       status: generated.has(row.number) ? "generated" : row.paymentMinor === "0" ? "no-payment" : row.date <= through ? "due" : "future",
@@ -95,10 +96,22 @@ export async function confirmLoan(store: LedgerStore, context: CapabilityContext
         if (paid) return paid;
         const occurredAt = ledgerBusinessDayRange(date, draft.book.timeZone).from;
         if (ledgerBusinessDate(occurredAt, draft.book.timeZone) !== date) throw errors.invalidInput("还款期次所在的业务日不可入账");
-        const record = saveRecord(draft, {
-          type: "expense", accountId, currency: definition.currency, amountMinor: paymentMinor, occurredAt,
-          memo: `第 ${number} 期还款`, payee: null, categoryId: null, tagIds: [], attachmentIds: [],
-        }, definition.name);
+        const record = saveRecord(
+          draft,
+          {
+            type: "expense",
+            accountId,
+            currency: definition.currency,
+            amountMinor: paymentMinor,
+            occurredAt,
+            memo: `第 ${number} 期还款`,
+            payee: null,
+            categoryId: null,
+            tagIds: [],
+            attachmentIds: [],
+          },
+          definition.name,
+        );
         const receipt = { loanId, number, recordId: record.id };
         draft.loanPayments.push(receipt);
         draft.recordReferences.push({ kind: "occurrence", targetId: loanPeriodId(loanId, number), recordId: record.id });

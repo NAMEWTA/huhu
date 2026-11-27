@@ -35,7 +35,9 @@ test("核实沿用原 GitHub 投递，无证据保持 unknown，只接受原作�
         originalComment = githubCommentEvent("20150", JSON.parse(init!.body).body, actor).payload.comment;
         throw new Error("lost POST response");
       }),
-      pages: vi.fn(async function* () { yield comments; }),
+      pages: vi.fn(async function* () {
+        yield comments;
+      }),
     };
     // Re-open the delivery store to exercise durable verification and the established confirmation contract.
     const reopened = new GitHubDeliveries(files, result);
@@ -48,9 +50,7 @@ test("核实沿用原 GitHub 投递，无证据保持 unknown，只接受原作�
       }
       expect(capability).toBe("tasks.github.deliveries.confirm");
       const confirmation = resultDeliveryDescriptors.githubConfirmDelivery.input.parse(input);
-      return confirmation.proof === null
-        ? reopened.finishUnconfirmed(scope, confirmation.deliveryId, confirmation.verificationId!, authorize)
-        : reopened.confirm(scope, confirmation.deliveryId, confirmation.proof, authorize);
+      return confirmation.proof === null ? reopened.finishUnconfirmed(scope, confirmation.deliveryId, confirmation.verificationId!, authorize) : reopened.confirm(scope, confirmation.deliveryId, confirmation.proof, authorize);
     });
     const original = await deliver(github, huhu, { ...scope, ...key });
     expect(original).toMatchObject({ ...key, state: "unknown" });
@@ -70,9 +70,7 @@ test("核实沿用原 GitHub 投递，无证据保持 unknown，只接受原作�
     expect(reopened.pendingVerification(sourceId)).toMatchObject([{ verification: { id: second, state: "pending" } }]);
     comments = [originalComment!];
     await verifyPendingDeliveries(github, huhu, binding);
-    expect(reopened.read(key)).toMatchObject({ ...key, deliveryId: original.deliveryId, messageId: savedResult.messageId, state: "accepted",
-      comment: { id: originalComment!.id, url: originalComment!.html_url, actorId: actor.id },
-    });
+    expect(reopened.read(key)).toMatchObject({ ...key, deliveryId: original.deliveryId, messageId: savedResult.messageId, state: "accepted", comment: { id: originalComment!.id, url: originalComment!.html_url, actorId: actor.id } });
     expect(reopened.pendingVerification(sourceId)).toEqual([]);
     expect(await deliver(github, huhu, { ...scope, ...key })).toMatchObject({ send: false, state: "accepted", deliveryId: original.deliveryId });
     expect(github.request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);

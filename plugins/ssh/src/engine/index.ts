@@ -269,10 +269,12 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorProcessTerminate, (context, input) => terminateMonitorProcess(manager, input, context.signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorContainerLogs, (context, input) => readContainerLogs(manager, input, context.signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorContainerShell, (context, input) => openContainerShell(manager, input, context.signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelSudo, (context, input) => {
-    context.signal.throwIfAborted();
-    return monitors.changeDashboardSudo(input);
-  }));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorPanelSudo, (context, input) => {
+      context.signal.throwIfAborted();
+      return monitors.changeDashboardSudo(input);
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (context, { id }) => (desktopMonitor(context) ? monitors.get(id) : publicMonitors.get(context, id))));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionList, (context) => publicMonitors.list(desktopMonitor(context) ? undefined : context)));
   api.defineCapability(

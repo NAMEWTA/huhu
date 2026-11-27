@@ -59,17 +59,23 @@ test("privileged SFTP uses sudo on just the original file binding and keeps file
     const seed = path.join(root, "seed.txt");
     await writeFile(seed, "restricted fixture");
     execFileSync("sudo", ["-n", "install", "-m", "600", seed, secret]);
-    const first = await f.host("sudo SFTP", [], { noSftp: true, onInteractiveExec(command, channel) {
-      if (command !== privilegedSftpCommand) return false;
-      localPosixCommand(channel, command);
-      return true;
-    } });
-    const second = await f.host("sudo unavailable", [], { noSftp: true, onInteractiveExec(command, channel) {
-      if (command !== privilegedSftpCommand) return false;
-      channel.exit(1);
-      channel.end();
-      return true;
-    } });
+    const first = await f.host("sudo SFTP", [], {
+      noSftp: true,
+      onInteractiveExec(command, channel) {
+        if (command !== privilegedSftpCommand) return false;
+        localPosixCommand(channel, command);
+        return true;
+      },
+    });
+    const second = await f.host("sudo unavailable", [], {
+      noSftp: true,
+      onInteractiveExec(command, channel) {
+        if (command !== privilegedSftpCommand) return false;
+        channel.exit(1);
+        channel.end();
+        return true;
+      },
+    });
     async function connect(hostId: string) {
       await f.desktop("ssh.connect", { hostId, background: true });
       const state = async () => (await f.desktop<ConnectionStatus[]>("ssh.connections.status")).find((item) => item.hostId === hostId);
@@ -175,13 +181,19 @@ test("privileged SFTP consumes a password once and pins batch work to that authe
     expect(await f.desktop("ssh.fileSessions.sudo.read", { ...scope, path: file })).toMatchObject({ text: "sudo challenge SFTP" });
     await f.desktop("ssh.fileSessions.localList", { fileSessionId, parts: [], root: output });
     const batch = await f.desktop<TransferBatch>("ssh.transfers.startBatch", {
-      source: { kind: "remote", ...scope, sudo: true, path: root }, target: { kind: "local", path: output }, names: ["secret.txt"], localFileSessionId: fileSessionId,
+      source: { kind: "remote", ...scope, sudo: true, path: root },
+      target: { kind: "local", path: output },
+      names: ["secret.txt"],
+      localFileSessionId: fileSessionId,
     });
     await expect.poll(async () => (await f.desktop<TransferQueue>("ssh.transfers.list")).batches.find(({ batchId }) => batchId === batch.batchId)?.state).toBe("completed");
     expect(await readFile(path.join(output, "secret.txt"), "utf8")).toBe("sudo challenge SFTP");
     await writeFile(path.join(output, "upload.txt"), "same authenticated channel");
     const upload = await f.desktop<TransferBatch>("ssh.transfers.startBatch", {
-      source: { kind: "local", path: output }, target: { kind: "remote", ...scope, sudo: true, path: root }, names: ["upload.txt"], localFileSessionId: fileSessionId,
+      source: { kind: "local", path: output },
+      target: { kind: "remote", ...scope, sudo: true, path: root },
+      names: ["upload.txt"],
+      localFileSessionId: fileSessionId,
     });
     await expect.poll(async () => (await f.desktop<TransferQueue>("ssh.transfers.list")).batches.find(({ batchId }) => batchId === upload.batchId)?.state).toBe("completed");
     expect(execFileSync("sudo", ["-n", "stat", "-c", "%u:%a", "--", path.join(root, "upload.txt")], { encoding: "utf8" }).trim()).toBe("0:600");
@@ -203,7 +215,9 @@ test("workbench dynamic split gives the new SSH host its own trust prompt", asyn
     const first = await f.host("original pane");
     const second = await f.host("added pane");
     const started = await f.desktop<WorkspaceRun>("ssh.workspace.runs.start", {
-      name: "dynamic split", layout: { kind: "one" }, panes: [{ hostId: first.hostId }],
+      name: "dynamic split",
+      layout: { kind: "one" },
+      panes: [{ hostId: first.hostId }],
     });
     const read = async () => (await f.desktop<WorkspaceRun[]>("ssh.workspace.runs.list")).find(({ id }) => id === started.id)!;
     async function accept(hostId: string) {
@@ -211,9 +225,14 @@ test("workbench dynamic split gives the new SSH host its own trust prompt", asyn
       await expect.poll(async () => (await pane())?.phase).toBe("trust");
       const prompt = (await pane())?.prompt;
       if (!prompt) throw new Error("Missing pending host key");
-      expect(await f.desktop("ssh.hostKey.decide", {
-        attemptId: prompt.attemptId, hop: prompt.hop, promptId: prompt.promptId, accept: true,
-      })).toEqual({ applied: true });
+      expect(
+        await f.desktop("ssh.hostKey.decide", {
+          attemptId: prompt.attemptId,
+          hop: prompt.hop,
+          promptId: prompt.promptId,
+          accept: true,
+        }),
+      ).toEqual({ applied: true });
       await expect.poll(async () => (await pane())?.phase).toBe("ready");
       return (await pane())?.sessionId;
     }
@@ -222,7 +241,8 @@ test("workbench dynamic split gives the new SSH host its own trust prompt", asyn
     expect(second.server.conns).toHaveLength(0);
     const open = await read();
     await f.desktop("ssh.workspace.runs.changeLayout", {
-      id: open.id, expectedLayoutRevision: open.layoutRevision ?? open.id,
+      id: open.id,
+      expectedLayoutRevision: open.layoutRevision ?? open.id,
       change: { action: "split", hostId: second.hostId, paneId: open.panes[0]!.paneId, axis: "column" },
     });
     expect(await accept(second.hostId)).toBeDefined();
@@ -301,16 +321,22 @@ test.each(["cli", "mcp"] as const)("%s edits SSH routes only while the prospecti
     const capability = "ssh.routes.edit";
     const invoke = await externalTool(f, entry);
     await f.allow(capability);
-    const bindings = await Promise.all([jump, target].map(async ({ hostId }) => {
-      const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
-      return { hostId, routeRevision };
-    }));
+    const bindings = await Promise.all(
+      [jump, target].map(async ({ hostId }) => {
+        const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
+        return { hostId, routeRevision };
+      }),
+    );
     const files = f.engine.vault.files;
     const write = files.write.bind(files);
     let markEntered!: () => void;
-    const entered = new Promise<void>((resolve) => { markEntered = resolve; });
+    const entered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
     let release!: () => void;
-    const resume = new Promise<void>((resolve) => { release = resolve; });
+    const resume = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const pause = vi.spyOn(files, "write").mockImplementation(async (relative, bytes, options) => {
       if (relative.startsWith(".huhu/module-credentials/")) {
         markEntered();
@@ -640,10 +666,8 @@ test.each(["cli", "mcp"] as const)("%s binds the effective outbound proxy to the
       expect(await invoke(trustDecide, decision(waiting))).toMatchObject({ ok: true });
     }
     await vi.waitFor(async () => expect(await status()).toMatchObject({ state: "connected" }));
-    for (const capability of [
-      "ssh.shells.open", "ssh.shells.read", "ssh.fileSessions.open", "ssh.sftp.upload", "ssh.sftp.download",
-      "ssh.monitor.session.open", "ssh.monitor.session.get", "ssh.forwarding.runs.start",
-    ]) await f.allow(capability);
+    for (const capability of ["ssh.shells.open", "ssh.shells.read", "ssh.fileSessions.open", "ssh.sftp.upload", "ssh.sftp.download", "ssh.monitor.session.open", "ssh.monitor.session.get", "ssh.forwarding.runs.start"])
+      await f.allow(capability);
     const connection = { hostId, attemptId, routeRevision: route.routeRevision };
     const allocate = () => ({ ...connection, intentKey: randomUUID() });
     const { shellId } = z.object({ shellId: z.string() }).parse(data(await invoke("ssh.shells.open", allocate())));
@@ -654,15 +678,24 @@ test.each(["cli", "mcp"] as const)("%s binds the effective outbound proxy to the
     expect(data(await invoke("ssh.sftp.upload", upload))).toMatchObject({ size: 3 });
     expect(data(await invoke("ssh.sftp.download", { fileSessionId, remotePath, transferId: randomUUID() }))).toMatchObject({ dataBase64: "AQID", eof: true });
     const monitor = z.object({ id: z.uuid() }).parse(data(await invoke("ssh.monitor.session.open", { ...allocate(), interval: 2 })));
-    await vi.waitFor(async () => expect(data(await invoke("ssh.monitor.session.get", monitor))).toMatchObject({
-      host: { hostId, latest: { sample: { memory: { total: expect.any(Number) } } } },
-    }), { timeout: 5000 });
+    await vi.waitFor(
+      async () =>
+        expect(data(await invoke("ssh.monitor.session.get", monitor))).toMatchObject({
+          host: { hostId, latest: { sample: { memory: { total: expect.any(Number) } } } },
+        }),
+      { timeout: 5000 },
+    );
 
     echo.listen(0, "127.0.0.1");
     await once(echo, "listening");
     const echoPort = (echo.address() as { port: number }).port;
     forwardRule = await f.desktop<ForwardRule>("ssh.forwarding.rules.save", {
-      name: "three-jump loopback", mode: "local", hostId, listenPort: echoPort, target: { host: "127.0.0.1", port: echoPort }, resume: false,
+      name: "three-jump loopback",
+      mode: "local",
+      hostId,
+      listenPort: echoPort,
+      target: { host: "127.0.0.1", port: echoPort },
+      resume: false,
     });
     const run = data(await invoke("ssh.forwarding.runs.start", { ...allocate(), id: forwardRule.id, expectedRevision: forwardRule.revision })) as ForwardRun;
     expect(run).toMatchObject({ ruleId: forwardRule.id, state: "running" });
@@ -1351,7 +1384,8 @@ test("a changed jump revision invalidates the original pending target before aut
     expect(await f.desktop(hostGet, { hostId })).not.toMatchObject({ routeRevision });
     await vi.waitFor(async () => {
       expect(await f.call(cliToken, probeGet, key)).toMatchObject({
-        ok: true, data: { ...key, routeRevision, state: "failed", reason: "route-changed" },
+        ok: true,
+        data: { ...key, routeRevision, state: "failed", reason: "route-changed" },
       });
       expect(jump.server.closed()).toBe(1);
       expect(target.server.closed()).toBe(1);
@@ -1533,10 +1567,13 @@ test.each(["cli", "mcp"] as const)("%s scopes monitor reads and edits to authori
       expect(data(await invoke(cached, binding))).toBeNull();
       await f.desktop("ssh.hostKey.decide", { attemptId: prompt.attemptId, hop, promptId: prompt.promptId, accept: true, remember: false });
     }
-    await vi.waitFor(async () => {
-      const result = await f.desktop<MonitorPanelRun>(cached, { id: panel.id });
-      expect(result.hosts[0]?.latest?.sample?.memory).toEqual({ total: 8192, available: 4096 });
-    }, { timeout: 7_500, interval: 30 });
+    await vi.waitFor(
+      async () => {
+        const result = await f.desktop<MonitorPanelRun>(cached, { id: panel.id });
+        expect(result.hosts[0]?.latest?.sample?.memory).toEqual({ total: 8192, available: 4096 });
+      },
+      { timeout: 7_500, interval: 30 },
+    );
     expect(data(await invoke(cached, binding))).toBeNull();
     await f.desktop(change, { ...binding, action: "pause" });
     const before = samples;

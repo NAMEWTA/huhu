@@ -63,24 +63,30 @@ export function AuthenticationDialog({ prompt, onClose, onAnswered }: { prompt: 
       <form id={formId} method="post" className="hu-form-body" onSubmit={submit}>
         {prompt.name && <p>{prompt.name}</p>}
         {prompt.instructions && <p>{prompt.instructions}</p>}
-        {prompt.recovery ? <>
-          <label className="hu-field">
-            替代凭据
-            <select value={alternate} disabled={busy} onChange={(event) => setAlternate(event.currentTarget.value === "password" ? "password" : "keyboard-interactive")}>
-              <option value="password">一次性密码</option>
-              <option value="keyboard-interactive">服务器交互认证</option>
-            </select>
-          </label>
-          {alternate === "password" && <label className="hu-field">
-            一次性密码
-            <input name="password" type="password" autoComplete="off" maxLength={4096} required disabled={busy} />
-          </label>}
-        </> : prompt.questions.map(({ text, echo }, index) => (
-          <label key={index} className="hu-field">
-            <span>{text || `认证问题 ${index + 1}`}</span>
-            <input name={String(index)} type={echo ? "text" : "password"} autoComplete="off" maxLength={4096} disabled={busy} />
-          </label>
-        ))}
+        {prompt.recovery ? (
+          <>
+            <label className="hu-field">
+              替代凭据
+              <select value={alternate} disabled={busy} onChange={(event) => setAlternate(event.currentTarget.value === "password" ? "password" : "keyboard-interactive")}>
+                <option value="password">一次性密码</option>
+                <option value="keyboard-interactive">服务器交互认证</option>
+              </select>
+            </label>
+            {alternate === "password" && (
+              <label className="hu-field">
+                一次性密码
+                <input name="password" type="password" autoComplete="off" maxLength={4096} required disabled={busy} />
+              </label>
+            )}
+          </>
+        ) : (
+          prompt.questions.map(({ text, echo }, index) => (
+            <label key={index} className="hu-field">
+              <span>{text || `认证问题 ${index + 1}`}</span>
+              <input name={String(index)} type={echo ? "text" : "password"} autoComplete="off" maxLength={4096} disabled={busy} />
+            </label>
+          ))
+        )}
         {error && <p role="alert">{error}</p>}
       </form>
     </Dialog>

@@ -98,11 +98,7 @@ describe("历史扫描", async () => {
     claudeFile(home, sub, "b", [userRow(sub, "子目录")]);
     claudeFile(home, sibling, "c", [userRow(sibling, "兄弟")]);
     claudeFile(home, outside, "d", [userRow(outside, "外部")]);
-    expect(
-      (await scanHistory({ roots: [root], home, env: {} }))
-        .entries.map((e) => e.nativeSessionId)
-        .sort(),
-    ).toEqual(["a", "b"]);
+    expect((await scanHistory({ roots: [root], home, env: {} })).entries.map((e) => e.nativeSessionId).sort()).toEqual(["a", "b"]);
   });
 
   test("符号链接的 Space 根按真实路径归属", async () => {

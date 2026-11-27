@@ -7,8 +7,18 @@ import type { AccountsView } from "../shared/entries.js";
 import { RecurringInput, recurringLabels, type RecurringList, type RecurringPeriod, type RecurringPreview, type RecurringRow } from "../shared/recurring.js";
 import { displayMoney, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
 
-export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId, headingRef, registerLeaveGuard }: {
-  book: Book; readOnly: boolean; onNavigate: ModuleProps["onNavigate"]; linkedPlanId: string | undefined;
+export function LedgerRecurringPage({
+  book,
+  readOnly,
+  onNavigate,
+  linkedPlanId,
+  headingRef,
+  registerLeaveGuard,
+}: {
+  book: Book;
+  readOnly: boolean;
+  onNavigate: ModuleProps["onNavigate"];
+  linkedPlanId: string | undefined;
   headingRef: RefObject<HTMLHeadingElement | null> | undefined;
   registerLeaveGuard: ModuleProps["registerLeaveGuard"];
 }) {
@@ -89,7 +99,9 @@ export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId, 
   return (
     <section className="hu-stack" aria-label="固定收支">
       <div className="hu-toolbar">
-        <h2 ref={headingRef} tabIndex={-1}>固定收支</h2>
+        <h2 ref={headingRef} tabIndex={-1}>
+          固定收支
+        </h2>
         {result.data && writable ? (
           <Button
             disabled={!formAccounts.length}
@@ -114,7 +126,9 @@ export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId, 
       {result.data?.rows.length === 0 ? <p>还没有固定收支。</p> : null}
       {result.data?.rows.map(({ rule, plan, periods }: RecurringRow) => (
         <article key={rule.id} className="hu-stack" data-testid="ledger-recurring-row" data-plan-id={rule.planId}>
-          <h3 ref={rule.id === linkedRow ? linkedHeading : undefined} tabIndex={rule.id === linkedRow ? -1 : undefined}>{rule.title}</h3>
+          <h3 ref={rule.id === linkedRow ? linkedHeading : undefined} tabIndex={rule.id === linkedRow ? -1 : undefined}>
+            {rule.title}
+          </h3>
           <p>
             {recurringLabels[rule.frequency]} · {rule.startOn} 起 · {displayMoney(rule.amountMinor, rule.currency)}
           </p>
@@ -123,18 +137,24 @@ export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId, 
           </p>
           <div className="hu-toolbar">
             <Button onClick={() => setPreviewId(rule.id)}>预览固定收支补期</Button>
-            {writable && plan?.actions.includes("reschedule") && PlanScheduleControls
-              ? <PlanScheduleControls plan={plan} scheduleOnly changed={result.refetch} registerLeaveGuard={registerLeaveGuard} /> : null}
+            {writable && plan?.actions.includes("reschedule") && PlanScheduleControls ? <PlanScheduleControls plan={plan} scheduleOnly changed={result.refetch} registerLeaveGuard={registerLeaveGuard} /> : null}
             {plan && onNavigate && plan.intent !== "deleted" ? <Button onClick={() => center(plan)}>在自动化中心管理计划</Button> : null}
             {writable && !plan ? (
               <Button disabled={action.working} onClick={() => void action.run("ledger.recurring.ensurePlan", { bookId: book.id, ruleId: rule.id })}>
                 核对并补全原计划
               </Button>
             ) : null}
-            {writable && plan?.actions.includes("delete") ? <Button disabled={action.working || !!pending} onClick={() => {
-              action.clearError();
-              setDeleting(plan);
-            }}>删除计划</Button> : null}
+            {writable && plan?.actions.includes("delete") ? (
+              <Button
+                disabled={action.working || !!pending}
+                onClick={() => {
+                  action.clearError();
+                  setDeleting(plan);
+                }}
+              >
+                删除计划
+              </Button>
+            ) : null}
             {writable && plan && (plan.actions.includes("pause") || plan.actions.includes("resume")) ? (
               <Button
                 disabled={action.working || !!pending}
@@ -172,16 +192,42 @@ export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId, 
         </article>
       ))}
       {previewId ? <Preview bookId={book.id} ruleId={previewId} close={() => setPreviewId(null)} /> : null}
-      {deleting ? <Dialog open title="删除固定收支计划" error={action.error} initialFocusRef={keepPlan}
-        onClose={() => { if (!action.working && !pending) setDeleting(undefined); }}
-        actions={<>
-          <Button ref={keepPlan} disabled={action.working || !!pending} onClick={() => setDeleting(undefined)}>取消</Button>
-          <Button variant="danger" disabled={action.working} onClick={() => void writePlan(pending ?? {
-            change: "delete", planId: deleting.planId, expectedRevision: deleting.revision, intentId: crypto.randomUUID(),
-          })}>{pending ? "核对原删除请求" : "删除计划"}</Button>
-        </>}>
-        <p>删除「{deleting.title}」的未来计划，保留已生成的流水和期次回执。</p>
-      </Dialog> : null}
+      {deleting ? (
+        <Dialog
+          open
+          title="删除固定收支计划"
+          error={action.error}
+          initialFocusRef={keepPlan}
+          onClose={() => {
+            if (!action.working && !pending) setDeleting(undefined);
+          }}
+          actions={
+            <>
+              <Button ref={keepPlan} disabled={action.working || !!pending} onClick={() => setDeleting(undefined)}>
+                取消
+              </Button>
+              <Button
+                variant="danger"
+                disabled={action.working}
+                onClick={() =>
+                  void writePlan(
+                    pending ?? {
+                      change: "delete",
+                      planId: deleting.planId,
+                      expectedRevision: deleting.revision,
+                      intentId: crypto.randomUUID(),
+                    },
+                  )
+                }
+              >
+                {pending ? "核对原删除请求" : "删除计划"}
+              </Button>
+            </>
+          }
+        >
+          <p>删除「{deleting.title}」的未来计划，保留已生成的流水和期次回执。</p>
+        </Dialog>
+      ) : null}
       {draft ? (
         <Dialog
           open

@@ -68,10 +68,12 @@ export function registerDeviceProxies(api: HuhuApi, proxies: DeviceProxies | und
     };
   }
 
-  api.defineCapability(bindCapability(sshDeviceProxyDescriptors.deviceProxyRead, ({ caller }, { hostId }) => {
-    assertDesktop(caller);
-    return read(hostId);
-  }));
+  api.defineCapability(
+    bindCapability(sshDeviceProxyDescriptors.deviceProxyRead, ({ caller }, { hostId }) => {
+      assertDesktop(caller);
+      return read(hostId);
+    }),
+  );
   api.defineCapability(
     bindCapability(sshDeviceProxyDescriptors.deviceProxyApprove, ({ caller, signal }, input) => {
       assertDesktop(caller);

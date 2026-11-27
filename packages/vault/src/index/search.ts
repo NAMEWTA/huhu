@@ -110,6 +110,6 @@ export class SearchIndex {
     const rows = this.db
       .prepare(`SELECT path, kind, title, entity_id, -bm25(docs, 0, 0, 0, 0, 3.0, 1.0, 2.0, 1.0) AS score FROM docs WHERE docs MATCH ?${opts.kind ? " AND kind = ?" : ""} ORDER BY score DESC LIMIT ?`)
       .all(match, ...(opts.kind ? [opts.kind] : []), opts.limit ?? 50) as { path: string; kind: string; title: string; score: number; entity_id: string | null }[];
-    return rows.map(({ entity_id, ...row }) => entity_id === null ? row : { ...row, id: entity_id });
+    return rows.map(({ entity_id, ...row }) => (entity_id === null ? row : { ...row, id: entity_id }));
   }
 }

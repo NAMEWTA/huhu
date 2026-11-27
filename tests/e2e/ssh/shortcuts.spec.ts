@@ -175,7 +175,16 @@ for (const entry of ["桌面", "独立 Web"] as const) {
     test.setTimeout(55_000);
     const password = randomUUID();
     const input = ["", "", ""];
-    const servers = await Promise.all(input.map((_, index) => startFakeSsh({ password, onShellInput: (text) => { input[index] += text; } })));
+    const servers = await Promise.all(
+      input.map((_, index) =>
+        startFakeSsh({
+          password,
+          onShellInput: (text) => {
+            input[index] += text;
+          },
+        }),
+      ),
+    );
     const fixture = await openApp();
     let browser: Browser | undefined;
     try {

@@ -112,15 +112,7 @@ export class FileHistory {
   }
 
   /** Publish the checked bytes, even if the editor saves a new version during the Git calls. */
-  private async recordSnapshot(
-    p: string,
-    bytes: Buffer,
-    source: HistorySource,
-    title: string | null,
-    check?: () => void,
-    mode?: "100644" | "100755",
-    intent?: { id: string; recovering: boolean },
-  ): Promise<HistoryEntry | null> {
+  private async recordSnapshot(p: string, bytes: Buffer, source: HistorySource, title: string | null, check?: () => void, mode?: "100644" | "100755", intent?: { id: string; recovering: boolean }): Promise<HistoryEntry | null> {
     await this.init();
     const head = (await this.git.run(["rev-parse", "--verify", "--quiet", "HEAD"], { okCodes: [1] })).stdout.trim();
     const marker = intent && `Huhu-History-Intent: ${intent.id}`;

@@ -272,7 +272,13 @@ export function registerConversations(
     const stamp = JSON.stringify([...stamps, [...active]]);
     const cached = text ? undefined : grouped.get(key);
     if (cached?.stamp === stamp) return cached.groups;
-    const groups = groupCandidates(candidates.filter(({ message }) => active.has(message.accountId)), own, outgoing, scope, time);
+    const groups = groupCandidates(
+      candidates.filter(({ message }) => active.has(message.accountId)),
+      own,
+      outgoing,
+      scope,
+      time,
+    );
     if (!text) {
       grouped.delete(key);
       if (grouped.size >= 8) grouped.delete(grouped.keys().next().value!);

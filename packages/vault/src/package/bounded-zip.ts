@@ -19,19 +19,21 @@ export function readBoundedZip(bytes: Uint8Array, limits: ZipLimits): Map<string
   const expected = new Map<string, number>();
   let total = 0;
   try {
-    const entries = unzipSync(bytes, { filter(entry) {
-      const directory = entry.name.endsWith("/");
-      const name = directory ? entry.name.slice(0, -1) : entry.name;
-      requirePath(name);
-      const key = name.normalize("NFC").toLowerCase();
-      if (names.has(key)) throw invalid("有重复路径");
-      names.add(key);
-      if (names.size > limits.entries || entry.originalSize > limits.entryBytes) throw invalid("文件数量或大小超出上限");
-      total += entry.originalSize;
-      if (total > limits.totalBytes || (directory && entry.originalSize !== 0)) throw invalid("解压大小超出上限");
-      if (!directory) expected.set(name, entry.originalSize);
-      return !directory;
-    } });
+    const entries = unzipSync(bytes, {
+      filter(entry) {
+        const directory = entry.name.endsWith("/");
+        const name = directory ? entry.name.slice(0, -1) : entry.name;
+        requirePath(name);
+        const key = name.normalize("NFC").toLowerCase();
+        if (names.has(key)) throw invalid("有重复路径");
+        names.add(key);
+        if (names.size > limits.entries || entry.originalSize > limits.entryBytes) throw invalid("文件数量或大小超出上限");
+        total += entry.originalSize;
+        if (total > limits.totalBytes || (directory && entry.originalSize !== 0)) throw invalid("解压大小超出上限");
+        if (!directory) expected.set(name, entry.originalSize);
+        return !directory;
+      },
+    });
     for (const [name, originalSize] of expected) {
       if (entries[name]?.byteLength !== originalSize) throw invalid("声明大小与解压内容不符");
     }

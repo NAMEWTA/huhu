@@ -87,10 +87,15 @@ test.skipIf(!process.getuid)("常驻 Engine 在无页面时运行计划，CLI �
       const notifications = await host.call<{ title: string }[]>("notifications.list");
       expect(notifications.map(({ title }) => title).sort()).toEqual(["任务提醒：停机期间到点", "在线"].sort());
     };
-    await expect.poll(async () => {
-      await check();
-      return true;
-    }, { timeout: 5_000 }).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          await check();
+          return true;
+        },
+        { timeout: 5_000 },
+      )
+      .toBe(true);
     await command("stop");
     await engineLifecycle("start", root, "temporary", { engineEntry, idleExitMs: 850 });
     host = await attach();

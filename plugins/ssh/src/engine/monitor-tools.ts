@@ -30,7 +30,8 @@ done`;
 export const CONTAINER_LIST = "docker ps -a --format '{{.ID}}|{{.Names}}|{{.Image}}|{{.State}}'";
 export const IMAGE_LIST = "docker images --format '{{.ID}}|{{.Repository}}:{{.Tag}}|{{.Size}}'";
 const WIN_PROCESS_LIST = powershellProbe("Get-Process | Sort-Object Id | Select-Object -First 64 | ForEach-Object { '{0} {1}' -f $_.Id,$_.ProcessName }");
-const windowsDockerList = (command: string) => powershellProbe(`
+const windowsDockerList = (command: string) =>
+  powershellProbe(`
 if (!(Get-Command docker -ErrorAction SilentlyContinue)) { exit 127 }
 ${command}
 exit $LASTEXITCODE
@@ -119,12 +120,8 @@ async function withLinuxTool<T>(
   const off = connection.onClose(() => close.abort());
   const signal = AbortSignal.any([request, close.signal, AbortSignal.timeout(12_000)]);
   try {
-    if (await detectPlatform(connection.client, signal) !== "linux") throw new SampleError("unsupported", "此服务器工具操作仅支持 Linux");
-    return await action(
-      (command) => input.sudo ? monitorWithSudo(connection.client, "linux", command, signal) : monitorExec(connection.client, command, signal),
-      connection.id,
-      signal,
-    );
+    if ((await detectPlatform(connection.client, signal)) !== "linux") throw new SampleError("unsupported", "此服务器工具操作仅支持 Linux");
+    return await action((command) => (input.sudo ? monitorWithSudo(connection.client, "linux", command, signal) : monitorExec(connection.client, command, signal)), connection.id, signal);
   } catch (error) {
     if (close.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "服务器工具的原分栏已关闭");
     request.throwIfAborted();

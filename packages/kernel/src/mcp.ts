@@ -1,5 +1,18 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { CallToolRequestSchema, ErrorCode, GetPromptRequestSchema, ListPromptsRequestSchema, ListResourceTemplatesRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, McpError, ReadResourceRequestSchema, type CallToolResult, type GetPromptResult, type ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ErrorCode,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  ListResourceTemplatesRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  McpError,
+  ReadResourceRequestSchema,
+  type CallToolResult,
+  type GetPromptResult,
+  type ReadResourceResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { CapabilityIntentKeySchema, CapabilityOperationLookupSchema, errors, isHuhuError, type CapabilityOperationLookup, type CapabilityResult, type McpEntryKind, type McpSessionPrincipal } from "@huhu/contracts";
 import { mcpToolName } from "./capabilities/define.js";
 import { externalUriScheme, type DirectoryEntry } from "./mcp-sources/catalog.js";
@@ -59,12 +72,18 @@ export function builtinMcpDirectory(tools: readonly { name: string; durableInten
   const entries: DirectoryEntry[] = builtinPrompts.map((definition) => ({ kind: "prompt", identity: definition.name, definition }));
   if (visible.has("vault.info")) entries.push({ kind: "resource", identity: SUMMARY, definition: { uri: SUMMARY, name: "Vault 概览", mimeType: "application/json" } });
   if (visible.has("vault.indexEntries")) entries.push({ kind: "resource", identity: RECENT, definition: { uri: RECENT, name: "最近修改的笔记", mimeType: "application/json" } });
-  if (visible.has("notes.list") && visible.has("notes.read")) entries.push({
-    kind: "resource-template", identity: "huhu://notes/{id}", definition: { uriTemplate: "huhu://notes/{id}", name: "笔记正文", description: "按笔记 ID（或相对路径）读取 Markdown 正文", mimeType: "text/markdown" },
-  });
-  if (withOperation && tools.some((tool) => tool.durableIntent)) entries.push({
-    kind: "resource-template", identity: "huhu://operations/{operationId}", definition: { uriTemplate: "huhu://operations/{operationId}", name: "操作回执", description: "查询本入口提交的持久操作", mimeType: "application/json" },
-  });
+  if (visible.has("notes.list") && visible.has("notes.read"))
+    entries.push({
+      kind: "resource-template",
+      identity: "huhu://notes/{id}",
+      definition: { uriTemplate: "huhu://notes/{id}", name: "笔记正文", description: "按笔记 ID（或相对路径）读取 Markdown 正文", mimeType: "text/markdown" },
+    });
+  if (withOperation && tools.some((tool) => tool.durableIntent))
+    entries.push({
+      kind: "resource-template",
+      identity: "huhu://operations/{operationId}",
+      definition: { uriTemplate: "huhu://operations/{operationId}", name: "操作回执", description: "查询本入口提交的持久操作", mimeType: "application/json" },
+    });
   return entries;
 }
 
@@ -92,24 +111,27 @@ export function resolveMcpToolName(known: readonly string[], name: string): stri
 export function createMcpServer(backend: McpBackend, version: string): Server {
   const dynamic = backend.external ? { listChanged: true } : {};
   const server = new Server({ name: "huhu", version }, { capabilities: { tools: backend.toolsOnly ? {} : dynamic, ...(!backend.toolsOnly && { resources: dynamic, prompts: dynamic }) } });
-  const externalList = (kind: McpEntryKind) => backend.external?.list(kind).catch((error: unknown) => {
-    if (isHuhuError(error) && error.code === "INVALID_INPUT") return [];
-    throw error;
-  }) ?? Promise.resolve([]);
-  const directory = async (kind: McpEntryKind) => [
-    ...await externalList(kind),
-    ...builtinMcpDirectory(await backend.list(), !!backend.operation),
-  ];
+  const externalList = (kind: McpEntryKind) =>
+    backend.external?.list(kind).catch((error: unknown) => {
+      if (isHuhuError(error) && error.code === "INVALID_INPUT") return [];
+      throw error;
+    }) ?? Promise.resolve([]);
+  const directory = async (kind: McpEntryKind) => [...(await externalList(kind)), ...builtinMcpDirectory(await backend.list(), !!backend.operation)];
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const external = (await externalList("tool")).flatMap((entry) => entry.kind === "tool" ? [entry.definition] : []);
+    const external = (await externalList("tool")).flatMap((entry) => (entry.kind === "tool" ? [entry.definition] : []));
     const builtins = (await backend.list()).filter((cap) => !backend.external?.ownsName(mcpToolName(cap.name)));
-    return { tools: [...builtins.map((c) => ({
-      name: mcpToolName(c.name),
-      description: `${c.name}（${c.plugin} · ${c.scope}）`,
-      inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" },
-      outputSchema: structuredOutput(c.output),
-      ...(c.durableIntent && { _meta: { [intentField]: c.intentRequired ? "required" : "optional" } }),
-    })), ...external] };
+    return {
+      tools: [
+        ...builtins.map((c) => ({
+          name: mcpToolName(c.name),
+          description: `${c.name}（${c.plugin} · ${c.scope}）`,
+          inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" },
+          outputSchema: structuredOutput(c.output),
+          ...(c.durableIntent && { _meta: { [intentField]: c.intentRequired ? "required" : "optional" } }),
+        })),
+        ...external,
+      ],
+    };
   });
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     if (backend.external) {
@@ -124,10 +146,10 @@ export function createMcpServer(backend: McpBackend, version: string): Server {
   });
   if (backend.toolsOnly) return server;
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-    resources: (await directory("resource")).flatMap((entry) => entry.kind === "resource" ? [entry.definition] : []),
+    resources: (await directory("resource")).flatMap((entry) => (entry.kind === "resource" ? [entry.definition] : [])),
   }));
   server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
-    resourceTemplates: (await directory("resource-template")).flatMap((entry) => entry.kind === "resource-template" ? [entry.definition] : []),
+    resourceTemplates: (await directory("resource-template")).flatMap((entry) => (entry.kind === "resource-template" ? [entry.definition] : [])),
   }));
   server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
     const uri = req.params.uri;
@@ -162,7 +184,7 @@ export function createMcpServer(backend: McpBackend, version: string): Server {
     return { contents: [{ uri, mimeType: "text/markdown", text: note.text }] };
   });
   server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-    prompts: (await directory("prompt")).flatMap((entry) => entry.kind === "prompt" ? [entry.definition] : []),
+    prompts: (await directory("prompt")).flatMap((entry) => (entry.kind === "prompt" ? [entry.definition] : [])),
   }));
   server.setRequestHandler(GetPromptRequestSchema, async (req) => {
     const args = req.params.arguments ?? {};

@@ -95,12 +95,18 @@ export class TaskReceiptInbox {
     private readonly now: () => Date,
     private readonly changed: (runId: string) => void,
   ) {
-    this.index = new TaskJournalIndex(files, DIRECTORY, /^[a-f0-9]{64}\.json$/, (file) => {
-      const record = this.read(file)?.record;
-      return record ? this.groups(record) : null;
-    }, (previous, current) => {
-      for (const group of [...previous, ...current]) if (group.startsWith("dispatch:")) this.reconsider.add(group.slice(9));
-    });
+    this.index = new TaskJournalIndex(
+      files,
+      DIRECTORY,
+      /^[a-f0-9]{64}\.json$/,
+      (file) => {
+        const record = this.read(file)?.record;
+        return record ? this.groups(record) : null;
+      },
+      (previous, current) => {
+        for (const group of [...previous, ...current]) if (group.startsWith("dispatch:")) this.reconsider.add(group.slice(9));
+      },
+    );
   }
 
   private groups({ receipt, status }: DeliveryRecord) {
@@ -197,8 +203,7 @@ export class TaskReceiptInbox {
 
   committedResult(taskId: string, receiptId: string, bound: (execution: ExecutionBinding) => boolean) {
     const record = this.read(this.file(receiptId))?.record;
-    if (!record || record.status !== "delivered" || record.receipt.receiptId !== receiptId ||
-        record.receipt.kind !== "result" || record.receipt.execution.taskId !== taskId || !bound(record.receipt.execution)) {
+    if (!record || record.status !== "delivered" || record.receipt.receiptId !== receiptId || record.receipt.kind !== "result" || record.receipt.execution.taskId !== taskId || !bound(record.receipt.execution)) {
       throw errors.notFound("找不到原任务已保存的结果");
     }
     return { receiptId, messageId: record.consumption.delivery.messageId, body: record.receipt.payload.message };
@@ -206,7 +211,10 @@ export class TaskReceiptInbox {
 
   schedulingHistory(bindings: ReadonlyMap<string, string>, onError: (error: unknown) => void, snapshot: ReceiptSnapshot) {
     const matches = (execution: ExecutionBinding) => bindings.get(execution.dispatchId) === fingerprint(execution);
-    const files = this.index.pathsFor([...bindings.keys()].map((dispatchId) => `dispatch:${dispatchId}`), onError);
+    const files = this.index.pathsFor(
+      [...bindings.keys()].map((dispatchId) => `dispatch:${dispatchId}`),
+      onError,
+    );
     const { outcomes, questions } = this.currentHistory(files, matches, onError, snapshot);
     const nativeWaits = new Map<string, QuestionView[]>();
     for (const { view, receipt } of questions) {

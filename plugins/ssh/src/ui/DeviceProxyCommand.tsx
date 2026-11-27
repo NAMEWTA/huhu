@@ -51,14 +51,24 @@ export function DeviceProxyCommand({ hostId, onClose, onChanged }: { hostId: str
       open
       title="本机 ProxyCommand"
       error={error ?? null}
-      onClose={() => { if (!busy.current) onClose(); }}
+      onClose={() => {
+        if (!busy.current) onClose();
+      }}
       actions={
         <>
-          <Button type="button" disabled={saving} onClick={onClose}>返回路由</Button>
+          <Button type="button" disabled={saving} onClick={onClose}>
+            返回路由
+          </Button>
           {approved && state.supported ? (
-            <Button type="button" disabled={saving} onClick={() => void mutate("revoke", { hostId, expectedRevision: approved.revision })}>撤销本机批准</Button>
+            <Button type="button" disabled={saving} onClick={() => void mutate("revoke", { hostId, expectedRevision: approved.revision })}>
+              撤销本机批准
+            </Button>
           ) : null}
-          {state?.supported ? <Button type="submit" form={form} variant="primary" loading={saving}>批准并保存</Button> : null}
+          {state?.supported ? (
+            <Button type="submit" form={form} variant="primary" loading={saving}>
+              批准并保存
+            </Button>
+          ) : null}
         </>
       }
     >
@@ -66,7 +76,9 @@ export function DeviceProxyCommand({ hostId, onClose, onChanged }: { hostId: str
       {query.isError ? <p role="alert">无法读取本机代理批准或当前路由。</p> : null}
       {state ? (
         <>
-          <p>首跳 {state.firstHop.name} · {state.firstHop.user}@{hostEndpoint(state.firstHop)}</p>
+          <p>
+            首跳 {state.firstHop.name} · {state.firstHop.user}@{hostEndpoint(state.firstHop)}
+          </p>
           <p role="status">{approved ? (approved.current ? "本机已批准" : "路由已变更，需要重新批准") : "本机尚未批准"}</p>
           {state.supported ? (
             <form key={approved?.revision ?? "new"} id={form} method="post" className="hu-stack" onSubmit={approve}>
@@ -79,9 +91,13 @@ export function DeviceProxyCommand({ hostId, onClose, onChanged }: { hostId: str
                 参数（每行一个）
                 <textarea name="arguments" rows={4} maxLength={8192} defaultValue={approved?.command.arguments.join("\n")} />
               </label>
-              <p><code>%h</code> 首跳主机 · <code>%p</code> 端口 · <code>%r</code> 用户 · <code>%%</code> 百分号</p>
+              <p>
+                <code>%h</code> 首跳主机 · <code>%p</code> 端口 · <code>%r</code> 用户 · <code>%%</code> 百分号
+              </p>
             </form>
-          ) : <p>只有支持本机凭据的可写 Linux 桌面可以批准此功能。</p>}
+          ) : (
+            <p>只有支持本机凭据的可写 Linux 桌面可以批准此功能。</p>
+          )}
         </>
       ) : null}
     </Dialog>

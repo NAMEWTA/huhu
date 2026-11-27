@@ -2,7 +2,21 @@ import { LaunchMenu, type LaunchOptions } from "./LaunchMenu.js";
 import type { PlanSummary } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView, type TerminalControl } from "@huhu/ui";
 import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
-import { AutomationPlanLink, CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, registerExitParticipant, useCapability, useEngine, useModuleIcons, useQueryClient, type ExitRequest, type ModuleProps } from "@huhu/workbench";
+import {
+  AutomationPlanLink,
+  CapabilityError,
+  createRequestId,
+  host,
+  onOpenAgentSessionRequest,
+  queryKey,
+  registerExitParticipant,
+  useCapability,
+  useEngine,
+  useModuleIcons,
+  useQueryClient,
+  type ExitRequest,
+  type ModuleProps,
+} from "@huhu/workbench";
 import { emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { HistoryPanel, type HistoryAction, type HistorySelection } from "./history/HistoryPanel.js";
@@ -515,22 +529,8 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             return (
               <section key={owner.id}>
                 <div className="agent-space-row">
-                  <IconButton
-                    icon={expanded ? ChevronDown : ChevronRight}
-                    label={`${expanded ? "收起" : "展开"} ${owner.name}`}
-                    aria-expanded={expanded}
-                    aria-controls={groupId}
-                    onClick={() => expandSpace(owner.id, !expanded)}
-                  />
-                  <button
-                    type="button"
-                    className="agent-space-item"
-                    data-testid="agent-space-item"
-                    data-space-id={owner.id}
-                    aria-pressed={space?.id === owner.id}
-                    title={owner.root || undefined}
-                    onClick={() => selectSpace(owner.id)}
-                  >
+                  <IconButton icon={expanded ? ChevronDown : ChevronRight} label={`${expanded ? "收起" : "展开"} ${owner.name}`} aria-expanded={expanded} aria-controls={groupId} onClick={() => expandSpace(owner.id, !expanded)} />
+                  <button type="button" className="agent-space-item" data-testid="agent-space-item" data-space-id={owner.id} aria-pressed={space?.id === owner.id} title={owner.root || undefined} onClick={() => selectSpace(owner.id)}>
                     <Folder size={15} aria-hidden />
                     <span>{owner.name}</span>
                   </button>
@@ -1025,7 +1025,11 @@ function SessionPlanLinks({ sessionId, onNavigate }: { sessionId: string; onNavi
     source: { plugin: "agent-cli", object: { kind: "agent-session", id: sessionId } },
   });
   if (!plans.data?.plans.length) return null;
-  return <div className="hu-row" aria-label="原会话的状态观察">
-    {plans.data.plans.map((plan) => <AutomationPlanLink key={plan.planId} planId={plan.planId} onNavigate={onNavigate} label={`管理观察 · ${plan.title}`} />)}
-  </div>;
+  return (
+    <div className="hu-row" aria-label="原会话的状态观察">
+      {plans.data.plans.map((plan) => (
+        <AutomationPlanLink key={plan.planId} planId={plan.planId} onNavigate={onNavigate} label={`管理观察 · ${plan.title}`} />
+      ))}
+    </div>
+  );
 }

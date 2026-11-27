@@ -33,7 +33,10 @@ test("保存后立即退出或停用 Versioning，末次已保存版本各记录
     await call(engine, "notes.save", { path: rel, text: "停用时的正文", expectedVersion: files.read(rel)!.version });
     await call(engine, "plugins.setEnabled", { id: "versioning", enabled: false });
     await engine.shutdown();
-    expect(await versions(history, rel)).toEqual([{ source: "edit", text: "停用时的正文" }, { source: "edit", text: "退出时的正文" }]);
+    expect(await versions(history, rel)).toEqual([
+      { source: "edit", text: "停用时的正文" },
+      { source: "edit", text: "退出时的正文" },
+    ]);
   } finally {
     await engine?.shutdown();
     rmSync(root, { recursive: true, force: true });

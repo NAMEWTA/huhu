@@ -27,7 +27,10 @@ export class GroupStdioTransport implements Transport {
   start(): Promise<void> {
     const { command, args = [], cwd, env } = this.parameters;
     const child = spawn(command, args, {
-      cwd, env: { ...getDefaultEnvironment(), ...env }, detached: true, stdio: ["pipe", "pipe", "pipe"],
+      cwd,
+      env: { ...getDefaultEnvironment(), ...env },
+      detached: true,
+      stdio: ["pipe", "pipe", "pipe"],
     });
     this.child = child;
     // Upstream controls stderr. Drain it without putting output or startup arguments in diagnostics.
@@ -61,7 +64,7 @@ export class GroupStdioTransport implements Transport {
     const input = this.child?.stdin;
     if (!input || input.destroyed || this.closed) return Promise.reject(new Error("MCP stdio process is closed"));
     return new Promise((resolve, reject) => {
-      input.write(serializeMessage(message), (error) => error ? reject(new Error("MCP stdio send failed")) : resolve());
+      input.write(serializeMessage(message), (error) => (error ? reject(new Error("MCP stdio send failed")) : resolve()));
     });
   }
 

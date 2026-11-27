@@ -80,7 +80,7 @@ test("H3.5 桌面代理分享复制配置并在测试失败和停止后清除成
   const ssh = await startFakeSsh({
     password,
     remoteForwarding: true,
-    onExec: (command) => command.startsWith("ss ") ? { stdout: `LISTEN 0 128 127.0.0.1:${remotePort} 0.0.0.0:*\n` } : undefined,
+    onExec: (command) => (command.startsWith("ss ") ? { stdout: `LISTEN 0 128 127.0.0.1:${remotePort} 0.0.0.0:*\n` } : undefined),
   });
   const fixture = await openApp();
   const { app, page } = fixture;
@@ -90,7 +90,10 @@ test("H3.5 桌面代理分享复制配置并在测试失败和停止后清除成
     await createHost(page, ssh.port, password);
     await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
     const module = page.getByTestId("ssh-module");
-    await module.getByRole("complementary").getByRole("button", { name: /^回环转发夹具 / }).click();
+    await module
+      .getByRole("complementary")
+      .getByRole("button", { name: /^回环转发夹具 / })
+      .click();
     await module.getByRole("button", { name: "连接", exact: true }).click();
     await page.getByRole("button", { name: "信任并连接" }).click();
     await expect(module.getByRole("button", { name: "断开", exact: true })).toBeVisible();
@@ -108,9 +111,7 @@ test("H3.5 桌面代理分享复制配置并在测试失败和停止后清除成
     await expect(page.getByText(/代理已接受 CONNECT/)).toBeVisible();
     await page.getByRole("button", { name: "复制 Shell 配置", exact: true }).click();
     await expect(page.getByText("已复制配置文本。")).toBeVisible();
-    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
-      `export http_proxy=http://127.0.0.1:${remotePort} https_proxy=http://127.0.0.1:${remotePort}\n`,
-    );
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(`export http_proxy=http://127.0.0.1:${remotePort} https_proxy=http://127.0.0.1:${remotePort}\n`);
 
     accepts = false;
     await verify.click();
@@ -137,7 +138,14 @@ test("P07 Workbench ViaShell confirms a TCP exit and cannot be selected for Remo
   test.skip(process.platform !== "linux" || !existsSync("/usr/bin/python3"), "Linux system Python 3 is required");
   const password = randomUUID();
   let directAttempts = 0;
-  const ssh = await startFakeSsh({ password, denyDirectTcp: () => { directAttempts++; return true; }, onInteractiveShell: localPosixRelayShell });
+  const ssh = await startFakeSsh({
+    password,
+    denyDirectTcp: () => {
+      directAttempts++;
+      return true;
+    },
+    onInteractiveShell: localPosixRelayShell,
+  });
   const upstream = net.createServer((socket) => socket.pipe(socket));
   const targetPort = await bind(upstream);
   const fixture = await openApp();
@@ -287,7 +295,10 @@ test("A10 Workbench forwards bytes in all four modes and releases each loopback 
     await expect(dial(localPort)).rejects.toMatchObject({ code: "ECONNREFUSED" });
     await exchange(socksSocket);
     await exchange(httpSocket);
-    for (const [row, listenPort] of [[socks, socksPort], [http, httpPort]] as const) {
+    for (const [row, listenPort] of [
+      [socks, socksPort],
+      [http, httpPort],
+    ] as const) {
       await row.getByRole("button", { name: "停止", exact: true }).click();
       await expect(row.getByRole("status")).toHaveText("已停止");
       await expect(dial(listenPort)).rejects.toMatchObject({ code: "ECONNREFUSED" });

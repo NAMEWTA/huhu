@@ -298,7 +298,7 @@ export class AutomationsService {
   async preview(ruleId: string, expectedVersion?: string, signal?: AbortSignal) {
     const r = this.rule(ruleId);
     if (expectedVersion !== undefined && expectedVersion !== r.version) throw errors.versionConflict(r.version);
-    return { ruleVersion: r.version, ...await this.previewDraft(r.data.trigger, r.data.action, r.body, signal) };
+    return { ruleVersion: r.version, ...(await this.previewDraft(r.data.trigger, r.data.action, r.body, signal)) };
   }
 
   async previewDraft(trigger: RuleData["trigger"], action: RuleData["action"] | undefined, body: string, signal?: AbortSignal) {

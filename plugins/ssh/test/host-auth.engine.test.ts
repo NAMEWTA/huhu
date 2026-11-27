@@ -109,7 +109,7 @@ engineTest("PPK v2 and v3 keys authenticate through the desktop route using scop
       { purpose: "privateKey", action: "replace", value: key.privateKey },
       { purpose: "passphrase", action: "replace", value: passphrase },
     ];
-    const wrong = credentials.map((patch) => patch.purpose === "passphrase" ? { ...patch, value: "wrong-fixture" } : patch);
+    const wrong = credentials.map((patch) => (patch.purpose === "passphrase" ? { ...patch, value: "wrong-fixture" } : patch));
     const { hostId } = await client.call<Summary>("ssh.hosts.configure", { ...input, credentials: version === 2 ? credentials : wrong }, write);
     if (version === 3) {
       expect(await connect(client, engine, hostId)).toBe("SSH_AUTH_FAILED");
@@ -138,15 +138,29 @@ engineTest("separate keyboard-interactive rounds accept their own prompts and re
   const { client } = await fixture();
   const first = randomUUID();
   const second = randomUUID();
-  const remote = await server({ keyboardRounds: [
-    [{ text: "Fixture identifier", echo: true, answer: "fixture" }, { text: "First secret", echo: false, answer: first }],
-    [{ text: "Second secret", echo: false, answer: second }],
-  ] });
+  const remote = await server({
+    keyboardRounds: [
+      [
+        { text: "Fixture identifier", echo: true, answer: "fixture" },
+        { text: "First secret", echo: false, answer: first },
+      ],
+      [{ text: "Second secret", echo: false, answer: second }],
+    ],
+  });
   const write = { write: true };
-  const { hostId } = await client.call<Summary>("ssh.hosts.configure", {
-    name: "multi-round fixture", host: "127.0.0.1", port: remote.port, user: "fixture", authKind: "password", expectedRevision: null,
-    credentials: [{ purpose: "password", action: "replace", value: "try keyboard fixture" }],
-  }, write);
+  const { hostId } = await client.call<Summary>(
+    "ssh.hosts.configure",
+    {
+      name: "multi-round fixture",
+      host: "127.0.0.1",
+      port: remote.port,
+      user: "fixture",
+      authKind: "password",
+      expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: "try keyboard fixture" }],
+    },
+    write,
+  );
   const state = async () => (await client.call<ConnectionStatus[]>("ssh.connections.status")).find((row) => row.hostId === hostId);
   await client.call("ssh.connect", { hostId, background: true }, write);
   await expect.poll(async () => (await state())?.state).toBe("waiting");
@@ -163,10 +177,12 @@ engineTest("separate keyboard-interactive rounds accept their own prompts and re
   const answer = ({ attemptId, promptId, hop }: typeof round1, answers: string[]) => client.call("ssh.authentication.answer", { attemptId, promptId, hop, answers }, write);
   expect(round1.questions.map(({ echo }) => echo)).toEqual([true, false]);
   expect(await answer(round1, ["fixture", first])).toEqual({ applied: true });
-  await expect.poll(async () => {
-    const current = await state();
-    return current?.state === "auth-waiting" ? current.authPrompt.promptId : undefined;
-  }).not.toBe(round1.promptId);
+  await expect
+    .poll(async () => {
+      const current = await state();
+      return current?.state === "auth-waiting" ? current.authPrompt.promptId : undefined;
+    })
+    .not.toBe(round1.promptId);
   const round2 = await challenge();
   expect(round2.promptId).not.toBe(round1.promptId);
   expect(await answer(round1, ["fixture", first])).toEqual({ applied: false });
@@ -180,10 +196,19 @@ engineTest.skipIf(!supportsFixtureAgent())("system ssh-agent signs a desktop loo
     vi.stubEnv("SSH_AUTH_SOCK", agent.socket);
     const { client, engine } = await fixture();
     const remote = await server({ publicKey: agent.publicKey });
-    const { hostId } = await client.call<Summary>("ssh.hosts.configure", {
-      name: "isolated agent", host: "127.0.0.1", port: remote.port, user: "fixture", authKind: "agent", expectedRevision: null,
-      credentials: [],
-    }, { write: true });
+    const { hostId } = await client.call<Summary>(
+      "ssh.hosts.configure",
+      {
+        name: "isolated agent",
+        host: "127.0.0.1",
+        port: remote.port,
+        user: "fixture",
+        authKind: "agent",
+        expectedRevision: null,
+        credentials: [],
+      },
+      { write: true },
+    );
     expect(await connect(client, engine, hostId)).toBe("OK");
     expect(remote.conns).toHaveLength(1);
   } finally {

@@ -157,12 +157,28 @@ test("专注已结算、通知检查点写入中断后继续原发生", async ()
   const now = () => new Date(time);
   const { svc, root } = setup({ now });
   const seen = new Set<string>();
-  const send = vi.fn(({ id }: { id: string }) => { seen.add(id); });
+  const send = vi.fn(({ id }: { id: string }) => {
+    seen.add(id);
+  });
   const open = (files: VaultFiles) => {
     const home = new HomeStore({ dir: path.join(root, "home"), zone: () => "UTC", now, deadlineAvailable: () => true });
     const plans = new FocusDeadlinePlans(home.focusDeadline(), svc, (): ReminderDeliveries => deliveries, "vault", false, now);
-    const deliveries = new ReminderDeliveries(files, "vault", "machine", svc, () => undefined, () => undefined,
-      { send, has: (id) => seen.has(id) }, now, () => undefined, undefined, undefined, undefined, undefined, plans);
+    const deliveries = new ReminderDeliveries(
+      files,
+      "vault",
+      "machine",
+      svc,
+      () => undefined,
+      () => undefined,
+      { send, has: (id) => seen.has(id) },
+      now,
+      () => undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      plans,
+    );
     return { home, plans, deliveries };
   };
   const files = new VaultFiles(root);
@@ -188,7 +204,11 @@ test("专注已结算、通知检查点写入中断后继续原发生", async ()
   await reopened.deliveries.recover();
   expect(reopened.home.focus()).toMatchObject({ completedToday: 1, running: false });
   expect(reopened.deliveries.readPlanOccurrence(id)).toMatchObject({
-    state: "completed", effects: [{ kind: "focus-settlement", state: "completed" }, { kind: "notification", state: "completed" }],
+    state: "completed",
+    effects: [
+      { kind: "focus-settlement", state: "completed" },
+      { kind: "notification", state: "completed" },
+    ],
   });
   expect(send).toHaveBeenCalledTimes(1);
   await reopened.plans.close();
@@ -201,21 +221,46 @@ test("观察断线后继续，评论写入回执丢失时沿用原发生和评�
   const now = () => new Date(time);
   const { svc, root } = setup({ now });
   const comments = new Map<string, string>();
-  const writeComment = vi.fn(async (_taskId: string, id: string, body: string) => { comments.set(id, body); });
+  const writeComment = vi.fn(async (_taskId: string, id: string, body: string) => {
+    comments.set(id, body);
+  });
   const observed = vi.fn(async () => status);
   const open = (files: VaultFiles) => {
-    const plans = new ObservationPlans(files, { vaultId: "vault", machineId: "machine" }, svc,
-      (): ReminderDeliveries => deliveries, observed, now, () => undefined);
-    const deliveries = new ReminderDeliveries(files, "vault", "machine", svc, () => undefined, () => undefined, {
-      send: () => undefined, has: () => false,
-    }, now, () => undefined, () => true, () => false, (id, revision, at) => plans.current(id, revision, at), writeComment);
+    const plans = new ObservationPlans(
+      files,
+      { vaultId: "vault", machineId: "machine" },
+      svc,
+      (): ReminderDeliveries => deliveries,
+      observed,
+      now,
+      () => undefined,
+    );
+    const deliveries = new ReminderDeliveries(
+      files,
+      "vault",
+      "machine",
+      svc,
+      () => undefined,
+      () => undefined,
+      {
+        send: () => undefined,
+        has: () => false,
+      },
+      now,
+      () => undefined,
+      () => true,
+      () => false,
+      (id, revision, at) => plans.current(id, revision, at),
+      writeComment,
+    );
     return { plans, deliveries };
   };
   const files = new VaultFiles(root);
   const first = open(files);
-  const plan = await first.plans.create({ title: "核对源任务", target: { kind: "task", id: "task-source" }, everySeconds: 1, condition: { kind: "change" },
-    repeat: false, stopAtTerminal: true, effect: "comment", intentId: randomUUID(),
-  }, new AbortController().signal);
+  const plan = await first.plans.create(
+    { title: "核对源任务", target: { kind: "task", id: "task-source" }, everySeconds: 1, condition: { kind: "change" }, repeat: false, stopAtTerminal: true, effect: "comment", intentId: randomUUID() },
+    new AbortController().signal,
+  );
   await first.plans.tick();
   expect(first.plans.read(plan.planId)).toMatchObject({ intent: "enabled", lastOccurrence: null });
   expect(writeComment).not.toHaveBeenCalled();
@@ -247,9 +292,16 @@ test("观察断线后继续，评论写入回执丢失时沿用原发生和评�
   expect(comments.size).toBe(1);
   expect(restarted.deliveries.readPlanOccurrence(updated!.lastOccurrence!.occurrenceId)).toMatchObject({ effects: [{ kind: "task-comment", state: "completed" }] });
   const edit = {
-    planId: plan.planId, expectedRevision: plan.revision, intentId: randomUUID(), title: "重新核对",
-    target: { kind: "task", id: "task-replacement" }, everySeconds: 60,
-    condition: { kind: "threshold", status: "running", seconds: 300 }, repeat: true, stopAtTerminal: false, effect: "both",
+    planId: plan.planId,
+    expectedRevision: plan.revision,
+    intentId: randomUUID(),
+    title: "重新核对",
+    target: { kind: "task", id: "task-replacement" },
+    everySeconds: 60,
+    condition: { kind: "threshold", status: "running", seconds: 300 },
+    repeat: true,
+    stopAtTerminal: false,
+    effect: "both",
   } as const;
   const revised = await restarted.plans.update(edit, new AbortController().signal);
   expect(revised).toMatchObject({ planId: plan.planId, intent: "paused", trigger: { kind: "observe", object: edit.target, everySeconds: 60 } });
@@ -267,13 +319,39 @@ test("改期排在提醒选中与副作用之间时，旧发生取消且重开�
   const { svc, root } = setup({ now });
   const source = task("task-reminder-fixture");
   const seen = new Set<string>();
-  const notification = { send: vi.fn(({ id }: { id: string }) => { seen.add(id); }), has: (id: string) => seen.has(id) };
+  const notification = {
+    send: vi.fn(({ id }: { id: string }) => {
+      seen.add(id);
+    }),
+    has: (id: string) => seen.has(id),
+  };
   const open = (files: VaultFiles) => {
-    const plans = new TaskReminderPlans(files, "vault", svc, () => ({
-      listAll: () => [source], listDispatchable: () => [], snapshot: () => source,
-    }), (): ReminderDeliveries => deliveries, now, () => undefined);
-    const deliveries = new ReminderDeliveries(files, "vault", "machine", svc, () => undefined, () => source.path, notification, now, () => undefined,
-      () => true, (id, revision, at) => plans.current(id, revision, at));
+    const plans = new TaskReminderPlans(
+      files,
+      "vault",
+      svc,
+      () => ({
+        listAll: () => [source],
+        listDispatchable: () => [],
+        snapshot: () => source,
+      }),
+      (): ReminderDeliveries => deliveries,
+      now,
+      () => undefined,
+    );
+    const deliveries = new ReminderDeliveries(
+      files,
+      "vault",
+      "machine",
+      svc,
+      () => undefined,
+      () => source.path,
+      notification,
+      now,
+      () => undefined,
+      () => true,
+      (id, revision, at) => plans.current(id, revision, at),
+    );
     return { plans, deliveries };
   };
   const files = new VaultFiles(root);
@@ -283,8 +361,12 @@ test("改期排在提醒选中与副作用之间时，旧发生取消且重开�
   await first.plans.tick();
   let announce!: () => void;
   let release!: () => void;
-  const selected = new Promise<void>((resolve) => { announce = resolve; });
-  const hold = new Promise<void>((resolve) => { release = resolve; });
+  const selected = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
+  const hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const original = files.write.bind(files);
   const write = vi.spyOn(files, "write").mockImplementation(async (rel, bytes, options) => {
     if (rel.startsWith("automations/reminder-deliveries/") && options?.expectedVersion === null) {
@@ -297,9 +379,7 @@ test("改期排在提醒选中与副作用之间时，旧发生取消且重开�
   const tick = first.plans.tick();
   await selected;
   const nextAt = "2026-11-10T12:05:00.000Z";
-  const move = first.plans.change({ planId: plan.planId, expectedRevision: plan.revision, intentId: randomUUID(), change: "reschedule",
-    trigger: { kind: "once", scheduledFor: nextAt },
-  }, new AbortController().signal);
+  const move = first.plans.change({ planId: plan.planId, expectedRevision: plan.revision, intentId: randomUUID(), change: "reschedule", trigger: { kind: "once", scheduledFor: nextAt } }, new AbortController().signal);
   release();
   const [moved] = await Promise.all([move, tick]);
   expect(first.deliveries.readPlanOccurrence(planReminderOccurrenceId({ ...plan, scheduledFor }))).toMatchObject({ state: "cancelled" });
@@ -932,9 +1012,7 @@ describe("agent 动作：任务输入", () => {
     ]);
     expect((await svc.preview(rule.id)).next).toEqual(preview.next);
     expect(svc.rule(rule.id).version).toBe(rule.version);
-    const draft = await svc.previewDraft(trigger, { kind: "agent", input: { ...coreInput,
-      window: { kind: "today" }, includeOverdue: true, includeUnscheduled: false,
-    } }, "");
+    const draft = await svc.previewDraft(trigger, { kind: "agent", input: { ...coreInput, window: { kind: "today" }, includeOverdue: true, includeUnscheduled: false } }, "");
     expect(draft.next).toEqual(preview.next);
     expect(draft.candidates.map(({ taskId }) => taskId)).toEqual(["yesterday", "today"]);
     expect(svc.rule(rule.id).version).toBe(rule.version);
@@ -966,10 +1044,23 @@ describe("agent 动作：任务输入", () => {
     expect((await svc.preview(scanId)).tasksDisabled).toBe(true);
     const n = await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode: "notification", text: "该休息了", taskId: null } });
     const notifications = new Set<string>();
-    const deliveries = new ReminderDeliveries(new VaultFiles(root), "vault", "machine", svc, () => undefined, () => undefined, {
-      send: ({ id, title }) => { notifications.add(id); notes.push(title); },
-      has: (id) => notifications.has(id),
-    }, () => new Date("2026-11-10T12:00:00Z"), () => undefined);
+    const deliveries = new ReminderDeliveries(
+      new VaultFiles(root),
+      "vault",
+      "machine",
+      svc,
+      () => undefined,
+      () => undefined,
+      {
+        send: ({ id, title }) => {
+          notifications.add(id);
+          notes.push(title);
+        },
+        has: (id) => notifications.has(id),
+      },
+      () => new Date("2026-11-10T12:00:00Z"),
+      () => undefined,
+    );
     expect(() => svc.activateTerminal(n.id, "manual")).toThrow("规则不是终端动作");
     expect((await deliveries.activate(n.id, null))?.summary).toMatchObject({ state: "succeeded" });
     expect(notes).toEqual(["该休息了"]);
@@ -999,12 +1090,18 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     const { svc, root } = setup({ tasks: [task("a")] });
     const send = vi.fn();
     const createFromRule = vi.fn(async (input: { taskId: string }) => task(input.taskId));
-    const deliveries = new ReminderDeliveries(new VaultFiles(root), "vault", "machine", svc,
+    const deliveries = new ReminderDeliveries(
+      new VaultFiles(root),
+      "vault",
+      "machine",
+      svc,
       () => ({ createFromRule, acceptRule: vi.fn() }),
-      (id) => `Tasks/${id}.md`, { send, has: () => true },
-      () => new Date("2026-11-10T12:00:00Z"), () => undefined);
-    const make = async (mode: "notification" | "task" | "both", taskId: string | null) =>
-      (await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode, text: "复盘周报", taskId } })).id;
+      (id) => `Tasks/${id}.md`,
+      { send, has: () => true },
+      () => new Date("2026-11-10T12:00:00Z"),
+      () => undefined,
+    );
+    const make = async (mode: "notification" | "task" | "both", taskId: string | null) => (await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode, text: "复盘周报", taskId } })).id;
     expect((await deliveries.activate(await make("notification", null), null))?.summary).toMatchObject({ state: "succeeded", notification: "sent" });
     expect(createFromRule).not.toHaveBeenCalled();
     expect((await deliveries.activate(await make("both", "a"), null))?.summary).toMatchObject({ state: "succeeded", notification: "sent", task: "created" });

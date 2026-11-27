@@ -106,10 +106,22 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
     const authorityAdd = "ssh.knownHosts.authorities.add";
     const authorityRemove = "ssh.knownHosts.authorities.remove";
     for (const capability of [
-      "ssh.authentication.answer", "ssh.configSync.apply", "ssh.configSync.preview",
-      "ssh.fileSessions.scp.upload", "ssh.fileSessions.scp.uploadSupport", "ssh.fileSessions.sudo.probe",
-      "ssh.fileSessions.sudo.list", "ssh.fileSessions.sudo.read", "ssh.fileSessions.sudo.save",
-      "ssh.local.close", "ssh.local.environments", "ssh.local.list", "ssh.local.open", authorityList, authorityAdd, authorityRemove,
+      "ssh.authentication.answer",
+      "ssh.configSync.apply",
+      "ssh.configSync.preview",
+      "ssh.fileSessions.scp.upload",
+      "ssh.fileSessions.scp.uploadSupport",
+      "ssh.fileSessions.sudo.probe",
+      "ssh.fileSessions.sudo.list",
+      "ssh.fileSessions.sudo.read",
+      "ssh.fileSessions.sudo.save",
+      "ssh.local.close",
+      "ssh.local.environments",
+      "ssh.local.list",
+      "ssh.local.open",
+      authorityList,
+      authorityAdd,
+      authorityRemove,
     ]) {
       expect(closed.find(({ name }) => name === capability)).toMatchObject({ availability: "active", exposable: false, selected: false });
       expect(await desktop("gateway.update", { capability, exposed: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });

@@ -135,31 +135,35 @@ export class EngineSupervisor {
   }
 
   private attach(endpoint: EngineEndpointRecord, generation: number): void {
-    void probeEngine(endpoint, "attach").then(({ status, rendererToken }) => {
-      if (generation !== this.stopGeneration) return;
-      if (!rendererToken) throw new Error("Engine 未授予工作台连接");
-      this.attached = endpoint;
-      this.ready(status.port, rendererToken, status.vaultId);
-      const monitor = () => {
-        this.statusTimer = setTimeout(() => {
-          void probeEngine(endpoint).then(() => {
-            if (this.attached === endpoint) monitor();
-          }).catch(() => {
-            if (this.attached !== endpoint) return;
-            this.attached = null;
-            this.endpoint = null;
-            this.statusTimer = undefined;
-            this.set("crashed");
-          });
-        }, 2_000);
-        this.statusTimer.unref();
-      };
-      monitor();
-    }).catch(() => {
-      if (generation !== this.stopGeneration) return;
-      this.lastError = { code: "ENGINE_CONFLICT", message: "已有 Engine 但无法确认 Vault 连接，请在原宿主检查或停止它" };
-      this.set("crashed");
-    });
+    void probeEngine(endpoint, "attach")
+      .then(({ status, rendererToken }) => {
+        if (generation !== this.stopGeneration) return;
+        if (!rendererToken) throw new Error("Engine 未授予工作台连接");
+        this.attached = endpoint;
+        this.ready(status.port, rendererToken, status.vaultId);
+        const monitor = () => {
+          this.statusTimer = setTimeout(() => {
+            void probeEngine(endpoint)
+              .then(() => {
+                if (this.attached === endpoint) monitor();
+              })
+              .catch(() => {
+                if (this.attached !== endpoint) return;
+                this.attached = null;
+                this.endpoint = null;
+                this.statusTimer = undefined;
+                this.set("crashed");
+              });
+          }, 2_000);
+          this.statusTimer.unref();
+        };
+        monitor();
+      })
+      .catch(() => {
+        if (generation !== this.stopGeneration) return;
+        this.lastError = { code: "ENGINE_CONFLICT", message: "已有 Engine 但无法确认 Vault 连接，请在原宿主检查或停止它" };
+        this.set("crashed");
+      });
   }
 
   start(): void {

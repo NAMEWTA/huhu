@@ -46,7 +46,19 @@ export function sourceFor(caller: string, requested?: string): CaptureSource {
 
 function toDto(e: Entity): CaptureDto {
   const d = e.data as unknown as CaptureFrontmatter;
-  return { id: e.id, path: e.path, version: e.version, title: d.title, body: e.body.replace(/^\r?\n/, ""), source: d.source, status: d.status, createdAt: d.createdAt, processedAt: d.processedAt ?? null, result: d.result ?? null, pendingConversion: d.status === "pending" ? d.conversion?.target ?? null : null };
+  return {
+    id: e.id,
+    path: e.path,
+    version: e.version,
+    title: d.title,
+    body: e.body.replace(/^\r?\n/, ""),
+    source: d.source,
+    status: d.status,
+    createdAt: d.createdAt,
+    processedAt: d.processedAt ?? null,
+    result: d.result ?? null,
+    pendingConversion: d.status === "pending" ? (d.conversion?.target ?? null) : null,
+  };
 }
 
 export class InboxService {

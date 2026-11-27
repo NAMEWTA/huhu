@@ -21,11 +21,21 @@ export const AgentDispatchTargetInfoSchema = z.object({
   available: z.boolean(),
   reason: z.string().nullable(),
   profile: TaskExecutionProfileSchema.optional(),
-  capabilities: z.object({
-    interactive: CapabilityState, dispatch: CapabilityState, liveSession: CapabilityState, coldResume: CapabilityState,
-    structuredReply: CapabilityState, structuredResult: CapabilityState, stop: CapabilityState,
-    workspaceRead: CapabilityState, workspaceWrite: CapabilityState, command: CapabilityState, mcp: CapabilityState,
-  }).optional(),
+  capabilities: z
+    .object({
+      interactive: CapabilityState,
+      dispatch: CapabilityState,
+      liveSession: CapabilityState,
+      coldResume: CapabilityState,
+      structuredReply: CapabilityState,
+      structuredResult: CapabilityState,
+      stop: CapabilityState,
+      workspaceRead: CapabilityState,
+      workspaceWrite: CapabilityState,
+      command: CapabilityState,
+      mcp: CapabilityState,
+    })
+    .optional(),
 });
 export const AgentDispatchResponseSchema = z.object({
   status: z.enum(["accepted", "busy", "unsupported", "unknown", "not_sent"]),
@@ -48,7 +58,13 @@ export function registerDispatch(api: HuhuApi, dispatch: AgentDispatch): void {
       ...internal,
       name: "agent.targets.list",
       scope: "read",
-      input: DispatchLookup.pick({ vaultId: true, machineId: true }).extend({ spaceId: z.string().min(1), options: LaunchOptions.optional(), mode: z.literal("snapshot").optional(), includeResume: z.literal(false).optional(), taskMcp: z.boolean().optional() }),
+      input: DispatchLookup.pick({ vaultId: true, machineId: true }).extend({
+        spaceId: z.string().min(1),
+        options: LaunchOptions.optional(),
+        mode: z.literal("snapshot").optional(),
+        includeResume: z.literal(false).optional(),
+        taskMcp: z.boolean().optional(),
+      }),
       output: z.array(AgentDispatchTargetInfoSchema),
       handler: ({ caller, signal }, input) => {
         trust(caller);

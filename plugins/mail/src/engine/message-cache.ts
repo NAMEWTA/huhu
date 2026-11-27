@@ -247,11 +247,13 @@ export function cachedMailboxMessages(files: Files, input: Mailbox) {
   return visibleMailboxEntries(readSnapshot(files, input).snapshot);
 }
 
-const mailboxMetadata = z.array(z.strictObject({
-  summary: cachedSummary,
-  publicMail,
-  date: z.iso.datetime().nullable(),
-}));
+const mailboxMetadata = z.array(
+  z.strictObject({
+    summary: cachedSummary,
+    publicMail,
+    date: z.iso.datetime().nullable(),
+  }),
+);
 type MailboxMetadata = z.infer<typeof mailboxMetadata>;
 const mailboxSearchIndex = z.array(z.strictObject({ localMessageId: z.string(), digest: z.hash("sha256", { enc: "hex" }), text: z.string() }));
 type MailboxSearchIndex = z.infer<typeof mailboxSearchIndex>;

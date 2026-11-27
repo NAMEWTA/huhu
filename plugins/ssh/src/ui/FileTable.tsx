@@ -39,8 +39,7 @@ export function FileTable({
   const [preview, setPreview] = useState<{ key: FileColumn; width: number }>();
   const [error, setError] = useState("");
   const widthFor = (key: FileColumn) => (preview?.key === key ? preview.width : undefined) ?? fileColumnWidths[key] ?? fileColumnDefaults[key];
-  const tableWidth = shown.reduce((total, { key }) => total + widthFor(key), 0)
-    + (selection ? utilityWidths.selection : 0) + (actions ? utilityWidths.actions : 0);
+  const tableWidth = shown.reduce((total, { key }) => total + widthFor(key), 0) + (selection ? utilityWidths.selection : 0) + (actions ? utilityWidths.actions : 0);
   function persist(update: () => void) {
     try {
       update();
@@ -57,77 +56,76 @@ export function FileTable({
   });
   return (
     <>
-    {Object.keys(fileColumnWidths).length > 0 &&
-      <button type="button" className="hu-btn hu-btn-ghost" onClick={() => persist(() => saveDevicePreferences({ fileColumnWidths: {} }))}>恢复默认列宽</button>}
-    {error && <p role="alert">{error}</p>}
-    <div className="ssh-file-table" role="region" aria-labelledby={captionId} tabIndex={0}>
-      <table style={{ inlineSize: tableWidth }}>
-        <caption id={captionId}>{caption}</caption>
-        <colgroup>
-          {selection && <col style={{ inlineSize: utilityWidths.selection }} />}
-          {shown.map(({ key }) => <col key={key} style={{ inlineSize: widthFor(key) }} />)}
-          {actions && <col style={{ inlineSize: utilityWidths.actions }} />}
-        </colgroup>
-        <thead>
-          <tr>
-            {selection && <th scope="col">选择</th>}
-            {shown.map(({ key, label }) => (
-              <th className="ssh-file-value-header" key={key} scope="col" aria-label={label} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : undefined}>
-                <button type="button" className="hu-btn hu-btn-ghost" onClick={() => setSort({ key, desc: sort.key === key && !sort.desc })}>
-                  {label} {sort.key === key && <span aria-hidden="true">{sort.desc ? "↓" : "↑"}</span>}
-                </button>
-                <FileColumnResize label={label} width={widthFor(key)}
-                  preview={(width) => setPreview(width === undefined ? undefined : { key, width })}
-                  save={(width) => persist(() => saveFileColumnWidth(key, width))} />
-              </th>
+      {Object.keys(fileColumnWidths).length > 0 && (
+        <button type="button" className="hu-btn hu-btn-ghost" onClick={() => persist(() => saveDevicePreferences({ fileColumnWidths: {} }))}>
+          恢复默认列宽
+        </button>
+      )}
+      {error && <p role="alert">{error}</p>}
+      <div className="ssh-file-table" role="region" aria-labelledby={captionId} tabIndex={0}>
+        <table style={{ inlineSize: tableWidth }}>
+          <caption id={captionId}>{caption}</caption>
+          <colgroup>
+            {selection && <col style={{ inlineSize: utilityWidths.selection }} />}
+            {shown.map(({ key }) => (
+              <col key={key} style={{ inlineSize: widthFor(key) }} />
             ))}
-            {actions && <th scope="col">操作</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((entry) => {
-            const selectable = entry.type === "file" || entry.type === "dir";
-            return (
-              <tr key={entry.name} data-testid="files-row">
-                {selection && (
-                  <td>
-                    {selectable && (
-                      <div className="ssh-file-selection">
-                        <input type="checkbox" aria-label={`选择 ${entry.name}`} checked={selection.names.includes(entry.name)} disabled={selection.disabled} onChange={() => selection.toggle(entry.name)} />
-                        <span
-                          aria-hidden="true"
-                          className="ssh-file-drag-handle"
-                          data-testid="ssh-file-drag-handle"
-                          data-drag-enabled={selection.canDrag}
-                          {...selection.handle(entry.name)}
-                        >
-                          <GripVertical size={14} />
-                        </span>
-                      </div>
+            {actions && <col style={{ inlineSize: utilityWidths.actions }} />}
+          </colgroup>
+          <thead>
+            <tr>
+              {selection && <th scope="col">选择</th>}
+              {shown.map(({ key, label }) => (
+                <th className="ssh-file-value-header" key={key} scope="col" aria-label={label} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : undefined}>
+                  <button type="button" className="hu-btn hu-btn-ghost" onClick={() => setSort({ key, desc: sort.key === key && !sort.desc })}>
+                    {label} {sort.key === key && <span aria-hidden="true">{sort.desc ? "↓" : "↑"}</span>}
+                  </button>
+                  <FileColumnResize label={label} width={widthFor(key)} preview={(width) => setPreview(width === undefined ? undefined : { key, width })} save={(width) => persist(() => saveFileColumnWidth(key, width))} />
+                </th>
+              ))}
+              {actions && <th scope="col">操作</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((entry) => {
+              const selectable = entry.type === "file" || entry.type === "dir";
+              return (
+                <tr key={entry.name} data-testid="files-row">
+                  {selection && (
+                    <td>
+                      {selectable && (
+                        <div className="ssh-file-selection">
+                          <input type="checkbox" aria-label={`选择 ${entry.name}`} checked={selection.names.includes(entry.name)} disabled={selection.disabled} onChange={() => selection.toggle(entry.name)} />
+                          <span aria-hidden="true" className="ssh-file-drag-handle" data-testid="ssh-file-drag-handle" data-drag-enabled={selection.canDrag} {...selection.handle(entry.name)}>
+                            <GripVertical size={14} />
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                  )}
+                  <td className="ssh-file-value">
+                    {entry.type === "dir" || actions ? (
+                      <button type="button" className="hu-nav-item" disabled={disabled} aria-current={current === entry.name ? "location" : undefined} onClick={() => onOpen(entry)} data-testid="files-open">
+                        {entry.type === "dir" ? `📁 ${entry.name}` : entry.name}
+                      </button>
+                    ) : (
+                      entry.name
                     )}
                   </td>
-                )}
-                <td className="ssh-file-value">
-                  {entry.type === "dir" || actions ? (
-                    <button type="button" className="hu-nav-item" disabled={disabled} aria-current={current === entry.name ? "location" : undefined} onClick={() => onOpen(entry)} data-testid="files-open">
-                      {entry.type === "dir" ? `📁 ${entry.name}` : entry.name}
-                    </button>
-                  ) : (
-                    entry.name
+                  {!hiddenFileColumns.includes("size") && <td className="ssh-file-value">{entry.type === "dir" ? "—" : fmtSize(entry.size)}</td>}
+                  {!hiddenFileColumns.includes("mtime") && <td className="ssh-file-value">{entry.mtime ? new Date(entry.mtime).toLocaleString() : ""}</td>}
+                  {!hiddenFileColumns.includes("mode") && (
+                    <td className="ssh-file-value">
+                      <code>{entry.mode}</code>
+                    </td>
                   )}
-                </td>
-                {!hiddenFileColumns.includes("size") && <td className="ssh-file-value">{entry.type === "dir" ? "—" : fmtSize(entry.size)}</td>}
-                {!hiddenFileColumns.includes("mtime") && <td className="ssh-file-value">{entry.mtime ? new Date(entry.mtime).toLocaleString() : ""}</td>}
-                {!hiddenFileColumns.includes("mode") && <td className="ssh-file-value">
-                  <code>{entry.mode}</code>
-                </td>}
-                {actions && <td>{actions(entry)}</td>}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                  {actions && <td>{actions(entry)}</td>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

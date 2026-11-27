@@ -159,7 +159,12 @@ export const mainAgentDescriptors = {
     output: SpaceSchema,
   }),
   dispatchWriteApproval: defineCapabilityDescriptor({
-    plugin: "agent-cli", exposable: false, defaultExposed: false, name: "agent.spaces.dispatchWriteApproval", scope: "write", risk: "high",
+    plugin: "agent-cli",
+    exposable: false,
+    defaultExposed: false,
+    name: "agent.spaces.dispatchWriteApproval",
+    scope: "write",
+    risk: "high",
     title: "批准 Space 的受控写入",
     description: "本机桌面为指定 Space 版本授予或撤回 Codex 写入及命令权限。",
     input: z.strictObject({ id: z.string(), expectedRevision: z.int().positive(), allowed: z.boolean() }),

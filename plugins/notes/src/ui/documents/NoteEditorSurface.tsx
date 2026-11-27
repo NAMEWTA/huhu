@@ -261,7 +261,17 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   );
 
   return (
-    <OkRoot acceptSidebarDrop {...(config ? { config } : {})} locale={locale} routes={routes} documentHost={documentHost} localReferences={localReferences} poolKey={documentProviderScope(engine)} commentScope={engine.vaultId} style={{ height: "100%" }}>
+    <OkRoot
+      acceptSidebarDrop
+      {...(config ? { config } : {})}
+      locale={locale}
+      routes={routes}
+      documentHost={documentHost}
+      localReferences={localReferences}
+      poolKey={documentProviderScope(engine)}
+      commentScope={engine.vaultId}
+      style={{ height: "100%" }}
+    >
       <RichMarkdownEditor
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}

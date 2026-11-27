@@ -1,4 +1,20 @@
-import { errors, isHuhuError, isWorkbenchCaller, PlanOccurrenceLinkSchema, PlanOccurrenceSchema, PlanRefSchema, PlanSourceSchema, PlanSummarySchema, PlanWriteResultSchema, PlanWriteSchema, type PlanDirectory, type PlanOccurrence, type PlanSource, type PlanSummary, type PlanWrite } from "@huhu/contracts";
+import {
+  errors,
+  isHuhuError,
+  isWorkbenchCaller,
+  PlanOccurrenceLinkSchema,
+  PlanOccurrenceSchema,
+  PlanRefSchema,
+  PlanSourceSchema,
+  PlanSummarySchema,
+  PlanWriteResultSchema,
+  PlanWriteSchema,
+  type PlanDirectory,
+  type PlanOccurrence,
+  type PlanSource,
+  type PlanSummary,
+  type PlanWrite,
+} from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { filterPlanPage, PlanHomeSummary, planOrders, planStates, summarizePlans } from "../shared/plan-directory.js";
@@ -30,68 +46,149 @@ const PlanPage = z.strictObject({ plans: z.array(PlanSummarySchema), nextCursor:
 const workbench = { plugin: "automations", exposable: false, defaultExposed: false } as const;
 export const planDescriptors = {
   automationState: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.automationState", scope: "read", input: z.strictObject({}), output: ScheduleGateView,
-    title: "查看自动运行状态", description: "读取当前 Vault 的自动运行开关与修订。", risk: "normal",
+    ...workbench,
+    name: "automations.plans.automationState",
+    scope: "read",
+    input: z.strictObject({}),
+    output: ScheduleGateView,
+    title: "查看自动运行状态",
+    description: "读取当前 Vault 的自动运行开关与修订。",
+    risk: "normal",
   }),
   setAutomationState: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.setAutomationState", scope: "write", idempotency: "durable",
-    input: z.strictObject({ paused: z.boolean(), expectedRevision: identifier }), output: ScheduleGateView,
-    title: "暂停或恢复自动运行", description: "更新当前 Vault 的自动触发开关。", risk: "high",
+    ...workbench,
+    name: "automations.plans.setAutomationState",
+    scope: "write",
+    idempotency: "durable",
+    input: z.strictObject({ paused: z.boolean(), expectedRevision: identifier }),
+    output: ScheduleGateView,
+    title: "暂停或恢复自动运行",
+    description: "更新当前 Vault 的自动触发开关。",
+    risk: "high",
   }),
   list: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.list", scope: "read", input: ListPlans, output: PlanPage,
-    title: "计划目录", description: "枚举当前 Vault 的计划，可按来源对象筛选。", risk: "normal",
+    ...workbench,
+    name: "automations.plans.list",
+    scope: "read",
+    input: ListPlans,
+    output: PlanPage,
+    title: "计划目录",
+    description: "枚举当前 Vault 的计划，可按来源对象筛选。",
+    risk: "normal",
   }),
   summary: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.summary", scope: "read", input: z.strictObject({}), output: PlanHomeSummary,
-    title: "计划摘要", description: "读取各来源的启用、受阻和最近安排。", risk: "normal",
+    ...workbench,
+    name: "automations.plans.summary",
+    scope: "read",
+    input: z.strictObject({}),
+    output: PlanHomeSummary,
+    title: "计划摘要",
+    description: "读取各来源的启用、受阻和最近安排。",
+    risk: "normal",
   }),
   read: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.read", scope: "read", input: PlanRefSchema.pick({ planId: true }), output: PlanSummarySchema.nullable(),
-    title: "查看计划", description: "按稳定身份查询一条计划。", risk: "normal",
+    ...workbench,
+    name: "automations.plans.read",
+    scope: "read",
+    input: PlanRefSchema.pick({ planId: true }),
+    output: PlanSummarySchema.nullable(),
+    title: "查看计划",
+    description: "按稳定身份查询一条计划。",
+    risk: "normal",
   }),
   occurrence: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.readOccurrence", scope: "read", input: z.strictObject({ occurrenceId: identifier }), output: PlanOccurrenceSchema.nullable(),
-    title: "查看计划发生", description: "查询指定发生的受理事实。", risk: "normal",
+    ...workbench,
+    name: "automations.plans.readOccurrence",
+    scope: "read",
+    input: z.strictObject({ occurrenceId: identifier }),
+    output: PlanOccurrenceSchema.nullable(),
+    title: "查看计划发生",
+    description: "查询指定发生的受理事实。",
+    risk: "normal",
   }),
   history: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.history", scope: "read", input: HistoryInput, output: HistoryPage,
-    title: "查询计划运行历史", description: "按来源、状态与时间读取发生摘要。", risk: "normal",
+    ...workbench,
+    name: "automations.plans.history",
+    scope: "read",
+    input: HistoryInput,
+    output: HistoryPage,
+    title: "查询计划运行历史",
+    description: "按来源、状态与时间读取发生摘要。",
+    risk: "normal",
   }),
   recoverEffect: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.recoverEffect", scope: "write",
-    input: PlanOccurrenceLinkSchema.extend({ effectId: identifier }), output: PlanOccurrenceSchema,
-    title: "核实或重试原效果", description: "按原发生和效果身份处理一项可恢复的效果。", risk: "high",
+    ...workbench,
+    name: "automations.plans.recoverEffect",
+    scope: "write",
+    input: PlanOccurrenceLinkSchema.extend({ effectId: identifier }),
+    output: PlanOccurrenceSchema,
+    title: "核实或重试原效果",
+    description: "按原发生和效果身份处理一项可恢复的效果。",
+    risk: "high",
   }),
   submit: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.submit", scope: "write", idempotency: "durable", input: PlanWriteSchema, output: PlanWriteResultSchema,
-    title: "修改计划", description: "以同一个意图 ID 和意图键提交计划修订。", risk: "high",
+    ...workbench,
+    name: "automations.plans.submit",
+    scope: "write",
+    idempotency: "durable",
+    input: PlanWriteSchema,
+    output: PlanWriteResultSchema,
+    title: "修改计划",
+    description: "以同一个意图 ID 和意图键提交计划修订。",
+    risk: "high",
   }),
   taskReminder: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.createTaskReminder", scope: "write", idempotency: "durable",
-    input: TaskReminderPlanInput, output: PlanSummarySchema,
-    title: "设置任务提醒", description: "给原任务添加一次性提醒计划。", risk: "high",
+    ...workbench,
+    name: "automations.plans.createTaskReminder",
+    scope: "write",
+    idempotency: "durable",
+    input: TaskReminderPlanInput,
+    output: PlanSummarySchema,
+    title: "设置任务提醒",
+    description: "给原任务添加一次性提醒计划。",
+    risk: "high",
   }),
   observationCreate: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.createObservation", scope: "write", idempotency: "durable",
-    input: ObservationInput, output: PlanSummarySchema,
-    title: "建立状态观察", description: "按间隔核对任务或会话，在条件满足时递送结果。", risk: "high",
+    ...workbench,
+    name: "automations.plans.createObservation",
+    scope: "write",
+    idempotency: "durable",
+    input: ObservationInput,
+    output: PlanSummarySchema,
+    title: "建立状态观察",
+    description: "按间隔核对任务或会话，在条件满足时递送结果。",
+    risk: "high",
   }),
   observationRead: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.readObservation", scope: "read",
-    input: PlanRefSchema.pick({ planId: true }), output: ObservationEditView.nullable(),
-    title: "查看观察配置", description: "返回当前的观察对象、触发条件和递送方式。", risk: "normal",
+    ...workbench,
+    name: "automations.plans.readObservation",
+    scope: "read",
+    input: PlanRefSchema.pick({ planId: true }),
+    output: ObservationEditView.nullable(),
+    title: "查看观察配置",
+    description: "返回当前的观察对象、触发条件和递送方式。",
+    risk: "normal",
   }),
   observationUpdate: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.updateObservation", scope: "write", idempotency: "durable",
-    input: ObservationUpdateInput, output: PlanSummarySchema,
-    title: "修改状态观察", description: "使用原观察计划及其修订更新配置。", risk: "high",
+    ...workbench,
+    name: "automations.plans.updateObservation",
+    scope: "write",
+    idempotency: "durable",
+    input: ObservationUpdateInput,
+    output: PlanSummarySchema,
+    title: "修改状态观察",
+    description: "使用原观察计划及其修订更新配置。",
+    risk: "high",
   }),
   defaultTaskScan: defineCapabilityDescriptor({
-    ...workbench, name: "automations.plans.defaultTaskScan", scope: "write",
+    ...workbench,
+    name: "automations.plans.defaultTaskScan",
+    scope: "write",
     input: z.strictObject({ action: z.enum(["create", "restore"]) }),
     output: z.strictObject({ ruleId: identifier, state: z.enum(["created", "existing", "deleted"]) }),
-    title: "安装默认任务扫描", description: "显式创建或恢复默认扫描模板。", risk: "high",
+    title: "安装默认任务扫描",
+    description: "显式创建或恢复默认扫描模板。",
+    risk: "high",
   }),
 };
 
@@ -135,12 +232,24 @@ function occurrenceSummary(row: ActivationRecord): PlanSummary["lastOccurrence"]
   const status = row.summary && "state" in row.summary ? row.summary.state : undefined;
   let state: NonNullable<PlanSummary["lastOccurrence"]>["state"];
   switch (status) {
-    case "unknown": state = "unknown"; break;
-    case "cancelled": state = "cancelled"; break;
-    case "failed": state = "failed"; break;
-    case "succeeded": case "completed": state = "completed"; break;
-    case "running": state = "running"; break;
-    default: state = row.summary && "processed" in row.summary ? "completed" : "accepted";
+    case "unknown":
+      state = "unknown";
+      break;
+    case "cancelled":
+      state = "cancelled";
+      break;
+    case "failed":
+      state = "failed";
+      break;
+    case "succeeded":
+    case "completed":
+      state = "completed";
+      break;
+    case "running":
+      state = "running";
+      break;
+    default:
+      state = row.summary && "processed" in row.summary ? "completed" : "accepted";
   }
   return { occurrenceId: row.activationId, at: asInstant(row.startedAt), state };
 }
@@ -152,19 +261,25 @@ function rulePlan(rule: Rule, api: HuhuApi, deps: CatalogueDeps, now: Date, rece
   const input = data.action.kind === "agent" && data.action.input.source === "prompt" ? data.action.input : null;
   const issue = input ? deps.rules.templateIssue(input.spaceId, input.provider, rule.body) : undefined;
   const issueLabels: Record<string, string> = {
-    "missing-space": "原 Space 不存在", "space-inaccessible": "原 Space 当前不可访问",
-    "cli-missing": "原 CLI 当前不可用", "empty-template": "缺少固定需求正文",
+    "missing-space": "原 Space 不存在",
+    "space-inaccessible": "原 Space 当前不可访问",
+    "cli-missing": "原 CLI 当前不可用",
+    "empty-template": "缺少固定需求正文",
   };
   const source = taskId ? { plugin: "tasks", object: { kind: "task", id: taskId } } : { plugin: "automations", object };
   const readOnly = api.vault.files.readOnly || rule.readOnly;
   const needsTasks = !!taskId || (data.action.kind === "agent" && data.action.input.source === "tasks");
   let availability: PlanSummary["availability"] = readOnly
     ? { state: "blocked", reason: "read-only" }
-    : hasLegacyTerminalEnvironment(data.action) ? { state: "blocked", reason: "credentials-unavailable" }
-    : needsTasks && !deps.taskReminders.taskSourceAvailable() ? { state: "blocked", reason: "plugin-disabled" }
-    : taskId && !deps.taskReminders.taskAvailable(taskId) ? { state: "blocked", reason: "target-unavailable" }
-    : issue ? { state: "blocked", reason: "target-unavailable", detail: issueLabels[issue] ?? "请检查执行目标" }
-    : { state: "ready" };
+    : hasLegacyTerminalEnvironment(data.action)
+      ? { state: "blocked", reason: "credentials-unavailable" }
+      : needsTasks && !deps.taskReminders.taskSourceAvailable()
+        ? { state: "blocked", reason: "plugin-disabled" }
+        : taskId && !deps.taskReminders.taskAvailable(taskId)
+          ? { state: "blocked", reason: "target-unavailable" }
+          : issue
+            ? { state: "blocked", reason: "target-unavailable", detail: issueLabels[issue] ?? "请检查执行目标" }
+            : { state: "ready" };
   const { cron: expression, zone } = data.trigger;
   let nextAt: string | null = null;
   if (data.enabled && availability.state === "ready") {
@@ -181,14 +296,19 @@ function rulePlan(rule: Rule, api: HuhuApi, deps: CatalogueDeps, now: Date, rece
     else if (availability.state === "ready") actions.push("resume");
   }
   const action = data.action;
-  const target = action.kind === "agent" && action.input.source === "prompt" ? { kind: "agent-space", id: action.input.spaceId }
-    : action.kind === "terminal" && action.spaceId ? { kind: "agent-space", id: action.spaceId }
-    : taskId ? { kind: "task", id: taskId } : object;
-  const actionSummary = action.kind === "agent"
-    ? (action.input.source === "tasks" ? "扫描 Agent 任务" : `向 ${action.input.provider} 派遣新任务`)
-    : action.kind === "terminal" ? "运行终端命令" : "递送提醒";
+  const target =
+    action.kind === "agent" && action.input.source === "prompt"
+      ? { kind: "agent-space", id: action.input.spaceId }
+      : action.kind === "terminal" && action.spaceId
+        ? { kind: "agent-space", id: action.spaceId }
+        : taskId
+          ? { kind: "task", id: taskId }
+          : object;
+  const actionSummary = action.kind === "agent" ? (action.input.source === "tasks" ? "扫描 Agent 任务" : `向 ${action.input.provider} 派遣新任务`) : action.kind === "terminal" ? "运行终端命令" : "递送提醒";
   return {
-    planId, revision, title: data.title,
+    planId,
+    revision,
+    title: data.title,
     source,
     owner: { scope: "vault", vaultId: api.vault.vaultId },
     action: { capability: "automations.runNow", object, summary: target.kind === "agent-space" ? `${actionSummary} · ${target.id}` : actionSummary },
@@ -238,18 +358,20 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
   let history: HistoryRow[] | undefined;
   let followUpRuns = new Map<string, PlanOccurrence>();
   let attention: { occurrenceIds: Set<string>; planIds: Set<string> } | undefined;
-  const activationRows = () => activations ??= deps.activations();
-  const latest = () => recent ??= latestActivation(activationRows());
+  const activationRows = () => (activations ??= deps.activations());
+  const latest = () => (recent ??= latestActivation(activationRows()));
   api.events.subscribe(({ type, payload }) => {
     const { kind, path, id } = payload as { kind?: string; path?: string; id?: string };
-    if (type === "automation.activated" || type === "run.stateChanged"
-      || (type === "entity.changed" && (kind === "automation-activation" || kind === "automation-rule"))
-      || (type === "vault.fileChanged" && path?.startsWith("Automations/"))) {
+    if (
+      type === "automation.activated" ||
+      type === "run.stateChanged" ||
+      (type === "entity.changed" && (kind === "automation-activation" || kind === "automation-rule")) ||
+      (type === "vault.fileChanged" && path?.startsWith("Automations/"))
+    ) {
       activations = recent = undefined;
       history = undefined;
     }
-    if ((type === "entity.changed" && ["task", "task-follow-up", "periodic-plan", "periodic-occurrence", "home-focus"].includes(kind ?? ""))
-      || (type === "plugin.stateChanged" && id === "tasks")) history = undefined;
+    if ((type === "entity.changed" && ["task", "task-follow-up", "periodic-plan", "periodic-occurrence", "home-focus"].includes(kind ?? "")) || (type === "plugin.stateChanged" && id === "tasks")) history = undefined;
     if (!history || (type === "entity.changed" && kind === "task-run")) attention = undefined;
   });
 
@@ -260,20 +382,24 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
     return plan;
   }
 
-  api.defineCapability(bindCapability(planDescriptors.automationState, ({ caller, signal }) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看自动运行状态");
-    signal.throwIfAborted();
-    return deps.gate.view();
-  }));
-  api.defineCapability(bindCapability(planDescriptors.setAutomationState, ({ caller, signal }, { paused, expectedRevision }) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("修改自动运行状态");
-    return deps.rules.withRuleConfiguration(async () => {
-      const before = deps.gate.view().revision;
-      const state = await deps.gate.set(paused, expectedRevision, signal);
-      if (before !== state.revision) deps.scheduleChanged();
-      return state;
-    });
-  }));
+  api.defineCapability(
+    bindCapability(planDescriptors.automationState, ({ caller, signal }) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看自动运行状态");
+      signal.throwIfAborted();
+      return deps.gate.view();
+    }),
+  );
+  api.defineCapability(
+    bindCapability(planDescriptors.setAutomationState, ({ caller, signal }, { paused, expectedRevision }) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("修改自动运行状态");
+      return deps.rules.withRuleConfiguration(async () => {
+        const before = deps.gate.view().revision;
+        const state = await deps.gate.set(paused, expectedRevision, signal);
+        if (before !== state.revision) deps.scheduleChanged();
+        return state;
+      });
+    }),
+  );
 
   function catalogue(source?: PlanSource, includeRuleHistory = true): PlanSummary[] {
     const now = deps.now();
@@ -284,9 +410,11 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       ...(source && source.plugin !== "tasks" ? [] : deps.taskReminders.list()),
       ...deps.observations.list(),
       ...deps.periodic.list(),
-      ...(source && source.plugin !== "kernel" ? [] : deps.focus?.list() ?? []),
+      ...(source && source.plugin !== "kernel" ? [] : (deps.focus?.list() ?? [])),
       ...(source && source.plugin !== "tasks" ? [] : deps.followUps.listPlans(source?.object.id)),
-    ].filter((plan) => !source || matchesSource(plan.source, source)).map((plan) => withAvailableSchedule(plan)!);
+    ]
+      .filter((plan) => !source || matchesSource(plan.source, source))
+      .map((plan) => withAvailableSchedule(plan)!);
   }
   const directory: ReadDirectory & { list(input: z.output<typeof ListPlans>, signal: AbortSignal): Promise<z.output<typeof PlanPage>> } = {
     async list(input: z.output<typeof ListPlans>, signal) {
@@ -297,7 +425,10 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       const plans = catalogue(source);
       if (input.state !== "attention") return filterPlanPage(plans, input);
       const { planIds } = runAttention();
-      return filterPlanPage(plans.map((plan) => planIds.has(plan.planId) ? { ...plan, needsAttention: true } : plan), input);
+      return filterPlanPage(
+        plans.map((plan) => (planIds.has(plan.planId) ? { ...plan, needsAttention: true } : plan)),
+        input,
+      );
     },
     async read(planId, signal) {
       signal.throwIfAborted();
@@ -313,24 +444,33 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
     },
   };
   api.defineCapability(bindCapability(planDescriptors.list, (context, input) => directory.list(input, context.signal)));
-  api.defineCapability(bindCapability(planDescriptors.summary, ({ caller, signal }) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台计划摘要");
-    signal.throwIfAborted();
-    return summarizePlans(catalogue(undefined, false));
-  }));
+  api.defineCapability(
+    bindCapability(planDescriptors.summary, ({ caller, signal }) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台计划摘要");
+      signal.throwIfAborted();
+      return summarizePlans(catalogue(undefined, false));
+    }),
+  );
   api.defineCapability(bindCapability(planDescriptors.read, (context, { planId }) => directory.read(planId, context.signal)));
   api.defineCapability(bindCapability(planDescriptors.occurrence, (context, { occurrenceId }) => directory.readOccurrence(occurrenceId, context.signal)));
-  api.defineCapability(bindCapability(planDescriptors.recoverEffect, ({ caller, signal }, { effectId, ...link }) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("处理工作台发生效果");
-    if (!deps.reminders) throw errors.pluginDisabled("automations");
-    return deps.reminders.recoverEffect(link, effectId, signal);
-  }));
+  api.defineCapability(
+    bindCapability(planDescriptors.recoverEffect, ({ caller, signal }, { effectId, ...link }) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("处理工作台发生效果");
+      if (!deps.reminders) throw errors.pluginDisabled("automations");
+      return deps.reminders.recoverEffect(link, effectId, signal);
+    }),
+  );
   function historyRows(): HistoryRow[] {
     if (history) return history;
-    const titles = new Map(deps.rules.rules().map((rule) => [rule.id, {
-      title: rule.data.title,
-      source: rule.data.action.kind === "agent" ? "tasks" : "automations",
-    }]));
+    const titles = new Map(
+      deps.rules.rules().map((rule) => [
+        rule.id,
+        {
+          title: rule.data.title,
+          source: rule.data.action.kind === "agent" ? "tasks" : "automations",
+        },
+      ]),
+    );
     for (const plan of [...deps.taskReminders.list(), ...deps.observations.list(), ...(deps.focus?.list() ?? [])]) {
       titles.set(plan.planId, { title: plan.title, source: plan.source.plugin });
     }
@@ -339,9 +479,13 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       const occurrence = occurrenceSummary(row)!;
       const plan = titles.get(row.ruleId);
       rows.set(row.activationId, {
-        id: row.activationId, planId: row.ruleId, source: plan?.source ?? "unknown",
-        title: plan?.title ?? "原自动化已移除", at: new Date(occurrence.at).toISOString(),
-        trigger: row.trigger === "manual" ? "manual" : "scheduled", state: occurrence.state,
+        id: row.activationId,
+        planId: row.ruleId,
+        source: plan?.source ?? "unknown",
+        title: plan?.title ?? "原自动化已移除",
+        at: new Date(occurrence.at).toISOString(),
+        trigger: row.trigger === "manual" ? "manual" : "scheduled",
+        state: occurrence.state,
         ...(row.terminalRunId && { terminalRunId: row.terminalRunId }),
         ...(row.summary && "processed" in row.summary && { counts: row.summary }),
       });
@@ -352,8 +496,13 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       const at = occurrence.acceptedAt ?? (occurrence.timing.trigger === "scheduled" ? occurrence.timing.scheduledFor : null);
       if (!at) continue;
       rows.set(occurrence.occurrenceId, {
-        id: occurrence.occurrenceId, planId: occurrence.plan.planId, title, source, at: new Date(at).toISOString(),
-        trigger: occurrence.timing.trigger, state: occurrence.state,
+        id: occurrence.occurrenceId,
+        planId: occurrence.plan.planId,
+        title,
+        source,
+        at: new Date(at).toISOString(),
+        trigger: occurrence.timing.trigger,
+        state: occurrence.state,
       });
     }
     history = [...rows.values()];
@@ -365,14 +514,15 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
     const rows = historyRows();
     const candidates = new Map<TaskRunReference, HistoryRow>();
     const query = api.service<TaskRunAttentionQuery>("taskRunAttention");
-    if (query) for (const row of rows) {
-      const occurrence = followUpRuns.get(row.id) ?? (row.counts?.processed ? deps.readCronOccurrence(row.id) : null);
-      for (const { kind, effectId, target, state } of occurrence?.effects ?? []) {
-        if (state === "accepted" && target.kind === "task" && (kind === "task-run" || kind === "task-dispatch")) {
-          candidates.set({ taskId: target.id, kind, id: effectId }, row);
+    if (query)
+      for (const row of rows) {
+        const occurrence = followUpRuns.get(row.id) ?? (row.counts?.processed ? deps.readCronOccurrence(row.id) : null);
+        for (const { kind, effectId, target, state } of occurrence?.effects ?? []) {
+          if (state === "accepted" && target.kind === "task" && (kind === "task-run" || kind === "task-dispatch")) {
+            candidates.set({ taskId: target.id, kind, id: effectId }, row);
+          }
         }
       }
-    }
     const occurrenceIds = new Set<string>();
     const planIds = new Set<string>();
     for (const ref of query?.read([...candidates.keys()]) ?? []) {
@@ -381,65 +531,82 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       occurrenceIds.add(row.id);
       planIds.add(row.planId);
     }
-    return attention = { occurrenceIds, planIds };
+    return (attention = { occurrenceIds, planIds });
   }
 
-  api.defineCapability(bindCapability(planDescriptors.history, ({ caller, signal }, input) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台运行历史");
-    signal.throwIfAborted();
-    const rows = historyRows();
-    if (input.state !== "attention") return historyPage(rows, input);
-    const { occurrenceIds } = runAttention();
-    return historyPage(rows.map((row) => occurrenceIds.has(row.id) ? { ...row, needsAttention: true } : row), input);
-  }));
-  api.defineCapability(bindCapability(planDescriptors.taskReminder, (context, input) => {
-    if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("添加提醒需要与意图 ID 相同的持久意图键");
-    return deps.taskReminders.create(input, context.signal);
-  }));
-  api.defineCapability(bindCapability(planDescriptors.observationCreate, (context, input) => {
-    if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("建立观察需要与意图 ID 相同的持久意图键");
-    return deps.observations.create(input, context.signal);
-  }));
-  api.defineCapability(bindCapability(planDescriptors.observationRead, (context, { planId }) => {
-    context.signal.throwIfAborted();
-    return deps.observations.configuration(planId);
-  }));
-  api.defineCapability(bindCapability(planDescriptors.observationUpdate, (context, input) => {
-    if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("修改观察需要与意图 ID 相同的持久意图键");
-    return deps.observations.update(input, context.signal);
-  }));
-  api.defineCapability(bindCapability(planDescriptors.submit, async (context, change) => {
-    const { intentId, planId } = change;
-    const operationId = context.parentOperationId;
-    const assertCurrent = () => context.signal.throwIfAborted();
-    try {
-      if (!operationId || context.intentKey !== intentId) throw errors.invalidInput("计划写入需要与意图 ID 相同的持久意图键");
-      assertCurrent();
-      api.vault.files.assertWritable();
-      const rule = deps.rules.rules().find(({ id }) => id === planId);
-      const plan = rule
-        ? await changeRule(rule, change, deps, api, assertCurrent)
-        : deps.periodic.read(planId) ? await deps.periodic.change(change, context.signal)
-        : deps.taskReminders.read(planId) ? await deps.taskReminders.change(change, context.signal)
-        : deps.observations.read(planId) ? await deps.observations.change(change, context.signal)
-        : deps.focus?.read(planId) ? await deps.focus.change(change, context.signal)
-        : await deps.followUps.changePlan(change, assertCurrent);
-      return { outcome: "completed", intentId, operationId, plan } as const;
-    } catch (error) {
-      if (
-        isHuhuError(error) && (
-          error.code === "INVALID_INPUT" || error.code === "NOT_FOUND" || error.code === "VERSION_CONFLICT" ||
-          error.code === "READ_ONLY_VAULT" || error.code === "PERMISSION_DENIED"
-        )
-      ) return { outcome: "not-accepted", error: error.toJSON() } as const;
-      if (operationId && isHuhuError(error) && error.code === "WRITE_PARTIAL" && error.details?.["state"] === "needs_attention") {
-        return { outcome: "unknown", intentId, operationId, occurrence: null } as const;
+  api.defineCapability(
+    bindCapability(planDescriptors.history, ({ caller, signal }, input) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台运行历史");
+      signal.throwIfAborted();
+      const rows = historyRows();
+      if (input.state !== "attention") return historyPage(rows, input);
+      const { occurrenceIds } = runAttention();
+      return historyPage(
+        rows.map((row) => (occurrenceIds.has(row.id) ? { ...row, needsAttention: true } : row)),
+        input,
+      );
+    }),
+  );
+  api.defineCapability(
+    bindCapability(planDescriptors.taskReminder, (context, input) => {
+      if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("添加提醒需要与意图 ID 相同的持久意图键");
+      return deps.taskReminders.create(input, context.signal);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(planDescriptors.observationCreate, (context, input) => {
+      if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("建立观察需要与意图 ID 相同的持久意图键");
+      return deps.observations.create(input, context.signal);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(planDescriptors.observationRead, (context, { planId }) => {
+      context.signal.throwIfAborted();
+      return deps.observations.configuration(planId);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(planDescriptors.observationUpdate, (context, input) => {
+      if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("修改观察需要与意图 ID 相同的持久意图键");
+      return deps.observations.update(input, context.signal);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(planDescriptors.submit, async (context, change) => {
+      const { intentId, planId } = change;
+      const operationId = context.parentOperationId;
+      const assertCurrent = () => context.signal.throwIfAborted();
+      try {
+        if (!operationId || context.intentKey !== intentId) throw errors.invalidInput("计划写入需要与意图 ID 相同的持久意图键");
+        assertCurrent();
+        api.vault.files.assertWritable();
+        const rule = deps.rules.rules().find(({ id }) => id === planId);
+        const plan = rule
+          ? await changeRule(rule, change, deps, api, assertCurrent)
+          : deps.periodic.read(planId)
+            ? await deps.periodic.change(change, context.signal)
+            : deps.taskReminders.read(planId)
+              ? await deps.taskReminders.change(change, context.signal)
+              : deps.observations.read(planId)
+                ? await deps.observations.change(change, context.signal)
+                : deps.focus?.read(planId)
+                  ? await deps.focus.change(change, context.signal)
+                  : await deps.followUps.changePlan(change, assertCurrent);
+        return { outcome: "completed", intentId, operationId, plan } as const;
+      } catch (error) {
+        if (isHuhuError(error) && (error.code === "INVALID_INPUT" || error.code === "NOT_FOUND" || error.code === "VERSION_CONFLICT" || error.code === "READ_ONLY_VAULT" || error.code === "PERMISSION_DENIED"))
+          return { outcome: "not-accepted", error: error.toJSON() } as const;
+        if (operationId && isHuhuError(error) && error.code === "WRITE_PARTIAL" && error.details?.["state"] === "needs_attention") {
+          return { outcome: "unknown", intentId, operationId, occurrence: null } as const;
+        }
+        throw error;
       }
-      throw error;
-    }
-  }));
-  api.defineCapability(bindCapability(planDescriptors.defaultTaskScan, (context, { action }) => {
-    const assertCurrent = () => context.signal.throwIfAborted();
-    return action === "restore" ? deps.defaults.restore(assertCurrent) : deps.defaults.create(assertCurrent);
-  }));
+    }),
+  );
+  api.defineCapability(
+    bindCapability(planDescriptors.defaultTaskScan, (context, { action }) => {
+      const assertCurrent = () => context.signal.throwIfAborted();
+      return action === "restore" ? deps.defaults.restore(assertCurrent) : deps.defaults.create(assertCurrent);
+    }),
+  );
 }

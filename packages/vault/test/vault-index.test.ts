@@ -362,11 +362,13 @@ describe("VaultIndex", () => {
     });
     const index = new VaultIndex(root);
     await index.build();
-    expect(index.query("命中").hits).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "task", id: "task-original", path: "Tasks/renamed.md" }),
-      expect.objectContaining({ kind: "capture", id: "cap-original", path: "Inbox/renamed.md" }),
-      expect.objectContaining({ kind: "note", path: "命中#笔记.md" }),
-    ]));
+    expect(index.query("命中").hits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "task", id: "task-original", path: "Tasks/renamed.md" }),
+        expect.objectContaining({ kind: "capture", id: "cap-original", path: "Inbox/renamed.md" }),
+        expect.objectContaining({ kind: "note", path: "命中#笔记.md" }),
+      ]),
+    );
   });
   test("树、检索、反链、标签", async () => {
     const root = vault({

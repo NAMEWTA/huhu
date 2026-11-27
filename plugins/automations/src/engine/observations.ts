@@ -9,27 +9,40 @@ const file = "automations/observation-plans.json";
 const Target = z.strictObject({ kind: z.enum(["task", "agent-session"]), id: z.string().min(1).max(256) });
 const Status = z.enum(["not_started", "running", "waiting_input", "completed", "failed", "unknown"]);
 const Cadence = z.int().positive().max(86_400);
-const Condition = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("change") }),
-  z.strictObject({ kind: z.literal("threshold"), status: Status.exclude(["unknown"]), seconds: Cadence }),
-]);
+const Condition = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("change") }), z.strictObject({ kind: z.literal("threshold"), status: Status.exclude(["unknown"]), seconds: Cadence })]);
 const Settings = z.strictObject({
-  title: z.string().trim().min(1).max(200), target: Target, everySeconds: Cadence, condition: Condition,
-  repeat: z.boolean().default(false), stopAtTerminal: z.boolean().default(true),
+  title: z.string().trim().min(1).max(200),
+  target: Target,
+  everySeconds: Cadence,
+  condition: Condition,
+  repeat: z.boolean().default(false),
+  stopAtTerminal: z.boolean().default(true),
   effect: z.enum(["notification", "task", "both", "comment"]).default("notification"),
 });
 export const ObservationInput = Settings.extend({ intentId: z.uuidv4(), startPaused: z.boolean().optional() });
 export const ObservationUpdateInput = ObservationInput.omit({ startPaused: true }).extend({
-  planId: PlanRefSchema.shape.planId, expectedRevision: PlanRefSchema.shape.revision,
+  planId: PlanRefSchema.shape.planId,
+  expectedRevision: PlanRefSchema.shape.revision,
 });
 export const ObservationEditView = Settings.extend(PlanRefSchema.shape);
 export type ObservationConfiguration = z.output<typeof ObservationEditView>;
-const Store = z.array(Settings.extend({
-  planId: z.string(), revision: z.string(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), nextAt: z.iso.datetime(),
-  intent: z.enum(["enabled", "paused", "deleted"]), stopped: z.boolean(), machineId: z.string().nullable(),
-  status: Status.nullable(), since: z.iso.datetime().nullable(), alerted: z.boolean(), lastOccurrenceId: z.string().nullable(),
-  lastEditIntent: z.uuidv4().optional(),
-}));
+const Store = z.array(
+  Settings.extend({
+    planId: z.string(),
+    revision: z.string(),
+    createdAt: z.iso.datetime(),
+    updatedAt: z.iso.datetime(),
+    nextAt: z.iso.datetime(),
+    intent: z.enum(["enabled", "paused", "deleted"]),
+    stopped: z.boolean(),
+    machineId: z.string().nullable(),
+    status: Status.nullable(),
+    since: z.iso.datetime().nullable(),
+    alerted: z.boolean(),
+    lastOccurrenceId: z.string().nullable(),
+    lastEditIntent: z.uuidv4().optional(),
+  }),
+);
 type Observation = z.infer<typeof Store>[number];
 export type ObservationStatus = z.infer<typeof Status>;
 type ReadStatus = (target: Observation["target"], signal: AbortSignal) => Promise<ObservationStatus>;
@@ -69,8 +82,7 @@ export class ObservationPlans {
   }
 
   private eligible(plan: Observation): boolean {
-    return !this.stopped && !plan.stopped && plan.intent === "enabled" && (!plan.machineId || plan.machineId === this.owner.machineId)
-      && this.sourceAvailable(plan.target);
+    return !this.stopped && !plan.stopped && plan.intent === "enabled" && (!plan.machineId || plan.machineId === this.owner.machineId) && this.sourceAvailable(plan.target);
   }
 
   current(planId: string, revision: string, scheduledFor: string): boolean {
@@ -81,15 +93,26 @@ export class ObservationPlans {
   private summary(plan: Observation): PlanSummary {
     const { planId, revision, machineId, target, title, createdAt, updatedAt, intent } = plan;
     const foreign = !!machineId && machineId !== this.owner.machineId;
-    const availability: PlanSummary["availability"] = this.files.readOnly ? { state: "blocked", reason: "read-only" }
-      : foreign ? { state: "blocked", reason: "foreign-owner" }
-      : !this.deliveries() || !this.sourceAvailable(target) ? { state: "blocked", reason: "plugin-disabled" } : { state: "ready" };
+    const availability: PlanSummary["availability"] = this.files.readOnly
+      ? { state: "blocked", reason: "read-only" }
+      : foreign
+        ? { state: "blocked", reason: "foreign-owner" }
+        : !this.deliveries() || !this.sourceAvailable(target)
+          ? { state: "blocked", reason: "plugin-disabled" }
+          : { state: "ready" };
     const actions: PlanSummary["actions"] = this.files.readOnly || foreign || intent === "deleted" ? [] : ["delete", "reschedule"];
     if (actions.length && intent === "enabled" && !plan.stopped) actions.push("pause");
     else if (actions.length && availability.state === "ready") actions.push("resume");
     const recent = plan.lastOccurrenceId ? this.deliveries()?.readPlanOccurrence(plan.lastOccurrenceId) : null;
     return {
-      planId, revision, title, createdAt, updatedAt, intent: plan.stopped && intent === "enabled" ? "paused" : intent, availability, actions,
+      planId,
+      revision,
+      title,
+      createdAt,
+      updatedAt,
+      intent: plan.stopped && intent === "enabled" ? "paused" : intent,
+      availability,
+      actions,
       owner: machineId ? { scope: "device", vaultId: this.owner.vaultId, machineId } : { scope: "vault", vaultId: this.owner.vaultId },
       source: { plugin: target.kind === "task" ? "tasks" : "agent-cli", object: target },
       action: { capability: "automations.plans.createObservation", object: target, summary: effectLabel[plan.effect] },
@@ -100,7 +123,9 @@ export class ObservationPlans {
   }
 
   list(): PlanSummary[] {
-    return this.load().plans.filter((plan) => plan.intent !== "deleted").map((plan) => this.summary(plan));
+    return this.load()
+      .plans.filter((plan) => plan.intent !== "deleted")
+      .map((plan) => this.summary(plan));
   }
 
   read(planId: string): PlanSummary | null {
@@ -125,9 +150,19 @@ export class ObservationPlans {
       validateEffect(input);
       const stamp = this.instant();
       const plan: Observation = {
-        ...input, planId, revision: randomUUID(), createdAt: stamp, updatedAt: stamp, nextAt: stamp,
-        intent: startPaused ? "paused" : "enabled", stopped: false, machineId: input.target.kind === "agent-session" ? this.owner.machineId : null,
-        status: null, since: null, alerted: false, lastOccurrenceId: null,
+        ...input,
+        planId,
+        revision: randomUUID(),
+        createdAt: stamp,
+        updatedAt: stamp,
+        nextAt: stamp,
+        intent: startPaused ? "paused" : "enabled",
+        stopped: false,
+        machineId: input.target.kind === "agent-session" ? this.owner.machineId : null,
+        status: null,
+        since: null,
+        alerted: false,
+        lastOccurrenceId: null,
       };
       await this.save([...plans, plan], version, signal);
       this.changed(planId);
@@ -146,11 +181,22 @@ export class ObservationPlans {
       validateEffect(input);
       const stamp = this.instant();
       const next: Observation = {
-        ...plan, ...input, revision: randomUUID(), updatedAt: stamp, nextAt: stamp,
+        ...plan,
+        ...input,
+        revision: randomUUID(),
+        updatedAt: stamp,
+        nextAt: stamp,
         machineId: input.target.kind === "agent-session" ? this.owner.machineId : null,
-        lastEditIntent: intentId, status: null, since: null, alerted: false,
+        lastEditIntent: intentId,
+        status: null,
+        since: null,
+        alerted: false,
       };
-      await this.save(plans.map((entry) => entry === plan ? next : entry), version, signal);
+      await this.save(
+        plans.map((entry) => (entry === plan ? next : entry)),
+        version,
+        signal,
+      );
       this.changed(planId);
       return this.summary(next);
     });
@@ -180,7 +226,11 @@ export class ObservationPlans {
         next.everySeconds = seconds.data;
         next.nextAt = this.instant(seconds.data);
       } else throw errors.invalidInput("观察计划需要间隔与原观察对象");
-      await this.save(plans.map((entry) => entry === plan ? next : entry), version, signal);
+      await this.save(
+        plans.map((entry) => (entry === plan ? next : entry)),
+        version,
+        signal,
+      );
       this.changed(plan.planId);
       return this.summary(next);
     });
@@ -188,7 +238,11 @@ export class ObservationPlans {
 
   tick(): Promise<void> {
     if (this.stopped || this.files.readOnly) return Promise.resolve();
-    this.sweeping ??= this.sweep().catch(() => undefined).finally(() => { this.sweeping = undefined; });
+    this.sweeping ??= this.sweep()
+      .catch(() => undefined)
+      .finally(() => {
+        this.sweeping = undefined;
+      });
     return this.sweeping;
   }
 
@@ -210,9 +264,20 @@ export class ObservationPlans {
           await this.rules.withRuleConfiguration(async () => {
             if (!this.current(plan.planId, plan.revision, plan.nextAt)) return;
             const { plans, version } = this.load();
-            await this.save(plans.map((entry) => entry.planId === plan.planId ? {
-              ...entry, status: null, since: null, alerted: false, nextAt: this.instant(plan.everySeconds),
-            } : entry), version);
+            await this.save(
+              plans.map((entry) =>
+                entry.planId === plan.planId
+                  ? {
+                      ...entry,
+                      status: null,
+                      since: null,
+                      alerted: false,
+                      nextAt: this.instant(plan.everySeconds),
+                    }
+                  : entry,
+              ),
+              version,
+            );
             this.changed(plan.planId);
           });
           continue;
@@ -234,13 +299,18 @@ export class ObservationPlans {
     const now = this.instant();
     const changed = plan.status !== status;
     const since = changed || !plan.since ? now : plan.since;
-    const notify = status !== "unknown" && (plan.condition.kind === "change"
-      ? (changed && plan.status !== null && plan.status !== "unknown") || (plan.repeat && plan.alerted)
-      : status === plan.condition.status && Date.parse(now) - Date.parse(since) >= plan.condition.seconds * 1_000 && (plan.repeat || changed || !plan.alerted));
+    const notify =
+      status !== "unknown" &&
+      (plan.condition.kind === "change"
+        ? (changed && plan.status !== null && plan.status !== "unknown") || (plan.repeat && plan.alerted)
+        : status === plan.condition.status && Date.parse(now) - Date.parse(since) >= plan.condition.seconds * 1_000 && (plan.repeat || changed || !plan.alerted));
     if (occurrence || notify) {
       await deliveries.activatePlanReminder({
-        ...slot, source: "observation", title: `${plan.title}：${statusLabel[status]}`,
-        ...(plan.target.kind === "task" && { taskId: plan.target.id }), effect: plan.effect,
+        ...slot,
+        source: "observation",
+        title: `${plan.title}：${statusLabel[status]}`,
+        ...(plan.target.kind === "task" && { taskId: plan.target.id }),
+        effect: plan.effect,
       });
       occurrence = deliveries.readPlanOccurrence(id);
       if (!occurrence || occurrence.state === "accepted") return;
@@ -250,19 +320,34 @@ export class ObservationPlans {
       const { plans, version } = this.load();
       const stopped = plan.stopAtTerminal && (status === "completed" || status === "failed");
       const next: Observation = {
-        ...plan, status: status === "unknown" ? plan.status : status, since: status === "unknown" ? null : since, stopped,
+        ...plan,
+        status: status === "unknown" ? plan.status : status,
+        since: status === "unknown" ? null : since,
+        stopped,
         alerted: status === "unknown" ? plan.alerted : notify || (!changed && plan.alerted),
-        nextAt: this.instant(plan.everySeconds), lastOccurrenceId: occurrence?.occurrenceId ?? plan.lastOccurrenceId,
+        nextAt: this.instant(plan.everySeconds),
+        lastOccurrenceId: occurrence?.occurrenceId ?? plan.lastOccurrenceId,
       };
-      await this.save(plans.map((entry) => entry.planId === plan.planId ? next : entry), version);
+      await this.save(
+        plans.map((entry) => (entry.planId === plan.planId ? next : entry)),
+        version,
+      );
       this.changed(plan.planId);
     });
   }
 }
 
 const statusLabel: Record<ObservationStatus, string> = {
-  not_started: "未开始", running: "运行中", waiting_input: "等待输入", completed: "已完成", failed: "失败", unknown: "待核实",
+  not_started: "未开始",
+  running: "运行中",
+  waiting_input: "等待输入",
+  completed: "已完成",
+  failed: "失败",
+  unknown: "待核实",
 };
 const effectLabel: Record<Observation["effect"], string> = {
-  notification: "观察状态并提醒", task: "观察状态并创建任务", both: "观察状态、提醒并创建任务", comment: "观察状态并追加任务评论",
+  notification: "观察状态并提醒",
+  task: "观察状态并创建任务",
+  both: "观察状态、提醒并创建任务",
+  comment: "观察状态并追加任务评论",
 };

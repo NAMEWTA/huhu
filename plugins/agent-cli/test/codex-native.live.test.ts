@@ -55,7 +55,9 @@ test.skipIf(process.platform !== "linux" || process.arch !== "x64" || !coreBin |
     const approval = { id: space.id, expectedRevision: space.revision, allowed: true };
     expect(await invoke("agent.spaces.dispatchWriteApproval", approval, "cli")).toMatchObject({ ok: false });
     await call("agent.spaces.dispatchWriteApproval", approval);
-    expect(await rows()).toEqual(expect.arrayContaining([expect.objectContaining({ provider: "codex", mode: "new", available: true, capabilities: expect.objectContaining({ command: { state: "runtime_check", reason: "verify_effective_workspace_sandbox" } }) })]));
+    expect(await rows()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ provider: "codex", mode: "new", available: true, capabilities: expect.objectContaining({ command: { state: "runtime_check", reason: "verify_effective_workspace_sandbox" } }) })]),
+    );
     const task = await call<TaskDto>("tasks.create", { title: "Workspace proof", body: "Create the approved fixture artifact.", type: "agent", execution: { provider: "codex", profile: "workspace-write", spaceId: space.id } });
     await call("tasks.dispatch", { taskId: task.id, dispatchId: "workspace-proof", expectedVersion: task.version, inputRevision: task.inputRevision, inputHash: task.inputHash });
     await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: task.id })).comments.filter(({ event }) => event === "result"), { timeout: 28_000 }).toMatchObject([{ body: responses.result }]);

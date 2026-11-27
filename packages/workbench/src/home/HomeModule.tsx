@@ -120,7 +120,7 @@ function HomeDashboard({ ui, registry }: HomeProps) {
             definitionsReady={available.isSuccess && plugins.isSuccess}
             allowed={allowed}
             unavailableReason={unavailableReason}
-            sourceName={(owner) => owner === "kernel" ? "工作台" : (pluginTitles.get(owner) ?? owner)}
+            sourceName={(owner) => (owner === "kernel" ? "工作台" : (pluginTitles.get(owner) ?? owner))}
             renderWidget={renderWidget}
             configureWidget={(instance, onChange, disabled) => {
               if (!allowed(instance.widgetType)) return null;

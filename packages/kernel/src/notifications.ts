@@ -59,8 +59,12 @@ export class NotificationStore {
     const list = this.load();
     const existing = reservedId ? list.find(({ id }) => id === reservedId) : undefined;
     if (existing) {
-      if (existing.title !== input.title || existing.module !== input.module || existing.body !== (input.body || undefined)
-        || (existing.occurrence && (existing.occurrence.planId !== input.occurrence?.planId || existing.occurrence.occurrenceId !== input.occurrence?.occurrenceId))) {
+      if (
+        existing.title !== input.title ||
+        existing.module !== input.module ||
+        existing.body !== (input.body || undefined) ||
+        (existing.occurrence && (existing.occurrence.planId !== input.occurrence?.planId || existing.occurrence.occurrenceId !== input.occurrence?.occurrenceId))
+      ) {
         throw errors.idempotencyMismatch();
       }
       return existing;

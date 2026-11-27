@@ -20,8 +20,7 @@ export class FocusDeadlinePlans {
   private summary(plan: FocusDeadline): PlanSummary {
     const { planId, revision, createdAt, updatedAt, scheduledFor, state } = plan;
     const object = { kind: "focus-session", id: planId };
-    const availability: PlanSummary["availability"] = this.readOnly ? { state: "blocked", reason: "read-only" }
-      : !this.deliveries() ? { state: "blocked", reason: "plugin-disabled" } : { state: "ready" };
+    const availability: PlanSummary["availability"] = this.readOnly ? { state: "blocked", reason: "read-only" } : !this.deliveries() ? { state: "blocked", reason: "plugin-disabled" } : { state: "ready" };
     const actions: PlanSummary["actions"] = [];
     if (availability.state === "ready" && state !== "deleted") {
       actions.push("delete");
@@ -30,10 +29,16 @@ export class FocusDeadlinePlans {
     }
     const occurrence = this.deliveries()?.readPlanOccurrence(planReminderOccurrenceId(plan));
     return {
-      planId, revision, title: "专注计时", createdAt, updatedAt,
-      source: { plugin: "kernel", object }, owner: { scope: "vault", vaultId: this.vaultId },
+      planId,
+      revision,
+      title: "专注计时",
+      createdAt,
+      updatedAt,
+      source: { plugin: "kernel", object },
+      owner: { scope: "vault", vaultId: this.vaultId },
       action: { capability: "home.focus.update", object, summary: "结算专注时段并递送完成通知" },
-      intent: state === "completed" ? "paused" : state === "skipped" ? "enabled" : state, availability,
+      intent: state === "completed" ? "paused" : state === "skipped" ? "enabled" : state,
+      availability,
       trigger: { kind: "once", scheduledFor },
       nextAt: state === "enabled" && availability.state === "ready" && this.allowsSchedule(scheduledFor) ? scheduledFor : null,
       lastOccurrence: occurrence ? { occurrenceId: occurrence.occurrenceId, at: occurrence.acceptedAt ?? scheduledFor, state: occurrence.state } : null,
@@ -62,8 +67,7 @@ export class FocusDeadlinePlans {
 
   current(planId: string, revision: string, scheduledFor: string): boolean {
     const current = this.home.current();
-    return [current?.state === "enabled" ? current : undefined, this.home.settled()?.plan]
-      .some((plan) => plan?.planId === planId && plan.revision === revision && plan.scheduledFor === scheduledFor);
+    return [current?.state === "enabled" ? current : undefined, this.home.settled()?.plan].some((plan) => plan?.planId === planId && plan.revision === revision && plan.scheduledFor === scheduledFor);
   }
 
   settle(planId: string, revision: string, scheduledFor: string, occurrenceId: string): boolean {
@@ -79,8 +83,12 @@ export class FocusDeadlinePlans {
       this.home.skip(plan);
       return;
     }
-    this.ticking = this.deliveries()?.activatePlanReminder({ ...plan, source: "focus-deadline", title: "专注完成", effect: "notification" })
-      .catch(() => undefined).finally(() => { this.ticking = undefined; });
+    this.ticking = this.deliveries()
+      ?.activatePlanReminder({ ...plan, source: "focus-deadline", title: "专注完成", effect: "notification" })
+      .catch(() => undefined)
+      .finally(() => {
+        this.ticking = undefined;
+      });
   }
 
   async close(): Promise<void> {

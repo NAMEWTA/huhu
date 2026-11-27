@@ -39,7 +39,14 @@ const riskText = (risk: CapabilityCatalogEntry["risk"]) => (risk === "high" ? "�
 const canChoose = (entry: CapabilityCatalogEntry) => entry.exposable && (entry.availability === "active" || entry.selected === true);
 const canBatchOpen = (entry: CapabilityCatalogEntry) => entry.availability === "active" && !entry.individualExposure && entry.selected !== true;
 
-export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, restriction, published }: {
+export function ToolPolicyCatalog({
+  entries,
+  catalogFailed,
+  filter,
+  policy,
+  restriction,
+  published,
+}: {
   entries: CapabilityCatalogEntry[] | undefined;
   catalogFailed: boolean;
   filter: string;
@@ -106,7 +113,7 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
     const plugin = batch.startsWith("plugin:") ? batch.slice("plugin:".length) : null;
     const rows = plugin ? exposable.filter((entry) => entry.plugin === plugin) : batch === "add-read" ? exposable.filter((entry) => entry.scope === "read") : batch.endsWith("matching") ? matching : exposable;
     const opening = !batch.startsWith("disable-");
-    return rows.filter((entry) => opening ? canBatchOpen(entry) : entry.selected === true).map(({ name }) => ({ capability: name, exposed: opening }));
+    return rows.filter((entry) => (opening ? canBatchOpen(entry) : entry.selected === true)).map(({ name }) => ({ capability: name, exposed: opening }));
   }
   const batchDraft = batchChanges();
   const batchTitle = batchOptions.find(({ value }) => value === batch)?.label ?? `开启插件全部 · ${batch.slice("plugin:".length)}`;
@@ -161,7 +168,9 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
             <label className="row">
               <input
                 type="checkbox"
-                ref={(checkbox) => { if (checkbox) checkbox.indeterminate = matchingChosen > 0 && !matchingSelected; }}
+                ref={(checkbox) => {
+                  if (checkbox) checkbox.indeterminate = matchingChosen > 0 && !matchingSelected;
+                }}
                 disabled={matching.length === 0}
                 checked={matchingSelected}
                 onChange={(e) => {
@@ -230,7 +239,9 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
                 ))}
               </Select>
             </Field>
-            <Button disabled={batchDraft.length === 0} onClick={(event) => void showPreview(batchTitle, batchDraft, event.currentTarget)}>预览批量操作</Button>
+            <Button disabled={batchDraft.length === 0} onClick={(event) => void showPreview(batchTitle, batchDraft, event.currentTarget)}>
+              预览批量操作
+            </Button>
           </div>
         </fieldset>
         <p role="status">{busy && !draft ? "正在更新工具选择…" : notice}</p>
@@ -239,37 +250,54 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
             {error.message}
           </p>
         ) : null}
-        {list.length ? <DataTable
-          label="能力开放列表"
-          rows={list}
-          rowKey={(c) => c.name}
-          rowTestId="cap-row"
-          rowAttrs={(c) => ({ "data-cap": c.name })}
-          columns={[
-            {
-              id: "select",
-              header: "选择",
-              width: 72,
-              cell: (c) => (c.exposable ? <input type="checkbox" aria-label={`选择 ${c.name}`} disabled={!editable || busy || !canChoose(c)} checked={canChoose(c) && selection.has(c.name)} onChange={(e) => toggleSelection(c.name, e.target.checked)} /> : null),
-            },
-            { id: "name", header: "能力", width: 260, cell: (c) => <code title={c.description}>{c.name}</code> },
-            { id: "plugin", header: "所属模块", width: 120, cell: (c) => (c.plugin === "kernel" ? "基础能力" : c.plugin) },
-            { id: "scope", header: "访问范围", width: 110, cell: (c) => (c.scope ? <Badge tone={c.scope === "read" ? "neutral" : "warning"}>{g.scope[c.scope]}</Badge> : "—") },
-            { id: "selected", header: "策略", width: 130, cell: (c) => (c.individualExposure ? `${selectionText(c.selected)} · 逐项开放` : c.exposable ? selectionText(c.selected) : g.never) },
-            { id: "state", header: "MCP 调用状态", width: 150, cell: (c) => <Badge tone={c.exposed && published ? "success" : "neutral"}>{c.availability !== "active" ? availability[c.availability] : !c.exposed ? g.closed : published ? "可调用" : "服务已关闭"}</Badge> },
-            {
-              id: "expose",
-              header: "开放",
-              width: 110,
-              cell: (c) =>
-                c.exposable ? (
-                  <ChoiceSwitch disabled={!editable || busy || !canChoose(c)} checked={c.selected === true} label={`暴露 ${c.name}`} onChange={(exposed, trigger) => void showPreview(exposed ? "开放工具" : "关闭工具", [{ capability: c.name, exposed }], trigger)} />
-                ) : (
-                  <span className="small muted">{g.never}</span>
-                ),
-            },
-          ]}
-        /> : entries && !catalogFailed ? <EmptyState icon={Activity} title={entries.length ? "没有匹配的能力" : "当前没有可配置的工具"} /> : null}
+        {list.length ? (
+          <DataTable
+            label="能力开放列表"
+            rows={list}
+            rowKey={(c) => c.name}
+            rowTestId="cap-row"
+            rowAttrs={(c) => ({ "data-cap": c.name })}
+            columns={[
+              {
+                id: "select",
+                header: "选择",
+                width: 72,
+                cell: (c) =>
+                  c.exposable ? (
+                    <input type="checkbox" aria-label={`选择 ${c.name}`} disabled={!editable || busy || !canChoose(c)} checked={canChoose(c) && selection.has(c.name)} onChange={(e) => toggleSelection(c.name, e.target.checked)} />
+                  ) : null,
+              },
+              { id: "name", header: "能力", width: 260, cell: (c) => <code title={c.description}>{c.name}</code> },
+              { id: "plugin", header: "所属模块", width: 120, cell: (c) => (c.plugin === "kernel" ? "基础能力" : c.plugin) },
+              { id: "scope", header: "访问范围", width: 110, cell: (c) => (c.scope ? <Badge tone={c.scope === "read" ? "neutral" : "warning"}>{g.scope[c.scope]}</Badge> : "—") },
+              { id: "selected", header: "策略", width: 130, cell: (c) => (c.individualExposure ? `${selectionText(c.selected)} · 逐项开放` : c.exposable ? selectionText(c.selected) : g.never) },
+              {
+                id: "state",
+                header: "MCP 调用状态",
+                width: 150,
+                cell: (c) => <Badge tone={c.exposed && published ? "success" : "neutral"}>{c.availability !== "active" ? availability[c.availability] : !c.exposed ? g.closed : published ? "可调用" : "服务已关闭"}</Badge>,
+              },
+              {
+                id: "expose",
+                header: "开放",
+                width: 110,
+                cell: (c) =>
+                  c.exposable ? (
+                    <ChoiceSwitch
+                      disabled={!editable || busy || !canChoose(c)}
+                      checked={c.selected === true}
+                      label={`暴露 ${c.name}`}
+                      onChange={(exposed, trigger) => void showPreview(exposed ? "开放工具" : "关闭工具", [{ capability: c.name, exposed }], trigger)}
+                    />
+                  ) : (
+                    <span className="small muted">{g.never}</span>
+                  ),
+              },
+            ]}
+          />
+        ) : entries && !catalogFailed ? (
+          <EmptyState icon={Activity} title={entries.length ? "没有匹配的能力" : "当前没有可配置的工具"} />
+        ) : null}
       </section>
       <Dialog
         open={draft !== null}
@@ -304,7 +332,8 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
             <ul aria-label="明确的工具范围">
               {draft.preview.targets.map((target) => (
                 <li key={target.capability}>
-                  {target.title !== target.capability ? `${target.title} · ` : ""}<code>{target.capability}</code> · {target.plugin} · {g.scope[target.scope]} · {riskText(target.risk)} · {availability[target.availability]} · {selectionText(target.selected)} → {selectionText(target.exposed)}
+                  {target.title !== target.capability ? `${target.title} · ` : ""}
+                  <code>{target.capability}</code> · {target.plugin} · {g.scope[target.scope]} · {riskText(target.risk)} · {availability[target.availability]} · {selectionText(target.selected)} → {selectionText(target.exposed)}
                 </li>
               ))}
             </ul>

@@ -85,21 +85,28 @@ export function registerAtReference(editor: Editor, search: (query: string) => r
           void computePosition(anchor, popup, {
             strategy: "fixed",
             placement: "bottom-start",
-            middleware: [offset(4), flip(collision), shift(collision), size({
-              ...collision,
-              apply({ availableWidth, availableHeight }) {
-                popup.style.maxWidth = `${Math.max(0, Math.min(420, availableWidth))}px`;
-                popup.style.maxHeight = `${Math.max(0, Math.min(260, availableHeight))}px`;
-              },
-            })],
-          }).then(({ x, y }) => {
-            if (popup.isConnected) {
-              popup.style.left = `${x}px`;
-              popup.style.top = `${y}px`;
-            }
-          }).catch((error: unknown) => {
-            if (popup.isConnected) console.warn("Reference menu positioning failed", error);
-          });
+            middleware: [
+              offset(4),
+              flip(collision),
+              shift(collision),
+              size({
+                ...collision,
+                apply({ availableWidth, availableHeight }) {
+                  popup.style.maxWidth = `${Math.max(0, Math.min(420, availableWidth))}px`;
+                  popup.style.maxHeight = `${Math.max(0, Math.min(260, availableHeight))}px`;
+                },
+              }),
+            ],
+          })
+            .then(({ x, y }) => {
+              if (popup.isConnected) {
+                popup.style.left = `${x}px`;
+                popup.style.top = `${y}px`;
+              }
+            })
+            .catch((error: unknown) => {
+              if (popup.isConnected) console.warn("Reference menu positioning failed", error);
+            });
         };
         items = p.items;
         index = 0;

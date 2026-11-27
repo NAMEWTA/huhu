@@ -138,8 +138,7 @@ export function LedgerReports({ book, readOnly, openResource }: { book: Book; re
         <Button onClick={() => setReview(true)}>期间复盘</Button>
       </div>
       <p>业务时区 {book.timeZone}</p>
-      {review && <PeriodReview book={book} readOnly={readOnly} initial={{ ...dates, ...scope }} currencies={currencies}
-        close={() => setReview(false)} openResource={openResource} />}
+      {review && <PeriodReview book={book} readOnly={readOnly} initial={{ ...dates, ...scope }} currencies={currencies} close={() => setReview(false)} openResource={openResource} />}
       <search aria-label="筛选报表" className="hu-toolbar">
         <LedgerField label="开始日期">
           <input type="date" value={dates.from} onChange={(event) => setDates({ ...dates, from: event.currentTarget.value })} />

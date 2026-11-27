@@ -191,7 +191,18 @@ export class CommentsService {
     const now = iso(this.d.now());
     const e = await this.d.repo.create(
       "comment",
-      { documentId, documentPath: input.path, target: input.target, property: input.target === "property" ? (input.property ?? null) : null, anchor, state: "anchored", contentFormat: "single", author: input.author, createdAt: now, updatedAt: now },
+      {
+        documentId,
+        documentPath: input.path,
+        target: input.target,
+        property: input.target === "property" ? (input.property ?? null) : null,
+        anchor,
+        state: "anchored",
+        contentFormat: "single",
+        author: input.author,
+        createdAt: now,
+        updatedAt: now,
+      },
       text,
     );
     this.d.publish("entity.changed", { kind: "comment", id: e.id, op: "created" });
@@ -285,9 +296,12 @@ export class CommentsService {
       }
       ids.push(comment.id);
     }
-    return { steps, publish: () => {
-      for (const id of ids) this.d.publish("entity.changed", { kind: "comment", id, op: action === "purge" ? "deleted" : "updated" });
-    } };
+    return {
+      steps,
+      publish: () => {
+        for (const id of ids) this.d.publish("entity.changed", { kind: "comment", id, op: action === "purge" ? "deleted" : "updated" });
+      },
+    };
   }
 
   /** 永久删除笔记时一并删除它的批注。 */

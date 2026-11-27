@@ -75,7 +75,10 @@ test.skipIf(process.platform !== "linux" || !existsSync("/usr/bin/python3"))("Li
     expect(readFileSync(path.join(localPath, "restored", "source", "文档.txt"))).toEqual(content);
 
     const linked = path.join(root, "link.zip");
-    execFileSync("/usr/bin/python3", ["-I", "-c", `
+    execFileSync("/usr/bin/python3", [
+      "-I",
+      "-c",
+      `
 from zipfile import ZipFile, ZipInfo
 import sys
 with ZipFile(sys.argv[1], "x") as archive:
@@ -83,7 +86,9 @@ with ZipFile(sys.argv[1], "x") as archive:
     entry.create_system = 3
     entry.external_attr = 0o120777 << 16
     archive.writestr(entry, "fixture-target")
-`, linked]);
+`,
+      linked,
+    ]);
     server.fs.files.set("/home/test/link.zip", readFileSync(linked));
     await expect(archives.run({ directory, operation: "extract", name: "link.zip", output: "should-stay-absent" }, signal)).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(server.fs.dirs.has("/home/test/should-stay-absent")).toBe(false);

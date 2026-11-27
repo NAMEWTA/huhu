@@ -6,12 +6,15 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CallToolRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, ListToolsRequestSchema, type CallToolResult, type ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
 
-export async function localUpstream(transport: "streamable-http" | "sse", options: {
-  authorization?: string;
-  authorize?: (header: string | undefined, url: string | undefined) => boolean;
-  advertise?: "tools" | "resources" | "prompts" | "none";
-  requires?: "sampling" | "roots" | "elicitation";
-} = {}) {
+export async function localUpstream(
+  transport: "streamable-http" | "sse",
+  options: {
+    authorization?: string;
+    authorize?: (header: string | undefined, url: string | undefined) => boolean;
+    advertise?: "tools" | "resources" | "prompts" | "none";
+    requires?: "sampling" | "roots" | "elicitation";
+  } = {},
+) {
   const calls: { name: string; input: unknown }[] = [];
   const admissions: { authorization: string | undefined; url: string | undefined }[] = [];
   const requests: string[] = [];
@@ -22,12 +25,17 @@ export async function localUpstream(transport: "streamable-http" | "sse", option
   const advertised = options.advertise ?? "tools";
   const capabilities: ServerCapabilities = advertised === "none" ? {} : { [advertised]: {} };
   function endpoint() {
-    const server = new Server({ name: transport, version: "1" }, {
-      capabilities,
-      ...(options.requires && { enforceStrictCapabilities: true }),
-    });
+    const server = new Server(
+      { name: transport, version: "1" },
+      {
+        capabilities,
+        ...(options.requires && { enforceStrictCapabilities: true }),
+      },
+    );
     clients.add(server);
-    server.onclose = () => { clients.delete(server); };
+    server.onclose = () => {
+      clients.delete(server);
+    };
     if (advertised === "resources") {
       server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [{ name: "Readme", uri: "fixture://docs/readme" }] }));
       server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }));
@@ -69,8 +77,7 @@ export async function localUpstream(transport: "streamable-http" | "sse", option
   }
   const http = createServer(async (request, response) => {
     try {
-      if ((options.authorization !== undefined && request.headers.authorization !== options.authorization) ||
-          (options.authorize && !options.authorize(request.headers.authorization, request.url))) {
+      if ((options.authorization !== undefined && request.headers.authorization !== options.authorization) || (options.authorize && !options.authorize(request.headers.authorization, request.url))) {
         let body = "";
         for await (const chunk of request) body += String(chunk);
         const method = body ? (JSON.parse(body) as { method?: string }).method : undefined;
@@ -83,13 +90,19 @@ export async function localUpstream(transport: "streamable-http" | "sse", option
         const server = endpoint();
         const streamable = new StreamableHTTPServerTransport({ enableJsonResponse: true });
         await connect(server, streamable);
-        try { await streamable.handleRequest(request, response); }
-        finally { await server.close(); }
+        try {
+          await streamable.handleRequest(request, response);
+        } finally {
+          await server.close();
+        }
       } else if (request.url === "/sse") {
         const server = endpoint();
         const stream = new SSEServerTransport("/messages", response);
         sse.set(stream.sessionId, stream);
-        response.on("close", () => { sse.delete(stream.sessionId); void server.close(); });
+        response.on("close", () => {
+          sse.delete(stream.sessionId);
+          void server.close();
+        });
         await connect(server, stream);
       } else {
         const url = new URL(request.url ?? "", "http://127.0.0.1");
@@ -104,7 +117,10 @@ export async function localUpstream(transport: "streamable-http" | "sse", option
   });
   await new Promise<void>((resolve, reject) => {
     http.once("error", reject);
-    http.listen(0, "127.0.0.1", () => { http.off("error", reject); resolve(); });
+    http.listen(0, "127.0.0.1", () => {
+      http.off("error", reject);
+      resolve();
+    });
   });
   return {
     url: `http://127.0.0.1:${(http.address() as AddressInfo).port}/${transport === "sse" ? "sse" : "mcp"}`,
@@ -112,7 +128,9 @@ export async function localUpstream(transport: "streamable-http" | "sse", option
     admissions,
     requests,
     rejections,
-    get listRequests() { return listRequests; },
+    get listRequests() {
+      return listRequests;
+    },
     async close() {
       await Promise.all([...clients].map((server) => server.close()));
       http.closeAllConnections();

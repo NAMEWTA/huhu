@@ -19,8 +19,22 @@ function openTerminalLink(url: string) {
 }
 
 export function SshTerminal(props: TerminalViewProps) {
-  const { fontSize, font, terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback, terminalWordSeparator, terminalLinkActivation,
-    terminalCopyOnSelect, terminalRightClickWord, terminalScrollOnInput, terminalHighlightRules, terminalCompletion, terminalBellNotice } = useDevicePreferences();
+  const {
+    fontSize,
+    font,
+    terminalLineHeight,
+    terminalCursor,
+    terminalCursorBlink,
+    terminalScrollback,
+    terminalWordSeparator,
+    terminalLinkActivation,
+    terminalCopyOnSelect,
+    terminalRightClickWord,
+    terminalScrollOnInput,
+    terminalHighlightRules,
+    terminalCompletion,
+    terminalBellNotice,
+  } = useDevicePreferences();
   const [input, setInput] = useState<TerminalInput>();
   const [completing, setCompleting] = useState(false);
   const [completionError, setCompletionError] = useState("");
@@ -33,8 +47,15 @@ export function SshTerminal(props: TerminalViewProps) {
     original.current?.(next);
   }, []);
   const displayOptions = useMemo(
-    () => ({ lineHeight: terminalLineHeights[terminalLineHeight], cursorStyle: terminalCursor, cursorBlink: terminalCursorBlink, scrollback: terminalScrollback, wordSeparator: terminalWordSeparator,
-      rightClickSelectsWord: terminalRightClickWord, scrollOnUserInput: terminalScrollOnInput }),
+    () => ({
+      lineHeight: terminalLineHeights[terminalLineHeight],
+      cursorStyle: terminalCursor,
+      cursorBlink: terminalCursorBlink,
+      scrollback: terminalScrollback,
+      wordSeparator: terminalWordSeparator,
+      rightClickSelectsWord: terminalRightClickWord,
+      scrollOnUserInput: terminalScrollOnInput,
+    }),
     [terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback, terminalWordSeparator, terminalRightClickWord, terminalScrollOnInput],
   );
   const scale = canScaleTerminal() ? fontSize / 13 : 1;
@@ -51,21 +72,38 @@ export function SshTerminal(props: TerminalViewProps) {
   }
   return (
     <>
-      {terminalCompletion && <Button type="button" disabled={!input} aria-keyshortcuts="Control+Space" onClick={openCompletion}>命令补全</Button>}
+      {terminalCompletion && (
+        <Button type="button" disabled={!input} aria-keyshortcuts="Control+Space" onClick={openCompletion}>
+          命令补全
+        </Button>
+      )}
       {terminalBellNotice && bells > 0 && <span role="status">终端响铃次数 {bells}</span>}
       <div className="ssh-terminal-preferences" data-testid="ssh-terminal-preferences">
         <div className="ssh-terminal-scale" style={style} data-font={font}>
-          <TerminalView {...props} displayOptions={displayOptions} scrollbackSearch onOpenLink={openTerminalLink} linkActivation={terminalLinkActivation}
-            copyOnSelect={terminalCopyOnSelect} highlightRules={terminalHighlightRules} onTerminalInput={onTerminalInput}
-            onCompletionRequest={terminalCompletion && input ? openCompletion : undefined} onBell={terminalBellNotice ? () => setBells((count) => count + 1) : undefined} />
+          <TerminalView
+            {...props}
+            displayOptions={displayOptions}
+            scrollbackSearch
+            onOpenLink={openTerminalLink}
+            linkActivation={terminalLinkActivation}
+            copyOnSelect={terminalCopyOnSelect}
+            highlightRules={terminalHighlightRules}
+            onTerminalInput={onTerminalInput}
+            onCompletionRequest={terminalCompletion && input ? openCompletion : undefined}
+            onBell={terminalBellNotice ? () => setBells((count) => count + 1) : undefined}
+          />
         </div>
       </div>
-      {terminalCompletion && completing && input && <Dialog open title="终端命令补全" description="选择快捷命令插入当前终端。" error={completionError} onClose={() => setCompleting(false)}>
-        <ShortcutPicker onSelect={(entry) => {
-          if (input(entry.text, false) === "sent") setCompleting(false);
-          else setCompletionError("当前终端无法插入这条快捷命令。");
-        }} />
-      </Dialog>}
+      {terminalCompletion && completing && input && (
+        <Dialog open title="终端命令补全" description="选择快捷命令插入当前终端。" error={completionError} onClose={() => setCompleting(false)}>
+          <ShortcutPicker
+            onSelect={(entry) => {
+              if (input(entry.text, false) === "sent") setCompleting(false);
+              else setCompletionError("当前终端无法插入这条快捷命令。");
+            }}
+          />
+        </Dialog>
+      )}
     </>
   );
 }

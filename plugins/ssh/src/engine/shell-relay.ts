@@ -53,9 +53,7 @@ export function dialShellRelay(client: Client, target: { host: string; port: num
   const nonce = randomBytes(16).toString("hex");
   const marker = Buffer.from(`HUHU_RELAY_${nonce}\n`);
   // A separate shell executes one bounded invocation. Split the marker so that an echoed command cannot complete the handshake.
-  const command = transport === "ssh"
-    ? `command -v nc >/dev/null 2>&1 && printf '%s%s\\n' HUHU_RELAY_ ${nonce} && exec nc '${host}' ${target.port}; exit\n`
-    : `exec python3 -I -c '${tcpRelay}' '${host}' ${target.port} ${nonce}\n`;
+  const command = transport === "ssh" ? `command -v nc >/dev/null 2>&1 && printf '%s%s\\n' HUHU_RELAY_ ${nonce} && exec nc '${host}' ${target.port}; exit\n` : `exec python3 -I -c '${tcpRelay}' '${host}' ${target.port} ${nonce}\n`;
   return new Promise((resolve, reject) => {
     let channel: ClientChannel | undefined;
     let pending = true;
@@ -106,7 +104,9 @@ export function dialShellRelay(client: Client, target: { host: string; port: num
       opened.once("close", onFailure);
       opened.once("end", onFailure);
       opened.on("data", onData);
-      opened.write(command, (writeError) => { if (writeError) onFailure(); });
+      opened.write(command, (writeError) => {
+        if (writeError) onFailure();
+      });
     });
   });
 }

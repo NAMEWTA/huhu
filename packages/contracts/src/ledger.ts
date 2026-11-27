@@ -4,40 +4,79 @@ import { errors } from "./errors.js";
 
 // The ledger format owns its scales. An ICU upgrade must not change stored amounts.
 const currencyScales = Object.freeze({
-  AED: 2, AUD: 2, BHD: 3, BRL: 2, CAD: 2, CHF: 2, CLP: 0, CNY: 2,
-  COP: 2, CZK: 2, DKK: 2, EUR: 2, GBP: 2, HKD: 2, HUF: 2, IDR: 2,
-  ILS: 2, INR: 2, IQD: 3, ISK: 0, JOD: 3, JPY: 0, KRW: 0, KWD: 3,
-  MXN: 2, MYR: 2, NOK: 2, NZD: 2, OMR: 3, PHP: 2, PLN: 2, SAR: 2,
-  SEK: 2, SGD: 2, THB: 2, TND: 3, TRY: 2, TWD: 2, USD: 2, VND: 0,
-  XAF: 0, XOF: 0, XPF: 0, ZAR: 2,
+  AED: 2,
+  AUD: 2,
+  BHD: 3,
+  BRL: 2,
+  CAD: 2,
+  CHF: 2,
+  CLP: 0,
+  CNY: 2,
+  COP: 2,
+  CZK: 2,
+  DKK: 2,
+  EUR: 2,
+  GBP: 2,
+  HKD: 2,
+  HUF: 2,
+  IDR: 2,
+  ILS: 2,
+  INR: 2,
+  IQD: 3,
+  ISK: 0,
+  JOD: 3,
+  JPY: 0,
+  KRW: 0,
+  KWD: 3,
+  MXN: 2,
+  MYR: 2,
+  NOK: 2,
+  NZD: 2,
+  OMR: 3,
+  PHP: 2,
+  PLN: 2,
+  SAR: 2,
+  SEK: 2,
+  SGD: 2,
+  THB: 2,
+  TND: 3,
+  TRY: 2,
+  TWD: 2,
+  USD: 2,
+  VND: 0,
+  XAF: 0,
+  XOF: 0,
+  XPF: 0,
+  ZAR: 2,
 });
 type LedgerCurrencyCode = keyof typeof currencyScales;
 
-export const LedgerCurrency = z.string().refine(
-  (code): code is LedgerCurrencyCode => Object.hasOwn(currencyScales, code),
-  "账本尚未登记此币种的精度",
-);
-export const LedgerMinorUnits = z.string().max(64).regex(/^(?:0|-?[1-9]\d*)$/);
+export const LedgerCurrency = z.string().refine((code): code is LedgerCurrencyCode => Object.hasOwn(currencyScales, code), "账本尚未登记此币种的精度");
+export const LedgerMinorUnits = z
+  .string()
+  .max(64)
+  .regex(/^(?:0|-?[1-9]\d*)$/);
 const positiveMinor = LedgerMinorUnits.refine((value) => !value.startsWith("-") && value !== "0");
 export const LedgerBusinessDate = z.iso.date();
 const id = z.string().min(1).max(256);
 const revision = z.string().min(1).max(256);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
-const localTimestamp = z.templateLiteral([LedgerBusinessDate, "T", z.iso.time()]).refine(
-  (value) => !/\.\d{4}/.test(value),
-  "来源时刻最多保留到毫秒",
-);
+const localTimestamp = z.templateLiteral([LedgerBusinessDate, "T", z.iso.time()]).refine((value) => !/\.\d{4}/.test(value), "来源时刻最多保留到毫秒");
 const instant = z.iso.datetime({ offset: true });
 
-export const LedgerTimeZone = z.string().min(1).max(128).refine((zone) => {
-  if (/^[+-]/.test(zone)) return false;
-  try {
-    new Intl.DateTimeFormat("en", { timeZone: zone });
-    return true;
-  } catch {
-    return false;
-  }
-}, "请输入 IANA 时区");
+export const LedgerTimeZone = z
+  .string()
+  .min(1)
+  .max(128)
+  .refine((zone) => {
+    if (/^[+-]/.test(zone)) return false;
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: zone });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "请输入 IANA 时区");
 
 export function ledgerDecimalToMinor(decimal: string, currency: string): string {
   const scale = currencyScales[LedgerCurrency.parse(currency) as LedgerCurrencyCode];
@@ -103,35 +142,36 @@ const transfer = recordBase.extend({
   fromCurrency: LedgerCurrency,
   toCurrency: LedgerCurrency,
 });
-export const LedgerRecord = z.discriminatedUnion("type", [single, transfer]).refine(
-  (row) => row.type !== "transfer" || row.fromCurrency !== row.toCurrency || row.fromAmountMinor === row.toAmountMinor,
-  "同币种转账的两端金额须一致",
-);
+export const LedgerRecord = z.discriminatedUnion("type", [single, transfer]).refine((row) => row.type !== "transfer" || row.fromCurrency !== row.toCurrency || row.fromAmountMinor === row.toAmountMinor, "同币种转账的两端金额须一致");
 export type LedgerRecord = z.infer<typeof LedgerRecord>;
 
 export const LedgerOffsetGroup = z.strictObject({
   id,
   bookId: id,
   currency: LedgerCurrency,
-  memberRecordIds: z.array(id).min(2).max(6).refine((ids) => ids.length === new Set(ids).size),
+  memberRecordIds: z
+    .array(id)
+    .min(2)
+    .max(6)
+    .refine((ids) => ids.length === new Set(ids).size),
   createdAt: instant,
   revision,
 });
 
 const commitBase = z.strictObject({ bookId: id, expectedRevision: revision, intentKey: CapabilityIntentKeySchema });
 export const LedgerCreateRecord = commitBase.extend({
-  record: z.discriminatedUnion("type", [
-    single.omit({ id: true, bookId: true, revision: true }),
-    transfer.omit({ id: true, bookId: true, revision: true }),
-  ]).refine((row) => row.type !== "transfer" || (
-    row.fromAccountId !== row.toAccountId && (row.fromCurrency !== row.toCurrency || row.fromAmountMinor === row.toAmountMinor)
-  ), "新转账需要不同账户，同币种两端金额须一致"),
+  record: z
+    .discriminatedUnion("type", [single.omit({ id: true, bookId: true, revision: true }), transfer.omit({ id: true, bookId: true, revision: true })])
+    .refine((row) => row.type !== "transfer" || (row.fromAccountId !== row.toAccountId && (row.fromCurrency !== row.toCurrency || row.fromAmountMinor === row.toAmountMinor)), "新转账需要不同账户，同币种两端金额须一致"),
 });
 export const LedgerConfirmImport = commitBase.extend({
   previewId: id,
   inputDigest: sha256,
   mappingRevision: revision,
-  selectedRowIds: z.array(id).min(1).refine((ids) => ids.length === new Set(ids).size),
+  selectedRowIds: z
+    .array(id)
+    .min(1)
+    .refine((ids) => ids.length === new Set(ids).size),
 });
 
 const day = 86_400_000;
@@ -164,7 +204,10 @@ export function ledgerBusinessDate(occurredAt: string, bookZone: string): string
 function matchingClockTimes(reading: number, clock: (point: number) => string) {
   const target = new Date(reading).toISOString().slice(0, -1);
   const offsets = new Set([reading - day, reading, reading + day].map((point) => Date.parse(`${clock(point)}Z`) - point));
-  return [...offsets].map((offset) => reading - offset).filter((point) => clock(point) === target).sort((a, b) => a - b);
+  return [...offsets]
+    .map((offset) => reading - offset)
+    .filter((point) => clock(point) === target)
+    .sort((a, b) => a - b);
 }
 
 export function ledgerSourceTime(local: string, sourceZone: string, bookZone: string, disambiguation?: "earlier" | "later") {
@@ -200,12 +243,7 @@ export function ledgerBusinessDayRange(date: string, bookZone: string) {
   return { from: firstAtOrAfter(nominal), until: firstAtOrAfter(nominal + day) };
 }
 
-export function ledgerBalanceFromBase(
-  book: z.infer<typeof LedgerBook>,
-  account: z.infer<typeof LedgerAccount>,
-  base: z.infer<typeof LedgerBalanceBase>,
-  records: readonly LedgerRecord[],
-): string {
+export function ledgerBalanceFromBase(book: z.infer<typeof LedgerBook>, account: z.infer<typeof LedgerAccount>, base: z.infer<typeof LedgerBalanceBase>, records: readonly LedgerRecord[]): string {
   if (book.id !== account.bookId || base.bookId !== book.id || base.accountId !== account.id) {
     throw errors.invalidInput("余额基准与账本账户不匹配");
   }
@@ -228,16 +266,9 @@ export function ledgerBalanceFromBase(
 }
 
 export type LedgerReferenceKind = "account" | "category" | "tag" | "attachment" | "note" | "archive";
-type LedgerReferenceCheck =
-  | { state: "ready" }
-  | { state: "unavailable"; reason: "missing" | "archived" | "wrong-book"; blocksCommit: boolean };
+type LedgerReferenceCheck = { state: "ready" } | { state: "unavailable"; reason: "missing" | "archived" | "wrong-book"; blocksCommit: boolean };
 
-export function checkLedgerReference(
-  bookId: string,
-  kind: LedgerReferenceKind,
-  target: { bookId?: string; status: "active" | "archived" } | null,
-  view: "existing" | "new",
-): LedgerReferenceCheck {
+export function checkLedgerReference(bookId: string, kind: LedgerReferenceKind, target: { bookId?: string; status: "active" | "archived" } | null, view: "existing" | "new"): LedgerReferenceCheck {
   const local = kind !== "note" && kind !== "archive";
   if (target && local && target.bookId !== bookId) return { state: "unavailable", reason: "wrong-book", blocksCommit: view === "new" };
   if (!target) return { state: "unavailable", reason: "missing", blocksCommit: view === "new" && local };

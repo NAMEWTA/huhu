@@ -29,21 +29,48 @@ vi.mock("../src/ui/references.js", () => ({ useReferenceIndex: () => null }));
 
 const at = "2026-11-26T17:00:00Z";
 const task: TaskDto = {
-  id: "task-fixture", path: "Tasks/fixture.md", version: "task-version", title: "任务",
-  body: "工作内容", type: "agent", status: "in_progress", completedAt: null,
-  due: null, availableAt: null, tags: [], project: null, readOnly: false, origin: { kind: "desktop" },
+  id: "task-fixture",
+  path: "Tasks/fixture.md",
+  version: "task-version",
+  title: "任务",
+  body: "工作内容",
+  type: "agent",
+  status: "in_progress",
+  completedAt: null,
+  due: null,
+  availableAt: null,
+  tags: [],
+  project: null,
+  readOnly: false,
+  origin: { kind: "desktop" },
   execution: { spaceId: "space-fixture", provider: "codex", model: null, effort: null, fast: false },
-  inputRevision: 4, inputHash: "0123456789abcdef", createdAt: at, updatedAt: at, problems: [],
-  reminders: [], dispatchBlockers: [],
-  comments: [{ id: "summary", at, source: "human", body: "首轮摘要" }, { id: "omit", at, source: "human", body: "其他评论" }],
+  inputRevision: 4,
+  inputHash: "0123456789abcdef",
+  createdAt: at,
+  updatedAt: at,
+  problems: [],
+  reminders: [],
+  dispatchBlockers: [],
+  comments: [
+    { id: "summary", at, source: "human", body: "首轮摘要" },
+    { id: "omit", at, source: "human", body: "其他评论" },
+  ],
   references: [
     { from: "summary", path: "Notes/产物.txt", kind: "file", exists: true },
     { from: "omit", path: "Notes/其他.txt", kind: "file", exists: true },
   ],
 };
 const receipt: TaskDispatchView = {
-  taskId: task.id, dispatchId: "old-dispatch", eventId: "old-event", runId: "old-run",
-  attempt: 1, acceptedAt: at, state: "running", reason: null, cancelRequested: false, session: null,
+  taskId: task.id,
+  dispatchId: "old-dispatch",
+  eventId: "old-event",
+  runId: "old-run",
+  attempt: 1,
+  acceptedAt: at,
+  state: "running",
+  reason: null,
+  cancelRequested: false,
+  session: null,
 };
 const run: TaskRunSummary = { id: receipt.runId, state: "succeeded", startedAt: at, finishedAt: at, model: null, questions: 0 };
 let container: HTMLDivElement;
@@ -51,8 +78,12 @@ let root: ReturnType<typeof createRoot>;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  HTMLDialogElement.prototype.showModal ??= function () { this.open = true; };
-  HTMLDialogElement.prototype.close ??= function () { this.open = false; };
+  HTMLDialogElement.prototype.showModal ??= function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close ??= function () {
+    this.open = false;
+  };
   fixture.call.mockReset();
   fixture.refetch.mockReset();
   fixture.resources = undefined;
@@ -93,7 +124,7 @@ test("本机派遣资源沿用只读查询，显示原生等待、积压及最�
 });
 
 test("结束原轮次后显式派遣，仅冻结选中的评论和原产物版本", async () => {
-  fixture.call.mockImplementation(async (capability) => capability === "vault.readFile" ? { version: "artifact-version" } : {});
+  fixture.call.mockImplementation(async (capability) => (capability === "vault.readFile" ? { version: "artifact-version" } : {}));
   await render([{ ...run, state: "running", finishedAt: null }]);
   expect(button("开始新一轮")).toBeUndefined();
   await render();
@@ -105,24 +136,34 @@ test("结束原轮次后显式派遣，仅冻结选中的评论和原产物版�
   await act(() => button("确认开始新一轮")!.click());
   expect(fixture.call.mock.calls.map(([name, input]) => [name, input])).toMatchObject([
     ["vault.readFile", { path: "Notes/产物.txt" }],
-    ["tasks.dispatch", {
-      taskId: task.id, inputRevision: task.inputRevision, inputHash: task.inputHash, newRound: true,
-      context: { messageIds: ["summary"], artifacts: [{ path: "Notes/产物.txt", expectedVersion: "artifact-version" }] },
-    }],
+    [
+      "tasks.dispatch",
+      {
+        taskId: task.id,
+        inputRevision: task.inputRevision,
+        inputHash: task.inputHash,
+        newRound: true,
+        context: { messageIds: ["summary"], artifacts: [{ path: "Notes/产物.txt", expectedVersion: "artifact-version" }] },
+      },
+    ],
   ]);
 });
 
 test("长外部工具的整行授权标签可勾选，并保存精确来源和修订", async () => {
   fixture.mcpCatalogs = {
     "capabilities.list": [{ name: "vault.info", exposed: true }],
-    "mcp.catalog.list": { entries: [
-      { kind: "tool", sourceId: "allowed-source", upstreamIdentity: "echo", publicKey: "task_allowed__echo", selected: true },
-      { kind: "tool", sourceId: "other-source", upstreamIdentity: "echo", publicKey: "task_other__echo", selected: true },
-    ] },
-    "mcp.sources.list": { sources: [
-      { state: "ready", source: { sourceId: "allowed-source", revision: 2, displayName: "task_allowed" } },
-      { state: "ready", source: { sourceId: "other-source", revision: 3, displayName: "task_other" } },
-    ] },
+    "mcp.catalog.list": {
+      entries: [
+        { kind: "tool", sourceId: "allowed-source", upstreamIdentity: "echo", publicKey: "task_allowed__echo", selected: true },
+        { kind: "tool", sourceId: "other-source", upstreamIdentity: "echo", publicKey: "task_other__echo", selected: true },
+      ],
+    },
+    "mcp.sources.list": {
+      sources: [
+        { state: "ready", source: { sourceId: "allowed-source", revision: 2, displayName: "task_allowed" } },
+        { state: "ready", source: { sourceId: "other-source", revision: 3, displayName: "task_other" } },
+      ],
+    },
   };
   await render();
   await act(async () => button("任务 MCP 授权")!.click());
@@ -137,8 +178,13 @@ test("长外部工具的整行授权标签可勾选，并保存精确来源和�
   expect(checkbox?.checked).toBe(true);
   expect(other.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false);
   await act(async () => button("保存工具授权")!.click());
-  expect(fixture.call).toHaveBeenCalledExactlyOnceWith("tasks.mcp.authorize", {
-    id: task.id, expectedVersion: task.version,
-    tools: [{ sourceId: "allowed-source", upstreamIdentity: "echo", sourceRevision: 2 }],
-  }, { write: true });
+  expect(fixture.call).toHaveBeenCalledExactlyOnceWith(
+    "tasks.mcp.authorize",
+    {
+      id: task.id,
+      expectedVersion: task.version,
+      tools: [{ sourceId: "allowed-source", upstreamIdentity: "echo", sourceRevision: 2 }],
+    },
+    { write: true },
+  );
 });

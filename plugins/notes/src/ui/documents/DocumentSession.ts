@@ -752,9 +752,7 @@ export class DocumentSession {
     // Whether a previous write had a missing receipt is independent of whether the baseline is safe to write.
     const missingReceipt = unconfirmed || previous?.unconfirmed === true;
     const submitted = submittedText ?? previous?.submittedText;
-    this.lateWriteConflict = unverified || this.text !== this.savedText
-      ? { ancestor, unknown: unverified, unconfirmed: missingReceipt, ...(unverified && submitted !== undefined && { submittedText: submitted }) }
-      : null;
+    this.lateWriteConflict = unverified || this.text !== this.savedText ? { ancestor, unknown: unverified, unconfirmed: missingReceipt, ...(unverified && submitted !== undefined && { submittedText: submitted }) } : null;
     this.state = this.lateWriteConflict ? "conflict" : "saved";
     this.flushError = error;
   }
@@ -822,17 +820,21 @@ export class DocumentSession {
       let adoptedRead = false;
       let writeUnconfirmed = false;
       try {
-        await write(this.version, async (update) => {
-          if (!isCurrent()) return;
-          this.beginFileWrite(activity);
-          if (!isCurrent()) return;
-          submitted = true;
-          activity.submitted = true;
-          await update(connection.signal);
-          acknowledged = true;
-          // Keep the write pending until the new field values have been read back.
-          if (connection === this.connection) this.diskRevision++;
-        }, connection.signal);
+        await write(
+          this.version,
+          async (update) => {
+            if (!isCurrent()) return;
+            this.beginFileWrite(activity);
+            if (!isCurrent()) return;
+            submitted = true;
+            activity.submitted = true;
+            await update(connection.signal);
+            acknowledged = true;
+            // Keep the write pending until the new field values have been read back.
+            if (connection === this.connection) this.diskRevision++;
+          },
+          connection.signal,
+        );
         if (!submitted || !isCurrent()) return false;
         const file = await this.request<NoteFile>("notes.read", { path: this.id.path });
         if (!isCurrent()) return false;

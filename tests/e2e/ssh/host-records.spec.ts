@@ -117,9 +117,15 @@ test("A01 SSH 目录右键保留选区，手动排序与部分删除可回读", 
   const { page, close } = await openApp();
   try {
     await openSsh(page);
-    const saveHost = (name: string, jumpHostIds: string[] = []) => desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-      name, host: `${name.toLowerCase()}.example.test`, user: "fixture", authKind: "agent", expectedRevision: null, jumpHostIds,
-    });
+    const saveHost = (name: string, jumpHostIds: string[] = []) =>
+      desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+        name,
+        host: `${name.toLowerCase()}.example.test`,
+        user: "fixture",
+        authKind: "agent",
+        expectedRevision: null,
+        jumpHostIds,
+      });
     const alpha = await saveHost("Alpha");
     const beta = await saveHost("Beta");
     const gamma = await saveHost("Gamma", [alpha.hostId]);

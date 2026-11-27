@@ -16,8 +16,11 @@ export function uploadAttachment(state: BookState, steps: OpStep[], input: z.inf
   }
   if (record.attachmentIds.length >= 20) throw errors.invalidInput("每笔流水最多关联 20 份凭证");
   const attachment: Attachment = {
-    id: randomUUID(), fileName: input.fileName, mediaType: input.mediaType,
-    size: bytes.length, sha256: digest(bytes),
+    id: randomUUID(),
+    fileName: input.fileName,
+    mediaType: input.mediaType,
+    size: bytes.length,
+    sha256: digest(bytes),
   };
   steps.push({ action: "write", path: attachmentPath(state.book.id, attachment.id), bytes, expectedVersion: null });
   state.attachments.push(attachment);

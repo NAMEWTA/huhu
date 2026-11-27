@@ -42,7 +42,8 @@ export class GitSyncPlans {
     const sync = service?.inspect(planId("sync"));
     return {
       mode: sync?.intent === "enabled" ? "full" : pull?.intent === "enabled" ? "follow" : "off",
-      pullIntervalSec: pull?.everySeconds ?? 30, pushIntervalSec: sync?.everySeconds ?? 60,
+      pullIntervalSec: pull?.everySeconds ?? 30,
+      pushIntervalSec: sync?.everySeconds ?? 60,
     };
   }
 
@@ -54,7 +55,9 @@ export class GitSyncPlans {
   private spec(mode: RunMode, config: AutoSyncConfig): PeriodicPlanSpec {
     const object = { kind: "git-sync", id: mode };
     return {
-      planId: planId(mode), title: title[mode], source: { plugin: "versioning", object },
+      planId: planId(mode),
+      title: title[mode],
+      source: { plugin: "versioning", object },
       action: { capability: "sync.run", object, summary: mode === "sync" ? "拉取并推送 Git 变更" : "拉取 Git 变更" },
       everySeconds: mode === "pull" ? config.pullIntervalSec : config.pushIntervalSec,
       bounds: { min: MIN_INTERVAL_SEC, max: MAX_INTERVAL_SEC, step: 1 },

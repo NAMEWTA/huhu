@@ -71,10 +71,13 @@ export class TaskReminderPlans {
   private summary(plan: TaskReminderPlan): PlanSummary {
     const task = this.task(plan.taskId);
     const readOnly = this.files.readOnly || task?.readOnly;
-    const availability: PlanSummary["availability"] = readOnly ? { state: "blocked", reason: "read-only" }
-      : !this.taskSourceAvailable() || !this.deliveries() ? { state: "blocked", reason: "plugin-disabled" }
-      : !task || task.status === "completed" ? { state: "blocked", reason: "target-unavailable" }
-      : { state: "ready" };
+    const availability: PlanSummary["availability"] = readOnly
+      ? { state: "blocked", reason: "read-only" }
+      : !this.taskSourceAvailable() || !this.deliveries()
+        ? { state: "blocked", reason: "plugin-disabled" }
+        : !task || task.status === "completed"
+          ? { state: "blocked", reason: "target-unavailable" }
+          : { state: "ready" };
     const occurrence = this.deliveries()?.readPlanOccurrence(planReminderOccurrenceId(plan));
     const actions: PlanSummary["actions"] = readOnly || plan.intent === "deleted" ? [] : ["reschedule", "delete"];
     if (actions.length > 0 && !occurrence?.effects.some(({ state }) => state === "completed" || state === "unknown")) {
@@ -83,9 +86,16 @@ export class TaskReminderPlans {
     }
     const object = { kind: "task", id: plan.taskId };
     return {
-      planId: plan.planId, revision: plan.revision, title: task ? `任务提醒：${task.title}` : plan.title,
-      createdAt: plan.createdAt, updatedAt: plan.updatedAt, intent: plan.intent, availability, actions,
-      source: { plugin: "tasks", object }, owner: { scope: "vault", vaultId: this.vaultId },
+      planId: plan.planId,
+      revision: plan.revision,
+      title: task ? `任务提醒：${task.title}` : plan.title,
+      createdAt: plan.createdAt,
+      updatedAt: plan.updatedAt,
+      intent: plan.intent,
+      availability,
+      actions,
+      source: { plugin: "tasks", object },
+      owner: { scope: "vault", vaultId: this.vaultId },
       trigger: { kind: "once", scheduledFor: plan.scheduledFor },
       action: { capability: "notifications.create", object, summary: "递送任务提醒" },
       nextAt: plan.intent === "enabled" && availability.state === "ready" && !occurrence && this.allowsSchedule(plan.scheduledFor) ? plan.scheduledFor : null,
@@ -94,7 +104,9 @@ export class TaskReminderPlans {
   }
 
   list(): PlanSummary[] {
-    return this.load().plans.filter((plan) => plan.intent !== "deleted").map((plan) => this.summary(plan));
+    return this.load()
+      .plans.filter((plan) => plan.intent !== "deleted")
+      .map((plan) => this.summary(plan));
   }
 
   read(planId: string): PlanSummary | null {
@@ -115,8 +127,14 @@ export class TaskReminderPlans {
       if (!task || task.readOnly || task.status === "completed" || !this.deliveries()) throw errors.invalidInput("当前任务无法设置提醒");
       const stamp = this.now().toISOString();
       const plan: TaskReminderPlan = {
-        planId, revision: randomUUID(), taskId, title: `任务提醒：${task.title}`, scheduledFor: new Date(scheduledFor).toISOString(),
-        intent: startPaused ? "paused" : "enabled", createdAt: stamp, updatedAt: stamp,
+        planId,
+        revision: randomUUID(),
+        taskId,
+        title: `任务提醒：${task.title}`,
+        scheduledFor: new Date(scheduledFor).toISOString(),
+        intent: startPaused ? "paused" : "enabled",
+        createdAt: stamp,
+        updatedAt: stamp,
       };
       await this.save([...plans, plan], version, signal);
       this.changed(taskId);
@@ -141,7 +159,11 @@ export class TaskReminderPlans {
         replacement.intent = write.intent;
       } else if (write.change === "delete") replacement.intent = "deleted";
       else throw errors.invalidInput("任务提醒需要一次性触发时间");
-      await this.save(plans.map((entry) => entry === plan ? replacement : entry), version, signal);
+      await this.save(
+        plans.map((entry) => (entry === plan ? replacement : entry)),
+        version,
+        signal,
+      );
       this.changed(plan.taskId);
       return this.summary(replacement);
     });
@@ -151,7 +173,9 @@ export class TaskReminderPlans {
 
   tick(): Promise<void> {
     if (this.closed || this.files.readOnly) return Promise.resolve();
-    this.tickInFlight ??= this.scan().finally(() => { this.tickInFlight = undefined; });
+    this.tickInFlight ??= this.scan().finally(() => {
+      this.tickInFlight = undefined;
+    });
     return this.tickInFlight;
   }
 
@@ -168,15 +192,29 @@ export class TaskReminderPlans {
     const due = await this.rules.withRuleConfiguration(async () => {
       const { plans, version } = this.load();
       const existing = new Set(plans.map(({ planId }) => planId));
-      const imported = (this.readLegacy ? [] : tasks.listAll()).flatMap((task) => task.reminders.flatMap((reminder) => {
-        const planId = "task-reminder-legacy-" + createHash("sha256").update(JSON.stringify([task.id, reminder.id])).digest("hex");
-        if (existing.has(planId) || reminder.deliveredAt || task.readOnly || !Number.isFinite(Date.parse(reminder.at))) return [];
-        existing.add(planId);
-        return [{
-          planId, revision: randomUUID(), taskId: task.id, title: `任务提醒：${task.title}`, scheduledFor: new Date(reminder.at).toISOString(),
-          intent: reminder.enabled ? "enabled" as const : "paused" as const, createdAt: stamp, updatedAt: stamp,
-        }];
-      }));
+      const imported = (this.readLegacy ? [] : tasks.listAll()).flatMap((task) =>
+        task.reminders.flatMap((reminder) => {
+          const planId =
+            "task-reminder-legacy-" +
+            createHash("sha256")
+              .update(JSON.stringify([task.id, reminder.id]))
+              .digest("hex");
+          if (existing.has(planId) || reminder.deliveredAt || task.readOnly || !Number.isFinite(Date.parse(reminder.at))) return [];
+          existing.add(planId);
+          return [
+            {
+              planId,
+              revision: randomUUID(),
+              taskId: task.id,
+              title: `任务提醒：${task.title}`,
+              scheduledFor: new Date(reminder.at).toISOString(),
+              intent: reminder.enabled ? ("enabled" as const) : ("paused" as const),
+              createdAt: stamp,
+              updatedAt: stamp,
+            },
+          ];
+        }),
+      );
       const next = [...plans, ...imported];
       if (imported.length) {
         await this.save(next, version);

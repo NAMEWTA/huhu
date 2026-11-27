@@ -226,12 +226,23 @@ async function openGraphWorkbench() {
         const bcc = ["blind-f13@example.test"];
         const subject = "逐收件人核对";
         const states = ["accepted", "not-delivered", "unknown", "accepted"] as const;
-        await new OutboxStorage(running.vault.files).write({
-          format: 1, operationId, draftId, revision, messageId, claimedAt: at, from: email, auth: "oauth2",
-          smtp: oauthMailEndpoints("outlook", email, false).smtp,
-          draft: { accountId, to, cc: [], bcc, subject, body: { type: "doc" } }, text: "投递结果测试。",
-          result: { stage: "data", graphStatus: 202, finishedAt: at, recipients: [...to, ...bcc].map((address, index) => ({ address, state: states[index]! })) },
-        }, null);
+        await new OutboxStorage(running.vault.files).write(
+          {
+            format: 1,
+            operationId,
+            draftId,
+            revision,
+            messageId,
+            claimedAt: at,
+            from: email,
+            auth: "oauth2",
+            smtp: oauthMailEndpoints("outlook", email, false).smtp,
+            draft: { accountId, to, cc: [], bcc, subject, body: { type: "doc" } },
+            text: "投递结果测试。",
+            result: { stage: "data", graphStatus: 202, finishedAt: at, recipients: [...to, ...bcc].map((address, index) => ({ address, state: states[index]! })) },
+          },
+          null,
+        );
         return { messageId, subject, to, blind: bcc[0]! };
       },
       restoreSending: async () => {

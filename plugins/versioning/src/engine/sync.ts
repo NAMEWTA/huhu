@@ -275,8 +275,13 @@ export class VaultSync {
     }
   }
 
-  updateConfig(patch: z.input<typeof SyncConfigPatch>, signal?: AbortSignal, expectedRevision?: string, check?: () => void,
-    updatePlans?: (next: SyncConfig) => Promise<void>, restricted = expectedRevision !== undefined,
+  updateConfig(
+    patch: z.input<typeof SyncConfigPatch>,
+    signal?: AbortSignal,
+    expectedRevision?: string,
+    check?: () => void,
+    updatePlans?: (next: SyncConfig) => Promise<void>,
+    restricted = expectedRevision !== undefined,
   ): Promise<SyncConfig & { revision?: string }> {
     return this.exclusive(async () => {
       if (this.signal(signal).aborted) throw gitCancelled();
@@ -692,11 +697,15 @@ export class VaultSync {
       const signal = this.signal(planSignal);
       if (!isCurrent() || signal.aborted || this.readOnly || loadSession(this.root) || c.mode === "off" || (mode === "sync" && c.mode !== "full")) return false;
       if (!repair) {
-        await this.runLocked(mode, signal, stored, undefined, undefined, () => { if (!isCurrent()) throw gitCancelled(); });
+        await this.runLocked(mode, signal, stored, undefined, undefined, () => {
+          if (!isCurrent()) throw gitCancelled();
+        });
       } else {
         const auth = await this.networkAuth(stored);
         if (!isCurrent() || signal.aborted || auth?.scope.target !== repair.target || auth.scope.revision !== repair.revision || auth.summary.state !== "configured") return false;
-        await this.runLocked(mode, signal, stored, auth, undefined, () => { if (!isCurrent()) throw gitCancelled(); });
+        await this.runLocked(mode, signal, stored, auth, undefined, () => {
+          if (!isCurrent()) throw gitCancelled();
+        });
       }
       return true;
     });

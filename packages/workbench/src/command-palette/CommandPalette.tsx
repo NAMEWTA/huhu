@@ -63,11 +63,15 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
     setSel(0);
   }, []);
 
-  useLayoutEffect(() => ui.subscribe((state, previous) => {
-    if (state.paletteOpen === previous.paletteOpen) return;
-    resetSearch();
-    setQ("");
-  }), [resetSearch, ui]);
+  useLayoutEffect(
+    () =>
+      ui.subscribe((state, previous) => {
+        if (state.paletteOpen === previous.paletteOpen) return;
+        resetSearch();
+        setQ("");
+      }),
+    [resetSearch, ui],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -149,8 +153,14 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
   const base = useMemo<PaletteItem[]>(
     () => [
       ...modules.map((m): PaletteItem => ({
-        id: `mod:${m.id}`, group: "module", title: m.title, hint: "打开模块", icon: m.icon,
-        run: () => { void s.openModule(m.id, { onOpen: () => focusOpenedModule(ui, m.id) }); },
+        id: `mod:${m.id}`,
+        group: "module",
+        title: m.title,
+        hint: "打开模块",
+        icon: m.icon,
+        run: () => {
+          void s.openModule(m.id, { onOpen: () => focusOpenedModule(ui, m.id) });
+        },
       })),
       ...commands.map((c): PaletteItem => ({ id: `cmd:${c.id}`, group: "command", title: c.title, hint: "命令", icon: <Command size={18} aria-hidden />, run: c.run })),
       ...pluginCommands.map((c): PaletteItem => ({

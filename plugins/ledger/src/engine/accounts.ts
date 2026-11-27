@@ -23,7 +23,8 @@ type AccountInput = Pick<Account, "name" | "type" | "currency"> & { labels: z.in
 function validateAccountLabels(state: BookState, id: string, { accountTypeId, bankId }: AccountInput["labels"]) {
   const previous = state.accountLabels[id] ?? noLabels;
   for (const [kind, next, before] of [
-    ["account-type", accountTypeId, previous.accountTypeId], ["bank", bankId, previous.bankId],
+    ["account-type", accountTypeId, previous.accountTypeId],
+    ["bank", bankId, previous.bankId],
   ] as const) {
     if (next && next !== before && !state.dictionary.some((item) => item.kind === kind && item.id === next && item.status === "active" && item.bookId === state.book.id)) {
       throw errors.invalidInput("请使用该账本中可用的账户类型或银行");
@@ -60,18 +61,30 @@ export function updateAccount(state: BookState, accountId: string, input: Accoun
 
 function balance(state: BookState, row: Account, day: string) {
   const bases = state.bases.filter((base) => base.accountId === row.id);
-  const applicable = bases.slice().reverse().filter((base) => base.effectiveBusinessDate <= day)
+  const applicable = bases
+    .slice()
+    .reverse()
+    .filter((base) => base.effectiveBusinessDate <= day)
     .sort((a, b) => b.effectiveBusinessDate.localeCompare(a.effectiveBusinessDate))[0];
   const until = Date.parse(ledgerBusinessDayRange(day, state.book.timeZone).until);
   return {
     bases,
-    balanceMinor: applicable ? ledgerBalanceFromBase(state.book, row, applicable, state.records.filter((record) => Date.parse(record.occurredAt) < until)) : "0",
+    balanceMinor: applicable
+      ? ledgerBalanceFromBase(
+          state.book,
+          row,
+          applicable,
+          state.records.filter((record) => Date.parse(record.occurredAt) < until),
+        )
+      : "0",
   };
 }
 
 export function accountsView(state: BookState, businessDate: string): AccountsView {
   return {
-    book: state.book, businessDate, dictionary: state.dictionary,
+    book: state.book,
+    businessDate,
+    dictionary: state.dictionary,
     accounts: state.accounts.map((row) => ({ ...row, labels: state.accountLabels[row.id] ?? noLabels, ...balance(state, row, businessDate) })),
   };
 }

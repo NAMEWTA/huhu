@@ -10,10 +10,7 @@ export const privilegedSftpCommand = `for server in ${servers}; do if [ -x "$ser
 type BridgeWindow = { id: number; state: "open" | "closing"; window: number; packetSize: number };
 type BridgeSftp = SFTPWrapper & { push(data: Buffer | null): void; _init(): void; _chunkcb?: () => void };
 type BridgeProtocol = { channelData(id: number, data: Buffer): void; channelClose(id: number): void };
-type SftpConstructor = new (
-  client: { _protocol: BridgeProtocol },
-  info: { type: "session"; incoming: BridgeWindow; outgoing: BridgeWindow },
-) => BridgeSftp;
+type SftpConstructor = new (client: { _protocol: BridgeProtocol }, info: { type: "session"; incoming: BridgeWindow; outgoing: BridgeWindow }) => BridgeSftp;
 const require = createRequire(import.meta.url);
 const unavailable = () => new HuhuError("PERMISSION_DENIED", "原主机无法通过 sudo 启动系统 sftp-server。请核对远端 sudo 权限。", { retryable: false });
 
@@ -22,9 +19,7 @@ export function openPrivilegedSftp(client: Client, signal: AbortSignal, auth?: {
   const prompt = `huhu-sudo-${challenge}:`;
   const ready = `huhu-ready-${challenge}:`;
   // Motty waits for a private stderr marker before starting the binary SFTP protocol.
-  const command = auth
-    ? `for server in ${servers}; do if [ -x "$server" ]; then exec sudo -S -p '${prompt}' -- /bin/sh -c 'printf %s "${ready}" >&2; exec "$1"' huhu "$server"; fi; done; exit 127`
-    : privilegedSftpCommand;
+  const command = auth ? `for server in ${servers}; do if [ -x "$server" ]; then exec sudo -S -p '${prompt}' -- /bin/sh -c 'printf %s "${ready}" >&2; exec "$1"' huhu "$server"; fi; done; exit 127` : privilegedSftpCommand;
   // ssh2's public sftp() API only opens a subsystem. Its SSH 2.0 SFTP codec
   // can also use an exec channel carrying the same binary stream.
   let SFTP: SftpConstructor;

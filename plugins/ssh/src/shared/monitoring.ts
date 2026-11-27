@@ -45,11 +45,17 @@ const CpuPercent = z.number().min(0).max(100);
 const NetworkRate = z.object({ received: z.number().nonnegative(), sent: z.number().nonnegative() });
 export const MonitorSample = z.object({
   cpu: CpuPercent.optional(),
-  cores: z.array(z.object({ index: z.number().int().nonnegative(), percent: CpuPercent })).max(MONITOR_CORE_LIMIT).optional(),
+  cores: z
+    .array(z.object({ index: z.number().int().nonnegative(), percent: CpuPercent }))
+    .max(MONITOR_CORE_LIMIT)
+    .optional(),
   memory: z.object({ total: z.number().positive(), available: z.number().nonnegative() }).optional(),
   disk: z.object({ mount: z.string().max(100), total: z.number().positive(), available: z.number().nonnegative() }).optional(),
   network: NetworkRate.optional(),
-  interfaces: z.array(NetworkRate.extend({ name: z.string().min(1).max(64) })).max(MONITOR_INTERFACE_LIMIT).optional(),
+  interfaces: z
+    .array(NetworkRate.extend({ name: z.string().min(1).max(64) }))
+    .max(MONITOR_INTERFACE_LIMIT)
+    .optional(),
   uptimeSec: z.number().nonnegative().optional(),
   load: z.number().nonnegative().optional(),
 });
@@ -90,7 +96,11 @@ export type MonitorToolResult = z.infer<typeof MonitorToolResult>;
 
 export const MonitorProcessTarget = MonitorSessionOpen.omit({ interval: true }).extend({
   pid: z.int().min(2).max(4194304),
-  name: z.string().min(1).max(120).regex(/^[^\p{Cc}]+$/u),
+  name: z
+    .string()
+    .min(1)
+    .max(120)
+    .regex(/^[^\p{Cc}]+$/u),
   startTicks: ProcessStartTicks,
 });
 export const MonitorContainerTarget = MonitorSessionOpen.omit({ interval: true }).extend({

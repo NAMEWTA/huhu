@@ -405,7 +405,13 @@ export class Safe {
     }
   }
 
-  private editEntry(input: EditTarget, access: SafeAccess, update: (entry: StoredEntry, now: string) => StoredEntry, audit: { action: "update-entry" | "create-account" | "update-account" | "delete-account"; itemId: string }, newTags?: TagFields[]) {
+  private editEntry(
+    input: EditTarget,
+    access: SafeAccess,
+    update: (entry: StoredEntry, now: string) => StoredEntry,
+    audit: { action: "update-entry" | "create-account" | "update-account" | "delete-account"; itemId: string },
+    newTags?: TagFields[],
+  ) {
     return this.withPersonalSession(input.session, access, async (store, dk, guard) => {
       const currentRevision = store.manifest.entries[input.entryId];
       if (currentRevision === undefined) throw errors.notFound("条目不存在");

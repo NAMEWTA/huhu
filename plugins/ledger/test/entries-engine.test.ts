@@ -29,7 +29,10 @@ async function setup() {
   teardown.push(() => rmSync(directory, { recursive: true, force: true }));
   const engine = await session(directory);
   const book = await engine.call<Book>("ledger.books.create", {
-    name: "账本", defaultCurrency: "CNY", timeZone: "Asia/Taipei", firstAccount: { name: "银行" },
+    name: "账本",
+    defaultCurrency: "CNY",
+    timeZone: "Asia/Taipei",
+    firstAccount: { name: "银行" },
   });
   const view = () => engine.call<AccountsView>("ledger.accounts.list", { bookId: book.id });
   const initial = await view();
@@ -37,21 +40,33 @@ async function setup() {
   const day = initial.businessDate;
   const occurredAt = ledgerBusinessDayRange(day, book.timeZone).from;
   const base = await engine.call<BasePreview>("ledger.accounts.previewBalance", {
-    ...version(initial.book), accountId: first.id, effectiveBusinessDate: day, balanceMinor: "10000",
+    ...version(initial.book),
+    accountId: first.id,
+    effectiveBusinessDate: day,
+    balanceMinor: "10000",
   });
   expect(base).toMatchObject({ currentBalanceMinor: "0", replacedRevision: expect.any(String) });
   const { currentBalanceMinor: _current, ...confirm } = base;
   await engine.call("ledger.accounts.confirmBalance", confirm);
   const latest = await view();
   const second = await engine.call<{ id: string }>("ledger.accounts.create", {
-    ...version(latest.book), account: { name: "钱包", type: "wallet", currency: "CNY", labels: { accountTypeId: null, bankId: null } },
-    openingMinor: "10000", effectiveBusinessDate: day,
+    ...version(latest.book),
+    account: { name: "钱包", type: "wallet", currency: "CNY", labels: { accountTypeId: null, bankId: null } },
+    openingMinor: "10000",
+    effectiveBusinessDate: day,
   });
   const common = { occurredAt, payee: "测试商户", memo: null, categoryId: null, tagIds: [], attachmentIds: [] };
   const income = { ...common, type: "income", accountId: first.id, currency: "CNY", amountMinor: "3000" };
   const expense = { ...common, type: "expense", accountId: first.id, currency: "CNY", amountMinor: "1000" };
   const transfer = {
-    ...common, type: "transfer", fromAccountId: first.id, toAccountId: second.id, fromCurrency: "CNY", toCurrency: "CNY", fromAmountMinor: "2500", toAmountMinor: "2500",
+    ...common,
+    type: "transfer",
+    fromAccountId: first.id,
+    toAccountId: second.id,
+    fromCurrency: "CNY",
+    toCurrency: "CNY",
+    fromAmountMinor: "2500",
+    toAmountMinor: "2500",
   };
   async function create(title: string, record: unknown) {
     return engine.call<LedgerRecord>("ledger.records.create", { ...version((await view()).book), title, intentKey: randomUUID(), record });
@@ -76,9 +91,12 @@ test("calibration, income, expense and one exact transfer produce 95 and 125; fi
   expect(next.rows[0]?.record.id).not.toBe(page.rows[0]?.record.id);
   expect(page.totals).toEqual([{ currency: "CNY", incomeMinor: "3000", expenseMinor: "1000", netMinor: "2000", transferInMinor: "2500", transferOutMinor: "2500" }]);
   expect(next.totals).toEqual(page.totals);
-  expect(await f.engine.call<RecordsPage>("ledger.records.list", {
-    bookId: f.book.id, filters: { toAccountId: f.second.id, minMinor: "2500", type: "transfer" },
-  })).toMatchObject({ total: 1, rows: [{ title: "转账" }] });
+  expect(
+    await f.engine.call<RecordsPage>("ledger.records.list", {
+      bookId: f.book.id,
+      filters: { toAccountId: f.second.id, minMinor: "2500", type: "transfer" },
+    }),
+  ).toMatchObject({ total: 1, rows: [{ title: "转账" }] });
 });
 
 test("failed transfer publication leaves both balances intact across reopen; racing versions permit one complete transfer", async () => {
@@ -108,7 +126,8 @@ test("filters match both account identities and the destination amount of a cros
   const jpy = await f.engine.call<{ id: string }>("ledger.accounts.create", {
     ...version((await f.view()).book),
     account: { name: "日元", type: "cash", currency: "JPY", labels: { accountTypeId: null, bankId: null } },
-    openingMinor: "500", effectiveBusinessDate: f.day,
+    openingMinor: "500",
+    effectiveBusinessDate: f.day,
   });
   await f.create("兑换", { ...f.transfer, toAccountId: jpy.id, toCurrency: "JPY", toAmountMinor: "520" });
   const all = await f.engine.call<RecordsPage>("ledger.records.list", { bookId: f.book.id });
@@ -117,7 +136,8 @@ test("filters match both account identities and the destination amount of a cros
     { currency: "JPY", transferOutMinor: "0", transferInMinor: "520" },
   ]);
   const filtered = await f.engine.call<RecordsPage>("ledger.records.list", {
-    bookId: f.book.id, filters: { accountId: f.first.id, toAccountId: jpy.id, currency: "JPY", minMinor: "510", maxMinor: "530" },
+    bookId: f.book.id,
+    filters: { accountId: f.first.id, toAccountId: jpy.id, currency: "JPY", minMinor: "510", maxMinor: "530" },
   });
   expect(filtered).toMatchObject({ total: 1, totals: [{ currency: "JPY", transferInMinor: "520" }] });
 });
@@ -125,13 +145,18 @@ test("filters match both account identities and the destination amount of a cros
 test("archive blocks new category references and batch edits or deletion must match a fresh preview", async () => {
   const f = await setup();
   const category = await f.engine.call<DictionaryItem>("ledger.dictionaries.save", {
-    ...version((await f.view()).book), kind: "category", name: "交通",
+    ...version((await f.view()).book),
+    kind: "category",
+    name: "交通",
   });
   const a = await f.create("第一笔", { ...f.expense, categoryId: category.id });
   const b = await f.create("第二笔", { ...f.expense, categoryId: category.id });
   await f.engine.call("ledger.dictionaries.save", { ...version((await f.view()).book), id: category.id, kind: category.kind, name: "交通", status: "archived" });
   const blocked = await f.engine.invoke("ledger.records.create", {
-    ...version((await f.view()).book), title: "新引用", intentKey: randomUUID(), record: { ...f.expense, categoryId: category.id },
+    ...version((await f.view()).book),
+    title: "新引用",
+    intentKey: randomUUID(),
+    record: { ...f.expense, categoryId: category.id },
   });
   expect(blocked).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
   const selection = [a, b].map((entry) => ({ recordId: entry.id, recordRevision: entry.revision }));
@@ -157,13 +182,20 @@ test("managed attachment commits with its reference, survives reopen and edit, c
   const record = await f.create("带凭证支出", f.expense);
   const data = Buffer.from("fixture receipt").toString("base64");
   const upload = {
-    ...version((await f.view()).book), recordId: record.id, recordRevision: record.revision,
-    fileName: "receipt.txt", mediaType: "text/plain", base64: data,
+    ...version((await f.view()).book),
+    recordId: record.id,
+    recordRevision: record.revision,
+    fileName: "receipt.txt",
+    mediaType: "text/plain",
+    base64: data,
   };
   const run = OperationLog.prototype.run;
   vi.spyOn(OperationLog.prototype, "run").mockImplementationOnce(function (this: OperationLog, id, kind, steps, hooks) {
     return run.call(this, id, kind, steps, {
-      ...hooks, afterPublish: (index) => { if (index === 0) throw new Error("interrupted after publishing the attachment"); },
+      ...hooks,
+      afterPublish: (index) => {
+        if (index === 0) throw new Error("interrupted after publishing the attachment");
+      },
     });
   });
   expect(await f.engine.invoke("ledger.attachments.upload", upload)).toMatchObject({ ok: false, error: { code: "WRITE_PARTIAL" } });
@@ -178,12 +210,17 @@ test("managed attachment commits with its reference, survives reopen and edit, c
   const existing = await reopened.call<RecordView>("ledger.records.get", { bookId: f.book.id, recordId: record.id });
   let current = (await reopened.call<AccountsView>("ledger.accounts.list", { bookId: f.book.id })).book;
   const edited = await reopened.call<LedgerRecord>("ledger.records.update", {
-    ...version(current), recordId: record.id, recordRevision: existing.record.revision, title: "已编辑",
+    ...version(current),
+    recordId: record.id,
+    recordRevision: existing.record.revision,
+    title: "已编辑",
     record: { ...f.expense, memo: "重开后修改", attachmentIds: [attachment.id] },
   });
   current = (await reopened.call<AccountsView>("ledger.accounts.list", { bookId: f.book.id })).book;
   const clone = await reopened.call<LedgerRecord>("ledger.records.clone", {
-    ...version(current), recordId: record.id, recordRevision: edited.revision,
+    ...version(current),
+    recordId: record.id,
+    recordRevision: edited.revision,
   });
   expect(clone.id).not.toBe(record.id);
   expect(clone.attachmentIds).toEqual([attachment.id]);

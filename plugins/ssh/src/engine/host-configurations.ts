@@ -85,7 +85,9 @@ async function buildAuth(kind: HostDefinition["authKind"], values: ReadonlyMap<s
       throw authError("identity-file-unavailable");
     }
   }
-  const prepared = await prepareSshPrivateKey(key!, values.get("passphrase")).catch(() => { throw authError("invalid-private-key-or-passphrase"); });
+  const prepared = await prepareSshPrivateKey(key!, values.get("passphrase")).catch(() => {
+    throw authError("invalid-private-key-or-passphrase");
+  });
   const candidates = ssh2.utils.parseKey(prepared.privateKey, prepared.passphrase);
   if (candidates instanceof Error) throw authError("invalid-private-key-or-passphrase");
   const signer = Array.isArray(candidates) ? candidates[0] : candidates;
@@ -206,7 +208,10 @@ export class HostConfigurations {
         if (!this.vaultFiles) throw errors.invalidInput("此 Vault 无法读取 SSH 出站代理");
         requireOutboundProfile(this.vaultFiles, proxy.profileId);
       }
-      const settings = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }), ...(shell && { viaShell: true as const }), ...(proxy && { outboundProxy: proxy }) }, id, [...this.legacy.list(), ...existing.map((host) => asHost(host))]);
+      const settings = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }), ...(shell && { viaShell: true as const }), ...(proxy && { outboundProxy: proxy }) }, id, [
+        ...this.legacy.list(),
+        ...existing.map((host) => asHost(host)),
+      ]);
       const definition: HostDefinition = { ...settings, authKind, ...(keyId && { keyId }), configId: randomUUID(), format: 1 };
       const applicable = new Set<Purpose>(keyId ? [] : purposes[authKind]);
       const actions = new Map<string, CredentialAction>();

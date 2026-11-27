@@ -6,12 +6,20 @@ import { historyPage, type HistoryRow } from "../src/shared/occurrence-history.j
 function plan(planId: string, fields: Partial<PlanSummary> = {}): PlanSummary {
   const object = { kind: "task", id: `task-${planId}` };
   return {
-    planId, title: "例行提醒", revision: "revision", source: { plugin: "tasks", object },
+    planId,
+    title: "例行提醒",
+    revision: "revision",
+    source: { plugin: "tasks", object },
     owner: { scope: "vault", vaultId: "vault" },
     trigger: { kind: "once", scheduledFor: "2026-11-25T10:00:00Z" },
     action: { capability: "notifications.create", object, summary: "提醒 Team Alpha" },
-    intent: "enabled", availability: { state: "ready" }, nextAt: "2026-11-25T10:00:00Z",
-    lastOccurrence: null, createdAt: "2026-11-24T10:00:00Z", updatedAt: "2026-11-24T10:00:00Z", actions: [],
+    intent: "enabled",
+    availability: { state: "ready" },
+    nextAt: "2026-11-25T10:00:00Z",
+    lastOccurrence: null,
+    createdAt: "2026-11-24T10:00:00Z",
+    updatedAt: "2026-11-24T10:00:00Z",
+    actions: [],
     ...fields,
   };
 }
@@ -52,12 +60,20 @@ test("AW5 occurrence pages preserve a stable boundary and distinguish filterable
   const at = "2026-11-25T10:00:00.000Z";
   const seed = { planId: "plan", at, trigger: "manual", title: "原计划", source: "tasks", state: "unknown" } as const;
   const rows: HistoryRow[] = [
-    { ...seed, id: "c" }, { ...seed, id: "b", state: "failed" }, { ...seed, id: "a" },
-    { ...seed, id: "z", source: "mail" }, { ...seed, id: "y", state: "completed" },
+    { ...seed, id: "c" },
+    { ...seed, id: "b", state: "failed" },
+    { ...seed, id: "a" },
+    { ...seed, id: "z", source: "mail" },
+    { ...seed, id: "y", state: "completed" },
   ];
   const filter = { limit: 2, source: "tasks", state: "attention", from: at } as const;
   const first = historyPage(rows, filter);
   expect(first.rows.map(({ id }) => id)).toEqual(["c", "b"]);
-  expect(historyPage(rows.filter(({ id }) => id !== "b"), { ...filter, cursor: first.next! }).rows.map(({ id }) => id)).toEqual(["a"]);
+  expect(
+    historyPage(
+      rows.filter(({ id }) => id !== "b"),
+      { ...filter, cursor: first.next! },
+    ).rows.map(({ id }) => id),
+  ).toEqual(["a"]);
   expect(historyPage(rows, { ...filter, until: at }).rows).toEqual([]);
 });

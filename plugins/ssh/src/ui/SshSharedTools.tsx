@@ -129,7 +129,14 @@ export function SshSharedTools() {
         <p>复制后填写服务端令牌。</p>
         <h3>Streamable HTTP</h3>
         <pre>{http}</pre>
-        <Button disabled={!mcp.enabled || http === null} onClick={() => { if (http) void copy(http); }}>复制 HTTP 示例</Button>
+        <Button
+          disabled={!mcp.enabled || http === null}
+          onClick={() => {
+            if (http) void copy(http);
+          }}
+        >
+          复制 HTTP 示例
+        </Button>
         {notice === "copied" && <p role="status">已复制配置示例。</p>}
         {notice === "failed" && <p role="alert">无法复制配置示例。</p>}
       </details>

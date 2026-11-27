@@ -64,7 +64,10 @@ export class AgentDispatch {
     },
   ) {}
 
-  async targets(input: { vaultId: string; machineId: string; spaceId: string; options?: z.infer<typeof LaunchOptions> | undefined; mode?: "snapshot" | undefined; includeResume?: false | undefined; taskMcp?: boolean | undefined }, requestSignal: AbortSignal) {
+  async targets(
+    input: { vaultId: string; machineId: string; spaceId: string; options?: z.infer<typeof LaunchOptions> | undefined; mode?: "snapshot" | undefined; includeResume?: false | undefined; taskMcp?: boolean | undefined },
+    requestSignal: AbortSignal,
+  ) {
     this.assertScope(input);
     const signal = AbortSignal.any([this.d.signal, requestSignal]);
     signal.throwIfAborted();
@@ -138,13 +141,10 @@ export class AgentDispatch {
       const adapter = this.d.providers[provider];
       const native = adapter?.transport === "native";
       const reason = unavailable ?? target.reason;
-      const dispatch = reason === "binding_unverified" ? runtime(reason)
-        : reason ? (adapter ? conditional(reason) : unsupported(reason))
-        : target.configurationId || target.binding ? available : runtime("binding_unverified");
+      const dispatch = reason === "binding_unverified" ? runtime(reason) : reason ? (adapter ? conditional(reason) : unsupported(reason)) : target.configurationId || target.binding ? available : runtime("binding_unverified");
       const feature = native && !reason ? runtime("verify_native_thread_and_turn") : unsupported(reason ?? "provider_evidence_unavailable");
-      const writeFeature = write && native && target.mode === "new"
-        ? reason === "workspace_write_approval_required" ? conditional(reason) : reason ? dispatch : runtime("verify_effective_workspace_sandbox")
-        : unsupported(reason ?? "read_only_profile");
+      const writeFeature =
+        write && native && target.mode === "new" ? (reason === "workspace_write_approval_required" ? conditional(reason) : reason ? dispatch : runtime("verify_effective_workspace_sandbox")) : unsupported(reason ?? "read_only_profile");
       const interactive = interactiveProviders.has(provider) ? available : conditional("interactive_installation_or_space_unavailable");
       return {
         ...target,
@@ -152,14 +152,25 @@ export class AgentDispatch {
         reason,
         profile,
         capabilities: {
-          interactive, dispatch,
+          interactive,
+          dispatch,
           liveSession: target.mode === "existing" ? dispatch : runtime("requires_live_binding"),
           coldResume: target.mode === "resume" ? dispatch : runtime("requires_qualified_persistent_history"),
-          structuredReply: feature, structuredResult: feature, stop: feature, workspaceRead: feature,
-          workspaceWrite: writeFeature, command: writeFeature, mcp: !input.taskMcp ? unsupported("no_task_tool_scope")
-            : provider !== "codex" || !native || target.mode !== "new" ? unsupported("task_mcp_requires_new_controlled_codex")
-              : reason ? unsupported(reason)
-                : this.d.taskMcpAvailable?.() ? available : unsupported("task_mcp_service_unavailable"),
+          structuredReply: feature,
+          structuredResult: feature,
+          stop: feature,
+          workspaceRead: feature,
+          workspaceWrite: writeFeature,
+          command: writeFeature,
+          mcp: !input.taskMcp
+            ? unsupported("no_task_tool_scope")
+            : provider !== "codex" || !native || target.mode !== "new"
+              ? unsupported("task_mcp_requires_new_controlled_codex")
+              : reason
+                ? unsupported(reason)
+                : this.d.taskMcpAvailable?.()
+                  ? available
+                  : unsupported("task_mcp_service_unavailable"),
         },
       };
     });
@@ -370,17 +381,23 @@ export class AgentDispatch {
     const execution = { ...key, sessionBinding: current.binding };
     const sending: StoredDispatch = { ...record, execution, ownerActive: true, write: "sending" };
     const write = await this.d.sessions
-      .writeExecutionInput(execution, text, signal, () => {
-        this.assertCurrent(record);
-        if (target.spaceRevision !== undefined) {
-          const space = this.d.spaces.validateForLaunch(target.spaceId, target.spaceRevision);
-          if (target.mode === "new" && target.profile === "workspace-write" && !this.d.spaces.dispatchWriteApproval(space)) return false;
-        }
-        if (target.mode === "resume" && (this.d.resumeAbandoned?.(input.dispatchId) || this.d.sessions.resumeOwner(id) !== input.dispatchId)) return false;
-        if (!this.d.ownership.availableForTask(id, input.dispatchId)) return false;
-        this.d.store.save(sending);
-        return true;
-      }, sending.resultMode)
+      .writeExecutionInput(
+        execution,
+        text,
+        signal,
+        () => {
+          this.assertCurrent(record);
+          if (target.spaceRevision !== undefined) {
+            const space = this.d.spaces.validateForLaunch(target.spaceId, target.spaceRevision);
+            if (target.mode === "new" && target.profile === "workspace-write" && !this.d.spaces.dispatchWriteApproval(space)) return false;
+          }
+          if (target.mode === "resume" && (this.d.resumeAbandoned?.(input.dispatchId) || this.d.sessions.resumeOwner(id) !== input.dispatchId)) return false;
+          if (!this.d.ownership.availableForTask(id, input.dispatchId)) return false;
+          this.d.store.save(sending);
+          return true;
+        },
+        sending.resultMode,
+      )
       .catch((error: unknown) => {
         if (target.mode === "resume" && error instanceof HuhuError && (error.code === "AGENT_DISABLED" || error.code === "HEADLESS_UNSUPPORTED")) return error.code;
         throw error;
@@ -402,7 +419,9 @@ export class AgentDispatch {
     const { mode: _mode, configurationId, ...launch } = target;
     try {
       const controlled = record.transport === "native" ? { controlled: "codex" as const } : {};
-      return (await this.d.sessions.launch({ ...launch, ...controlled, ...(authorization && { taskMcp: { key: record.key, authorization } }), expectedConfigurationId: configurationId, requestId: "dispatch-" + launchHash(record.key) }, signal)).id;
+      return (
+        await this.d.sessions.launch({ ...launch, ...controlled, ...(authorization && { taskMcp: { key: record.key, authorization } }), expectedConfigurationId: configurationId, requestId: "dispatch-" + launchHash(record.key) }, signal)
+      ).id;
     } catch (error) {
       if (error instanceof HuhuError && (error.code === "RUN_UNKNOWN" || error.code === "HERDR_UNAVAILABLE")) return null;
       throw error;

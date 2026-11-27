@@ -1354,15 +1354,9 @@ test("Agent CLI 历史：Codex 和 Pi 在大量其他 Space 记录中分页并�
     mkdirSync(pi);
     const old = new Date("2026-09-01T00:00:00Z");
     const original = path.join(codex, "rollout-2026-09-01T00-00-00-f09-codex.jsonl");
-    writeFileSync(original, jsonl(
-      { type: "session_meta", payload: { id: "f09-codex", cwd } },
-      { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Codex 原有记录" }] } },
-    ));
+    writeFileSync(original, jsonl({ type: "session_meta", payload: { id: "f09-codex", cwd } }, { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Codex 原有记录" }] } }));
     const originalPi = path.join(pi, "original.jsonl");
-    const writePi = (file: string, id: string, dir: string, title: string) => writeFileSync(file, jsonl(
-      { type: "session", version: 3, id, cwd: dir },
-      { type: "message", message: { role: "user", content: title } },
-    ));
+    const writePi = (file: string, id: string, dir: string, title: string) => writeFileSync(file, jsonl({ type: "session", version: 3, id, cwd: dir }, { type: "message", message: { role: "user", content: title } }));
     writePi(originalPi, "f09-pi", cwd, "Pi 原有记录");
     utimesSync(original, old, old);
     utimesSync(originalPi, old, old);
@@ -2039,9 +2033,20 @@ test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自�
     const { plan } = await call<{ plan: { planId: string; revision: string } }>(page, "home.focus.update", { action: "start" });
     const intentId = crypto.randomUUID();
     const scheduledFor = new Date(Date.now() + 3_000).toISOString();
-    expect(await call(page, "automations.plans.submit", {
-      planId: plan.planId, expectedRevision: plan.revision, intentId, change: "reschedule", trigger: { kind: "once", scheduledFor },
-    }, intentId)).toMatchObject({ outcome: "completed", plan: { planId: plan.planId, nextAt: scheduledFor } });
+    expect(
+      await call(
+        page,
+        "automations.plans.submit",
+        {
+          planId: plan.planId,
+          expectedRevision: plan.revision,
+          intentId,
+          change: "reschedule",
+          trigger: { kind: "once", scheduledFor },
+        },
+        intentId,
+      ),
+    ).toMatchObject({ outcome: "completed", plan: { planId: plan.planId, nextAt: scheduledFor } });
     // 正常退出会暂停运行中的专注，先验证 Engine 到点结算。
     await expect(page.getByTestId("focus-completed")).toHaveText("今日完成 1 次", { timeout: 15_000 });
     await expect(page.getByTestId("focus-time")).toHaveText("25:00");
@@ -2913,14 +2918,21 @@ test("自动化：每分钟规则离线 70 天后补跑，重启保留原计划�
     writeFileSync(rulePath, patchFrontmatter(readFileSync(rulePath, "utf8"), { enabled: true, updatedAt: last }));
     const activationsDir = path.join(vault, ".huhu", "automations", "activations");
     mkdirSync(activationsDir, { recursive: true });
-    writeFileSync(path.join(activationsDir, `${last.slice(0, 7)}.ndjson`), JSON.stringify({
-      activationId: "act-f10-fixture", ruleId: rule.id, trigger: "schedule", scheduledFor: last,
-      startedAt: last, finishedAt: last, summary: { state: "succeeded" },
-    }) + "\n");
+    writeFileSync(
+      path.join(activationsDir, `${last.slice(0, 7)}.ndjson`),
+      JSON.stringify({
+        activationId: "act-f10-fixture",
+        ruleId: rule.id,
+        trigger: "schedule",
+        scheduledFor: last,
+        startedAt: last,
+        finishedAt: last,
+        summary: { state: "succeeded" },
+      }) + "\n",
+    );
 
     type Activation = { activationId: string; ruleId: string; scheduledFor: string | null };
-    const read = async (window: Page) => (await call<Activation[]>(window, "automations.activations", {}))
-      .filter((row) => row.ruleId === rule.id && row.scheduledFor && row.scheduledFor !== last);
+    const read = async (window: Page) => (await call<Activation[]>(window, "automations.activations", {})).filter((row) => row.ruleId === rule.id && row.scheduledFor && row.scheduledFor !== last);
     const mostRecentBeforeOpen = Math.floor(Date.now() / 60_000) * 60_000;
     app = await launch(vault);
     const reopened = await app.firstWindow();

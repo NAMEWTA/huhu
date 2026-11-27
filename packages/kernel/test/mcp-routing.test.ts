@@ -20,13 +20,22 @@ import { CapabilityRegistry, Dispatcher, GatewayAudit, IdempotencyStore, defineC
 import { createMcpRouting, mcpRouteError, type McpRouteRequest, type McpRoutingBackend, type McpRoutingSnapshot } from "../src/mcp-routing.js";
 
 const repo = McpRouteSchema.parse({
-  origin: "external", kind: "tool", publicKey: "repo__search", sourceId: "source:repo", upstreamIdentity: "search",
-  configRevision: 1, authenticationRevision: 1, catalogRevision: 2,
+  origin: "external",
+  kind: "tool",
+  publicKey: "repo__search",
+  sourceId: "source:repo",
+  upstreamIdentity: "search",
+  configRevision: 1,
+  authenticationRevision: 1,
+  catalogRevision: 2,
 }) as McpExternalRoute;
 const builtin = McpRouteSchema.parse({ origin: "builtin", kind: "tool", publicKey: "vault_info", capability: "vault.info" });
 const request: McpRouteRequest = { kind: "tool", publicKey: "repo__search", input: { query: "notes" } };
 const native = CallToolResultSchema.parse({
-  content: [{ type: "text", text: "Search results" }, { type: "resource_link", uri: "repo://notes", name: "Notes" }],
+  content: [
+    { type: "text", text: "Search results" },
+    { type: "resource_link", uri: "repo://notes", name: "Notes" },
+  ],
   structuredContent: { count: 1 },
   _meta: { correlation: "upstream" },
 });
@@ -38,12 +47,21 @@ function fixture() {
     signal: lifetime.signal,
   };
   const catalog = McpSourceCatalogSchema.parse({
-    sourceId: repo.sourceId, configRevision: 1, authenticationRevision: 1, catalogRevision: 2,
-    state: "ready", complete: true, protocolVersion: MCP_PROTOCOL.primaryVersion, entries: [],
+    sourceId: repo.sourceId,
+    configRevision: 1,
+    authenticationRevision: 1,
+    catalogRevision: 2,
+    state: "ready",
+    complete: true,
+    protocolVersion: MCP_PROTOCOL.primaryVersion,
+    entries: [],
   });
   let snapshot: McpRoutingSnapshot = {
-    vaultInstance: "vault-a", serviceGeneration: "service-2", available: true,
-    routes: [builtin, repo], catalogRevision: 2,
+    vaultInstance: "vault-a",
+    serviceGeneration: "service-2",
+    available: true,
+    routes: [builtin, repo],
+    catalogRevision: 2,
     policy: McpPublishPolicySchema.parse({ revision: 1, catalogRevision: 2, selected: [entry(repo)] }),
     sources: new Map([[repo.sourceId, catalog]]),
   };
@@ -52,7 +70,9 @@ function fixture() {
   const invokeBuiltin = vi.fn<McpRoutingBackend["invokeBuiltin"]>(async () => ({ ok: true as const, data: { name: "Vault A" }, opId: "receipt" }));
   const authorize = vi.fn((_route: McpRoute, owner: McpSessionPrincipal) => owner.identity.credentialId === "credential");
   const routing = createMcpRouting({ readSnapshot: () => snapshot, authorize, prepareExternal: prepare, invokeBuiltin });
-  const update = (values: Partial<McpRoutingSnapshot>) => { snapshot = { ...snapshot, ...values }; };
+  const update = (values: Partial<McpRoutingSnapshot>) => {
+    snapshot = { ...snapshot, ...values };
+  };
   const revoke = () => update({ policy: { revision: 2, catalogRevision: 2, selected: [] } });
   return { lifetime, principal, catalog, routing, send, prepare, invokeBuiltin, authorize, update, revoke };
 }
@@ -76,7 +96,8 @@ test("stdio and remote configurations accept references and reject mixed or expo
     { ...http, headers: { Authorization: "raw" } },
     { ...http, authentication: { ...http.authentication, secret: "raw" } },
     { ...http, transport: "sse", authentication: { kind: "oauth" } },
-  ]) expect(McpSourceSchema.safeParse({ ...stdio, configuration: invalid }).success).toBe(false);
+  ])
+    expect(McpSourceSchema.safeParse({ ...stdio, configuration: invalid }).success).toBe(false);
   expect(McpAuthenticationBindingSchema.safeParse({ sourceId: stdio.sourceId, accountId: "account", target: http.url, authentication: http.authentication, revision: 1 }).success).toBe(true);
   expect(McpExecutionApprovalSchema.safeParse({ sourceId: stdio.sourceId, vaultInstance: "vault-a", configurationFingerprint: "fingerprint", authenticationRevision: 1, operations: ["call"] }).success).toBe(false);
 });
@@ -92,18 +113,29 @@ test("SDK, revision-bound import choices and high-risk management publication ar
 test("one directory routes vault_info to the Dispatcher boundary and repo__search to the exact upstream identity", async () => {
   const { principal, routing, prepare, invokeBuiltin, send } = fixture();
   const registry = new CapabilityRegistry();
-  registry.register(defineCapability({
-    name: "vault.info", plugin: "kernel", scope: "read", exposable: true, defaultExposed: false,
-    input: z.strictObject({}), output: z.object({ name: z.string() }), handler: () => ({ name: "Vault A" }),
-  }));
+  registry.register(
+    defineCapability({
+      name: "vault.info",
+      plugin: "kernel",
+      scope: "read",
+      exposable: true,
+      defaultExposed: false,
+      input: z.strictObject({}),
+      output: z.object({ name: z.string() }),
+      handler: () => ({ name: "Vault A" }),
+    }),
+  );
   let builtinExposed = true;
   const dispatcher = new Dispatcher({
-    registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(),
-    isPluginEnabled: () => true, toolAccess: () => ({ state: "ready", revision: 1, choices: { "vault.info": builtinExposed } }),
-    grantedPermissions: () => [], pluginOrigin: () => "builtin",
+    registry,
+    audit: new GatewayAudit(),
+    idempotency: new IdempotencyStore(),
+    isPluginEnabled: () => true,
+    toolAccess: () => ({ state: "ready", revision: 1, choices: { "vault.info": builtinExposed } }),
+    grantedPermissions: () => [],
+    pluginOrigin: () => "builtin",
   });
-  invokeBuiltin.mockImplementation((route, input, owner) =>
-    dispatcher.call(owner.identity.caller, { capability: route.capability, input, requestId: "request" }, owner.signal, owner));
+  invokeBuiltin.mockImplementation((route, input, owner) => dispatcher.call(owner.identity.caller, { capability: route.capability, input, requestId: "request" }, owner.signal, owner));
   expect(routing.list(principal, "tool")).toEqual([builtin, repo]);
   const info = { kind: "tool" as const, publicKey: "vault_info", input: {} };
   expect(await routing.call(principal, info)).toEqual({ origin: "builtin", result: { ok: true, data: { name: "Vault A" } } });
@@ -170,7 +202,14 @@ test("isolates all four directories and fails closed on an ambiguous exact key",
   const other = { ...repo, sourceId: "source:archive", publicKey: "archive__search" };
   const list = MCP_ENTRY_KINDS.map((kind) => ({ ...repo, kind, publicKey: `project__with__separator/${kind}`, upstreamIdentity: `raw__${kind}` }));
   const routes = [...list, other];
-  update({ routes, policy: { revision: 1, catalogRevision: 2, selected: routes.map(entry) }, sources: new Map([[repo.sourceId, catalog], [other.sourceId, { ...catalog, sourceId: other.sourceId }]]) });
+  update({
+    routes,
+    policy: { revision: 1, catalogRevision: 2, selected: routes.map(entry) },
+    sources: new Map([
+      [repo.sourceId, catalog],
+      [other.sourceId, { ...catalog, sourceId: other.sourceId }],
+    ]),
+  });
   for (const item of list) expect(routing.list(principal, item.kind)).toContainEqual(item);
   await routing.call(principal, { ...request, publicKey: other.publicKey });
   expect(prepare).toHaveBeenCalledExactlyOnceWith(other, principal.signal);
@@ -180,8 +219,12 @@ test("isolates all four directories and fails closed on an ambiguous exact key",
 });
 
 test.each([
-  ["offline", "source-offline"], ["disabled", "source-disabled"], ["stale", "stale-route"],
-  ["auth-required", "authentication-required"], ["approval-required", "approval-required"], ["incompatible", "protocol-incompatible"],
+  ["offline", "source-offline"],
+  ["disabled", "source-disabled"],
+  ["stale", "stale-route"],
+  ["auth-required", "authentication-required"],
+  ["approval-required", "approval-required"],
+  ["incompatible", "protocol-incompatible"],
 ] as const)("distinguishes unusable sources (%s)", async (state, reason) => {
   const { principal, catalog, routing, update, prepare } = fixture();
   update({ sources: new Map([[repo.sourceId, { ...catalog, state }]]) });

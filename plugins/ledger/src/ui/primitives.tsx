@@ -28,7 +28,14 @@ export function downloadFile(fileName: string, content: Blob) {
 export function LedgerField({ label, children }: { label: string; children: ReactElement<{ id?: string }> }) {
   const fallback = useId();
   const id = children.props.id ?? fallback;
-  return <div className="hu-field"><label className="hu-field-label" htmlFor={id}>{label}</label>{cloneElement(children, { id })}</div>;
+  return (
+    <div className="hu-field">
+      <label className="hu-field-label" htmlFor={id}>
+        {label}
+      </label>
+      {cloneElement(children, { id })}
+    </div>
+  );
 }
 
 export function useLedgerAction() {
@@ -41,8 +48,7 @@ export function useLedgerAction() {
     setWorking(true);
     try {
       const reply = await engine.call<T>(capability, input, { write, ...(intentKey && { intentKey, idempotencyKey: intentKey }) });
-      if (write) await queries.invalidateQueries({ predicate: ({ queryKey: [vault, name] }) =>
-        vault === engine.vaultId && typeof name === "string" && name.startsWith("ledger.") });
+      if (write) await queries.invalidateQueries({ predicate: ({ queryKey: [vault, name] }) => vault === engine.vaultId && typeof name === "string" && name.startsWith("ledger.") });
       return reply;
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "账本操作失败");

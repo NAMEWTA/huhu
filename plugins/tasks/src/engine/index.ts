@@ -213,21 +213,38 @@ export const taskToolDescriptors = {
     risk: "normal",
   }),
   mcpAuthorize: defineCapabilityDescriptor({
-    name: "tasks.mcp.authorize", plugin: "tasks", scope: "write", exposable: false, defaultExposed: false, risk: "high",
-    title: "设置任务 MCP 授权", desktopOnly: true,
+    name: "tasks.mcp.authorize",
+    plugin: "tasks",
+    scope: "write",
+    exposable: false,
+    defaultExposed: false,
+    risk: "high",
+    title: "设置任务 MCP 授权",
+    desktopOnly: true,
     description: "替换当前任务的工具授权，空列表撤销授权。",
     input: Versioned.extend({ tools: TaskMcpToolsSchema }),
     output: TaskDtoSchema,
   }),
   dispatchResources: defineCapabilityDescriptor({
-    name: "tasks.dispatch.resources", plugin: "tasks", scope: "read", exposable: false, defaultExposed: false, risk: "normal",
+    name: "tasks.dispatch.resources",
+    plugin: "tasks",
+    scope: "read",
+    exposable: false,
+    defaultExposed: false,
+    risk: "normal",
     title: "查看派遣资源",
     description: "读取本 Vault 的派遣积压和本机已配置的执行、保留进程名额。",
     input: z.strictObject({}),
     output: z.object({
       vault: z.object({
-        pending: count, active: count, waitingNative: count, unknown: count, retained: count.nullable(),
-        oldestPendingAt: z.iso.datetime().nullable(), oldestNativeWaitAt: z.iso.datetime().nullable(), oldestUnknownAt: z.iso.datetime().nullable(),
+        pending: count,
+        active: count,
+        waitingNative: count,
+        unknown: count,
+        retained: count.nullable(),
+        oldestPendingAt: z.iso.datetime().nullable(),
+        oldestNativeWaitAt: z.iso.datetime().nullable(),
+        oldestUnknownAt: z.iso.datetime().nullable(),
       }),
       device: z.object({ active: capacity, retained: capacity }),
     }),
@@ -475,19 +492,31 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   const executor = opts.dispatchExecutor === undefined ? createAgentDispatchExecutor(api, machine) : opts.dispatchExecutor;
   const inbox = new TaskReceiptInbox(files, now, publishRun);
   const replies = new TaskNativeReplies(files, svc, inbox, now, executor ?? undefined, publishRun);
-  const dispatch: TaskDispatch = new TaskDispatch(svc, store, inbox, replies, now, machine, executor ?? undefined, opts.onError, (rel) => {
-    try {
-      const abs = resolveReadableAsset(api.vault.files.root, rel);
-      const stat = statSync(abs);
-      if (!stat.isFile() || stat.size > 32_000) return null;
-      const bytes = readFileSync(abs);
-      if (bytes.length > 32_000) return null;
-      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-      return text.length <= 8_000 ? { version: versionOf(bytes), text } : null;
-    } catch {
-      return null;
-    }
-  }, opts.dispatchBudget, (source, taskId) => api.service<TaskScheduleAdmission>("taskScheduleAdmission")?.(source, taskId) ?? false);
+  const dispatch: TaskDispatch = new TaskDispatch(
+    svc,
+    store,
+    inbox,
+    replies,
+    now,
+    machine,
+    executor ?? undefined,
+    opts.onError,
+    (rel) => {
+      try {
+        const abs = resolveReadableAsset(api.vault.files.root, rel);
+        const stat = statSync(abs);
+        if (!stat.isFile() || stat.size > 32_000) return null;
+        const bytes = readFileSync(abs);
+        if (bytes.length > 32_000) return null;
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        return text.length <= 8_000 ? { version: versionOf(bytes), text } : null;
+      } catch {
+        return null;
+      }
+    },
+    opts.dispatchBudget,
+    (source, taskId) => api.service<TaskScheduleAdmission>("taskScheduleAdmission")?.(source, taskId) ?? false,
+  );
   const committedResult = (taskId: string, receiptId: string) => dispatch.committedResult(taskId, receiptId);
   const githubSources = new GitHubSources(files, svc, dispatch, now, new GitHubDeliveries(files, committedResult));
   const mailDeliveries = new TaskMailDeliveries(files, committedResult, () => api.service("mail.outbox"));
@@ -495,40 +524,52 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   api.defineCapability(bindCapability(taskToolDescriptors.githubRetire, (c, { sourceId }) => githubSources.retire(c, sourceId)));
   api.defineCapability(bindCapability(taskToolDescriptors.githubAllowReply, (c, input) => githubSources.allowReply(c, input)));
   const deliveryChanged = (taskId: string) => api.events.publish("entity.changed", { kind: "task", id: taskId, op: "updated" });
-  api.defineCapability(bindCapability(taskToolDescriptors.githubAccept, async (c, input) => {
-    const result = await githubSources.accept(c, input);
-    if (result.state === "echo" && result.taskId) deliveryChanged(result.taskId);
-    return result;
-  }));
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.githubAccept, async (c, input) => {
+      const result = await githubSources.accept(c, input);
+      if (result.state === "echo" && result.taskId) deliveryChanged(result.taskId);
+      return result;
+    }),
+  );
   api.defineCapability(bindCapability(taskToolDescriptors.githubRead, (c, input) => githubSources.readEvent(c, input)));
   api.defineCapability(bindCapability(taskToolDescriptors.githubAllowDelivery, (c, input) => githubSources.allowDelivery(c, input)));
-  api.defineCapability(bindCapability(taskToolDescriptors.githubClaimDelivery, async (c, input) => {
-    const result = await githubSources.claimDelivery(c, input);
-    if (result.send) deliveryChanged(result.taskId);
-    return result;
-  }));
-  api.defineCapability(bindCapability(taskToolDescriptors.githubConfirmDelivery, async (c, input) => {
-    const result = await githubSources.confirmDelivery(c, input);
-    deliveryChanged(result.taskId);
-    return result;
-  }));
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.githubClaimDelivery, async (c, input) => {
+      const result = await githubSources.claimDelivery(c, input);
+      if (result.send) deliveryChanged(result.taskId);
+      return result;
+    }),
+  );
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.githubConfirmDelivery, async (c, input) => {
+      const result = await githubSources.confirmDelivery(c, input);
+      deliveryChanged(result.taskId);
+      return result;
+    }),
+  );
   api.defineCapability(bindCapability(taskToolDescriptors.githubReadDelivery, (c, input) => githubSources.readDelivery(c, input)));
-  api.defineCapability(bindCapability(taskToolDescriptors.githubRequestVerification, async (c, input) => {
-    const result = await githubSources.requestVerification(c, input);
-    deliveryChanged(result.taskId);
-    return result;
-  }));
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.githubRequestVerification, async (c, input) => {
+      const result = await githubSources.requestVerification(c, input);
+      deliveryChanged(result.taskId);
+      return result;
+    }),
+  );
   api.defineCapability(bindCapability(taskToolDescriptors.githubPendingVerification, (c, { sourceId }) => githubSources.pendingVerification(c, sourceId)));
-  api.defineCapability(bindCapability(taskToolDescriptors.submitMailDelivery, async (c, input) => {
-    if (c.caller !== "desktop") throw errors.permissionDenied("需要从本机提交对应邮件草稿");
-    const result = await mailDeliveries.submit(c, input);
-    deliveryChanged(input.taskId);
-    return result;
-  }));
-  api.defineCapability(bindCapability(taskToolDescriptors.readMailDelivery, (c, input) => {
-    if (!isWorkbenchCaller(c.caller)) throw errors.permissionDenied("查看原任务的邮件投递");
-    return mailDeliveries.read(input);
-  }));
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.submitMailDelivery, async (c, input) => {
+      if (c.caller !== "desktop") throw errors.permissionDenied("需要从本机提交对应邮件草稿");
+      const result = await mailDeliveries.submit(c, input);
+      deliveryChanged(input.taskId);
+      return result;
+    }),
+  );
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.readMailDelivery, (c, input) => {
+      if (!isWorkbenchCaller(c.caller)) throw errors.permissionDenied("查看原任务的邮件投递");
+      return mailDeliveries.read(input);
+    }),
+  );
 
   const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
   const validateAgentTarget = (execution: TaskExecution | null | undefined) => {
@@ -655,26 +696,48 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     bindCapability(taskToolDescriptors.dispatchTargets, async ({ caller, signal }, { spaceId, profile, taskId }) => {
       if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务的会话目标");
       const task = taskId && isWorkbenchCaller(caller) ? svc.read(taskId) : undefined;
-      const input = { vaultId: api.vault.vaultId, machineId: machineId(), spaceId, taskMcp: task?.execution?.spaceId === spaceId && !!task?.mcpAuthorization, ...(profile && { options: { profile } }), ...(!isWorkbenchCaller(caller) && { mode: "snapshot" }) };
+      const input = {
+        vaultId: api.vault.vaultId,
+        machineId: machineId(),
+        spaceId,
+        taskMcp: task?.execution?.spaceId === spaceId && !!task?.mcpAuthorization,
+        ...(profile && { options: { profile } }),
+        ...(!isWorkbenchCaller(caller) && { mode: "snapshot" }),
+      };
       const response = await api.call("agent.targets.list", input, { signal }).catch((error: unknown) => {
         const code = ErrorCodeSchema.safeParse(error instanceof Error && "code" in error ? error.code : undefined);
         if (code.success && error instanceof Error) throw new HuhuError(code.data, error.message);
         throw error;
       });
       const targets = z.array(AgentDispatchTargetInfoSchema).parse(response);
-      return targets.map(({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason, profile, capabilities }) => ({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason, profile, capabilities }));
+      return targets.map(({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason, profile, capabilities }) => ({
+        mode,
+        provider,
+        sessionId,
+        nativeSessionId,
+        history,
+        historyTitle,
+        available,
+        reason,
+        profile,
+        capabilities,
+      }));
     }),
   );
   api.provide("taskMcpAuthorization", dispatch.currentMcpAuthorization.bind(dispatch));
-  api.defineCapability(bindCapability(taskToolDescriptors.mcpAuthorize, ({ caller, signal }, { id, expectedVersion, tools }) => {
-    if (caller !== "desktop") throw errors.permissionDenied("仅桌面工作台可设置任务 MCP 授权");
-    return svc.authorizeMcp(id, expectedVersion, tools, signal);
-  }));
-  api.defineCapability(bindCapability(taskToolDescriptors.dispatchResources, ({ caller }) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看本机派遣资源");
-    const retained = api.service<{ dispatchRetained(): number }>("agentCli")?.dispatchRetained();
-    return dispatch.resources(retained ?? null);
-  }));
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.mcpAuthorize, ({ caller, signal }, { id, expectedVersion, tools }) => {
+      if (caller !== "desktop") throw errors.permissionDenied("仅桌面工作台可设置任务 MCP 授权");
+      return svc.authorizeMcp(id, expectedVersion, tools, signal);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.dispatchResources, ({ caller }) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看本机派遣资源");
+      const retained = api.service<{ dispatchRetained(): number }>("agentCli")?.dispatchRetained();
+      return dispatch.resources(retained ?? null);
+    }),
+  );
   api.defineCapability(bindCapability(taskToolDescriptors.dispatchList, (c, { taskId }) => dispatch.list(taskId, toolOwner(c))));
   api.defineCapability(
     bindCapability(taskToolDescriptors.dispatchRetry, async ({ caller, signal }, input) => {
@@ -719,8 +782,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
 
   api.events.subscribe((event) => {
     const payload = event.payload as { kind?: string; id?: string };
-    if ((event.type === "plugin.stateChanged" && payload.id === "automations")
-      || (event.type === "entity.changed" && ["automation-rule", "task-follow-up"].includes(payload.kind ?? ""))) dispatch.wakeAfterReceipt();
+    if ((event.type === "plugin.stateChanged" && payload.id === "automations") || (event.type === "entity.changed" && ["automation-rule", "task-follow-up"].includes(payload.kind ?? ""))) dispatch.wakeAfterReceipt();
   });
   ctx.effect(() => {
     dispatch.startRecovery(opts.dispatchCheckMs ?? 5_000);
@@ -737,26 +799,27 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     ),
   );
   api.defineCapability(bindCapability(taskToolDescriptors.read, (_c, i) => svc.read(i.id)));
-  api.defineCapability(bindCapability(taskToolDescriptors.attention, (c): TaskAttention[] => {
-    if (!isWorkbenchCaller(c.caller)) throw errors.permissionDenied("待处理任务摘要");
-    return svc.list({ status: ["not_started", "in_progress"] }).flatMap((task): TaskAttention[] => {
-      const base = { taskId: task.id, title: task.title };
-      if (task.type === "agent") {
-        const attention = dispatch.questions(task.id).flatMap(({ status, reply, runId, requestId }): TaskAttention[] => {
-          if (status !== "awaiting" || reply?.status === "accepted") return [];
-          const state = !reply ? "awaiting"
-            : reply.status === "not_sent" || reply.status === "unsupported" || reply.status === "expired" ? "answer-failed" : "answer-unconfirmed";
-          return [{ ...base, state, runId, questionId: requestId }];
-        });
-        if (attention.length) return attention;
-        const run = dispatch.activity(task).execution;
-        if (run.state === "unknown" || run.state === "failed") {
-          return [{ ...base, state: run.state === "unknown" ? "run-unknown" : "run-failed", runId: run.identity.runId }];
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.attention, (c): TaskAttention[] => {
+      if (!isWorkbenchCaller(c.caller)) throw errors.permissionDenied("待处理任务摘要");
+      return svc.list({ status: ["not_started", "in_progress"] }).flatMap((task): TaskAttention[] => {
+        const base = { taskId: task.id, title: task.title };
+        if (task.type === "agent") {
+          const attention = dispatch.questions(task.id).flatMap(({ status, reply, runId, requestId }): TaskAttention[] => {
+            if (status !== "awaiting" || reply?.status === "accepted") return [];
+            const state = !reply ? "awaiting" : reply.status === "not_sent" || reply.status === "unsupported" || reply.status === "expired" ? "answer-failed" : "answer-unconfirmed";
+            return [{ ...base, state, runId, questionId: requestId }];
+          });
+          if (attention.length) return attention;
+          const run = dispatch.activity(task).execution;
+          if (run.state === "unknown" || run.state === "failed") {
+            return [{ ...base, state: run.state === "unknown" ? "run-unknown" : "run-failed", runId: run.identity.runId }];
+          }
         }
-      }
-      return [{ ...base, state: task.dispatchBlockers.length ? "blocked" : "pending" }];
-    });
-  }));
+        return [{ ...base, state: task.dispatchBlockers.length ? "blocked" : "pending" }];
+      });
+    }),
+  );
   api.defineCapability(
     bindCapability(taskToolDescriptors.create, async (c, i) => {
       const fromInbox = c.caller === "plugin:inbox" && !c.delegatedBy;
@@ -875,5 +938,4 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     },
   });
   api.provide("taskRunAttention", { read: (refs) => dispatch.runAttention(refs) } satisfies import("@huhu/contracts").TaskRunAttentionQuery);
-
 }

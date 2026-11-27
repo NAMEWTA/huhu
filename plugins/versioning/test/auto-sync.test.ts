@@ -9,13 +9,22 @@ function setup() {
   const run = vi.fn(async (_mode: RunMode, current: () => boolean, _signal: AbortSignal, _repair?: VersioningAuth) => current());
   const wake = vi.fn();
   const auto = new AutoSync({
-    config: () => config, authTarget: () => state.target, hasConflict: () => state.conflict,
-    run, wake, now: () => state.now,
+    config: () => config,
+    authTarget: () => state.target,
+    hasConflict: () => state.conflict,
+    run,
+    wake,
+    now: () => state.now,
   });
   const controller = new AbortController();
   const context: PeriodicRunContext = {
-    planId: "periodic-versioning-sync", revision: "plan-r1", occurrenceId: "plan-occurrence",
-    scheduledFor: new Date(0).toISOString(), signal: controller.signal, isCurrent: () => !controller.signal.aborted, wake: vi.fn(),
+    planId: "periodic-versioning-sync",
+    revision: "plan-r1",
+    occurrenceId: "plan-occurrence",
+    scheduledFor: new Date(0).toISOString(),
+    signal: controller.signal,
+    isCurrent: () => !controller.signal.aborted,
+    wake: vi.fn(),
   };
   const auth = (revision: string | null): VersioningAuth => ({ source: "versioning", target: state.target, revision });
   return { auto, config, state, run, wake, context, controller, auth };

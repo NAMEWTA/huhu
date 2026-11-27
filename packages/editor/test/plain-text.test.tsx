@@ -68,7 +68,7 @@ describe("plain-text-format（F02：字节保真）", () => {
     ].join("\r\n");
     expect(formatJsonText(`${BOM}${input}\r\n`)).toEqual({ ok: true, text: `${BOM}${output}\r\n` });
     expect(formatJsonText(" \t-0  ")).toEqual({ ok: true, text: "-0" });
-    expect(formatJsonText("{\r \"a\": 1\r}\r")).toEqual({ ok: true, text: "{\r \"a\": 1\r}\r" });
+    expect(formatJsonText('{\r "a": 1\r}\r')).toEqual({ ok: true, text: '{\r "a": 1\r}\r' });
   });
 
   test.each(["01", '{"a":1,}', String.raw`{"a":"\x41"}`, '{"a":1}\r\n\n', "[".repeat(3_000) + "0" + "]".repeat(3_000)])("无法无损格式化时给出原因", (source) => {

@@ -244,8 +244,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
   api.provide(periodicPlanSourceService("versioning"), {
     signal: planLifetime.signal,
     legacy: () => plans.legacy(sync.legacyPlanConfig()),
-    availability: (plan) => !sync.config().remote ? { state: "blocked", reason: "target-unavailable", detail: "尚未配置 Git 远端" }
-      : auto.availability(gitPlanMode(plan)),
+    availability: (plan) => (!sync.config().remote ? { state: "blocked", reason: "target-unavailable", detail: "尚未配置 Git 远端" } : auto.availability(gitPlanMode(plan))),
     run: (plan, context) => auto.run(gitPlanMode(plan), context),
   } satisfies PeriodicPlanSource);
   publishStatus = () => {
@@ -266,10 +265,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     }
     if (e.type === "entity.changed" && "kind" in e.payload && e.payload.kind === "periodic-plan" && e.payload.id?.startsWith("periodic-versioning-")) publishStatus();
   });
-  api.defineCapability(bindCapability(caps.syncGet, async (c) => {
-    await plans.importLegacy();
-    return external(c) ? sync.toolConfig() : { ...sync.config(), revision: sync.toolConfig().revision, ...(plans.available() && { periodics: plans.plans() }) };
-  }));
+  api.defineCapability(
+    bindCapability(caps.syncGet, async (c) => {
+      await plans.importLegacy();
+      return external(c) ? sync.toolConfig() : { ...sync.config(), revision: sync.toolConfig().revision, ...(plans.available() && { periodics: plans.plans() }) };
+    }),
+  );
   api.defineCapability(
     bindCapability(caps.syncAuthGet, async (c, { remote }) => {
       const summary = await sync.authStatus(remote);
@@ -327,8 +328,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       if (expectedPlans && (expectedPlans.pull !== revisions.pull || expectedPlans.sync !== revisions.sync)) throw errors.versionConflict(sync.toolConfig().revision);
       const configure = touched.mode || touched.pull || touched.sync;
       if (configure && !plans.available()) throw errors.pluginDisabled("automations");
-      const next = await sync.updateConfig(patch, c.signal, required(c, expectedRevision, "expectedRevision"), () => check(c, caps.syncUpdate.name),
-        configure ? (config) => plans.configure(config, touched, revisions, c.signal) : undefined, external(c),
+      const next = await sync.updateConfig(
+        patch,
+        c.signal,
+        required(c, expectedRevision, "expectedRevision"),
+        () => check(c, caps.syncUpdate.name),
+        configure ? (config) => plans.configure(config, touched, revisions, c.signal) : undefined,
+        external(c),
       );
       auto.configChanged();
       return next;

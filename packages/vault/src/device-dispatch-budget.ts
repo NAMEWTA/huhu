@@ -17,18 +17,24 @@ const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "E
 
 /** These reservations belong to one local OS account and are shared by its Vault Engines. */
 export class DeviceDispatchBudget {
-  constructor(private readonly directory: string, private readonly vault: string, private readonly limits: Limits) {}
+  constructor(
+    private readonly directory: string,
+    private readonly vault: string,
+    private readonly limits: Limits,
+  ) {}
 
   private occupants(kind: Slots) {
-    return readdirSync(this.directory).filter((name) => name.startsWith(`${kind}-`) && name.endsWith(".slot")).flatMap((name) => {
-      const file = path.join(this.directory, name);
-      try {
-        return [{ file, ...ownerSchema.parse(JSON.parse(readFileSync(file, "utf8"))) }];
-      } catch (error) {
-        if (missing(error)) return [];
-        throw error;
-      }
-    });
+    return readdirSync(this.directory)
+      .filter((name) => name.startsWith(`${kind}-`) && name.endsWith(".slot"))
+      .flatMap((name) => {
+        const file = path.join(this.directory, name);
+        try {
+          return [{ file, ...ownerSchema.parse(JSON.parse(readFileSync(file, "utf8"))) }];
+        } catch (error) {
+          if (missing(error)) return [];
+          throw error;
+        }
+      });
   }
 
   status(kind: Slots): { limit: number | null; occupied: number | null } {

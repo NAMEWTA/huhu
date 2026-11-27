@@ -19,7 +19,9 @@ export function planSourceName(plugin: string): string {
 export const planStates = ["enabled", "paused", "blocked", "completed", "unrun", "failed", "attention"] as const;
 export const planOrders = ["id", "recent", "title", "next"] as const;
 export const PlanHomeSummary = z.strictObject({
-  enabled: z.int().nonnegative(), blocked: z.int().nonnegative(), next: PlanSummarySchema.nullable(),
+  enabled: z.int().nonnegative(),
+  blocked: z.int().nonnegative(),
+  next: PlanSummarySchema.nullable(),
 });
 export type PlanHomeSummary = z.infer<typeof PlanHomeSummary>;
 type State = (typeof planStates)[number];
@@ -28,13 +30,21 @@ type Order = (typeof planOrders)[number];
 export function planMatches(plan: PlanSummary, state?: State): boolean {
   const last = plan.lastOccurrence?.state;
   switch (state) {
-    case "blocked": return plan.availability.state === "blocked";
-    case "completed": return plan.trigger.kind === "once" && last === "completed" && plan.nextAt === null;
-    case "unrun": return !last;
-    case "failed": return last === "failed";
-    case "attention": return plan.needsAttention === true || plan.availability.state === "blocked" || last === "failed" || last === "unknown";
-    case "enabled": case "paused": return plan.intent === state;
-    default: return true;
+    case "blocked":
+      return plan.availability.state === "blocked";
+    case "completed":
+      return plan.trigger.kind === "once" && last === "completed" && plan.nextAt === null;
+    case "unrun":
+      return !last;
+    case "failed":
+      return last === "failed";
+    case "attention":
+      return plan.needsAttention === true || plan.availability.state === "blocked" || last === "failed" || last === "unknown";
+    case "enabled":
+    case "paused":
+      return plan.intent === state;
+    default:
+      return true;
   }
 }
 
@@ -61,30 +71,39 @@ export function summarizePlans(plans: readonly PlanSummary[]): PlanHomeSummary {
 
 function key(plan: PlanSummary, order: Order): string {
   switch (order) {
-    case "recent": return plan.updatedAt;
-    case "title": return plan.title.toLowerCase();
-    case "next": return plan.nextAt ?? "\uffff";
-    default: return plan.planId;
+    case "recent":
+      return plan.updatedAt;
+    case "title":
+      return plan.title.toLowerCase();
+    case "next":
+      return plan.nextAt ?? "\uffff";
+    default:
+      return plan.planId;
   }
 }
 
-export function filterPlanPage(plans: PlanSummary[], input: {
-  cursor?: string | undefined;
-  limit: number;
-  plugin?: string | undefined;
-  action?: string | undefined;
-  state?: State | undefined;
-  query?: string | undefined;
-  order?: Order | undefined;
-}) {
+export function filterPlanPage(
+  plans: PlanSummary[],
+  input: {
+    cursor?: string | undefined;
+    limit: number;
+    plugin?: string | undefined;
+    action?: string | undefined;
+    state?: State | undefined;
+    query?: string | undefined;
+    order?: Order | undefined;
+  },
+) {
   const { limit, cursor, plugin, action, state, order = "id" } = input;
   const search = input.query?.trim().toLowerCase();
-  const rows = plans.filter((plan) => plan.intent !== "deleted"
-    && (!plugin || plan.source.plugin === plugin)
-    && (!action || plan.action.capability === action)
-    && planMatches(plan, state)
-    && (!search || [plan.title, planSourceName(plan.source.plugin), plan.source.object.id,
-      plan.action.summary, plan.action.object.id].some((value) => value.toLowerCase().includes(search))));
+  const rows = plans.filter(
+    (plan) =>
+      plan.intent !== "deleted" &&
+      (!plugin || plan.source.plugin === plugin) &&
+      (!action || plan.action.capability === action) &&
+      planMatches(plan, state) &&
+      (!search || [plan.title, planSourceName(plan.source.plugin), plan.source.object.id, plan.action.summary, plan.action.object.id].some((value) => value.toLowerCase().includes(search))),
+  );
   const compareKeys = (left: string, right: string) => compare(left, right) * (order === "recent" ? -1 : 1);
   const compareRows = (a: PlanSummary, b: PlanSummary) => compareKeys(key(a, order), key(b, order)) || compare(a.planId, b.planId);
   const boundary = order === "id" || !cursor ? null : decodeCursor(cursor, order);

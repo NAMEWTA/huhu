@@ -9,11 +9,17 @@ import { McpSourcesPanel } from "../../../packages/workbench/src/gateway/McpSour
 
 const endpoint = { baseUrl: "http://127.0.0.1:1", token: "fixture", vaultId: "vault-a" };
 const source = {
-  sourceId: "target", revision: 9, displayName: "目标来源", namespace: "target", enabled: true,
+  sourceId: "target",
+  revision: 9,
+  displayName: "目标来源",
+  namespace: "target",
+  enabled: true,
   configuration: { transport: "streamable-http", url: "https://example.test/mcp", headers: {}, authentication: { kind: "credential", reference: "private-reference", header: "Authorization" } },
 } as const;
 const list: McpSourcesView = {
-  revision: 9, readOnly: false, credentialHostAvailable: true,
+  revision: 9,
+  readOnly: false,
+  credentialHostAvailable: true,
   sources: [{ source, state: "ready", checkedAt: null, diagnostic: null, approved: true, credential: { state: "configured", account: "local-account" } }],
 };
 
@@ -35,8 +41,18 @@ async function mount(call: (name: string, input: unknown) => Promise<unknown>) {
   const prototype = HTMLDialogElement.prototype;
   if (typeof prototype.showModal !== "function") {
     Object.defineProperties(prototype, {
-      showModal: { configurable: true, value(this: HTMLDialogElement) { this.open = true; } },
-      close: { configurable: true, value(this: HTMLDialogElement) { this.open = false; } },
+      showModal: {
+        configurable: true,
+        value(this: HTMLDialogElement) {
+          this.open = true;
+        },
+      },
+      close: {
+        configurable: true,
+        value(this: HTMLDialogElement) {
+          this.open = false;
+        },
+      },
     });
     removeDialogShim = () => {
       Reflect.deleteProperty(prototype, "showModal");
@@ -48,15 +64,22 @@ async function mount(call: (name: string, input: unknown) => Promise<unknown>) {
   const element = document.body.appendChild(document.createElement("div"));
   const mounted = createRoot(element);
   root = mounted;
-  await act(async () => mounted.render(createElement(EngineProvider, {
-    endpoint, children: createElement(McpSourcesPanel, { kind: "tool", filter: "", published: true }),
-  })));
+  await act(async () =>
+    mounted.render(
+      createElement(EngineProvider, {
+        endpoint,
+        children: createElement(McpSourcesPanel, { kind: "tool", filter: "", published: true }),
+      }),
+    ),
+  );
   return element;
 }
 
 async function waitFor(condition: () => void) {
   await vi.waitFor(async () => {
-    await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
     condition();
   });
 }
@@ -73,7 +96,7 @@ async function clickButton(container: ParentNode, label: string) {
 
 test("renders visible loading and empty states for sources", async () => {
   const response = Promise.withResolvers<McpSourcesView>();
-  const panel = await mount(async (name) => name === "mcp.sources.list" ? response.promise : { entries: [] });
+  const panel = await mount(async (name) => (name === "mcp.sources.list" ? response.promise : { entries: [] }));
   expect(panel.querySelector('[role="status"]')?.textContent).toBe("正在读取外部来源…");
   response.resolve({ ...list, sources: [] });
   await waitFor(() => expect(panel.textContent).toContain("还没有外部来源。添加服务或导入已有配置。"));
@@ -94,7 +117,10 @@ test("shows scoped, redacted deletion effects and submits the previewed revision
   const call = vi.fn(async (name: string, _input: unknown) => {
     if (name === "mcp.sources.list") return deleted ? { ...list, sources: [] } : list;
     if (name === "mcp.sources.deletePreview") return response.promise;
-    if (name === "mcp.sources.delete") { deleted = true; return { sourceId: source.sourceId }; }
+    if (name === "mcp.sources.delete") {
+      deleted = true;
+      return { sourceId: source.sourceId };
+    }
     return { entries: [] };
   });
   const panel = await mount(call);

@@ -133,7 +133,9 @@ describe("F06 Web 本地草稿", () => {
     const browserDraft = browserDraftFixture();
     const eng = new FakeEngine({ "a.md": "old" });
     let receipt!: () => void;
-    eng.saveReceiptGate = new Promise<void>((resolve) => { receipt = resolve; });
+    eng.saveReceiptGate = new Promise<void>((resolve) => {
+      receipt = resolve;
+    });
     const original = mk(eng, "a.md", { autosave: () => false, browserDraft });
     await original.load();
     original.setText("committed");
@@ -153,7 +155,9 @@ describe("F06 Web 本地草稿", () => {
     const browserDraft = browserDraftFixture();
     const eng = new FakeEngine({ "a.md": "old" });
     let publish!: () => void;
-    eng.saveGate = new Promise<void>((resolve) => { publish = resolve; });
+    eng.saveGate = new Promise<void>((resolve) => {
+      publish = resolve;
+    });
     const original = mk(eng, "a.md", { autosave: () => false, browserDraft });
     await original.load();
     original.setText("submitted");
@@ -2689,7 +2693,9 @@ describe("F19 引擎连接代次", () => {
   test.each([true, false])("首笔回执丢失时读回磁盘（已落盘 %s），保留写入之后的编辑", async (committed) => {
     let deliverReceipt!: () => void;
     const original = new FakeEngine({ "a.md": "base" });
-    original.saveReceiptGate = new Promise<void>((resolve) => { deliverReceipt = resolve; });
+    original.saveReceiptGate = new Promise<void>((resolve) => {
+      deliverReceipt = resolve;
+    });
     const session = mk(original);
     await session.load();
     session.setText("submitted");
@@ -2721,7 +2727,12 @@ describe("F19 引擎连接代次", () => {
     const original = new FakeEngine({ "a.md": "base" });
     const disconnect = registry.bindVault("v", 1, () => ({ engine: original }));
     const teardown = vi.fn();
-    const lease = await registry.acquire("v", "a.md", (id) => new DocumentSession({ id, engine: original, autosave: () => false, pollMs: 0 }), () => teardown);
+    const lease = await registry.acquire(
+      "v",
+      "a.md",
+      (id) => new DocumentSession({ id, engine: original, autosave: () => false, pollMs: 0 }),
+      () => teardown,
+    );
     await lease.session.load();
     lease.session.setText("unsaved");
     disconnect();

@@ -250,12 +250,7 @@ describe("多文件操作", () => {
     const log = new OperationLog(new VaultFiles(root), ops);
     const old = versionOf(Buffer.from("A-old"));
     const accepted = files.write("a.md", Buffer.from("first"), { expectedVersion: old });
-    const step =
-      action === "write"
-        ? { action, path: "a.md", bytes: Buffer.from("stale") }
-        : action === "rename"
-          ? { action, from: "a.md", path: "moved.md" }
-          : { action, path: "a.md" };
+    const step = action === "write" ? { action, path: "a.md", bytes: Buffer.from("stale") } : action === "rename" ? { action, from: "a.md", path: "moved.md" } : { action, path: "a.md" };
     const stale = expect(log.run("stale", action, [step])).rejects.toMatchObject({
       code: "VERSION_CONFLICT",
       details: { path: "a.md", currentVersion: versionOf(Buffer.from("first")) },
@@ -532,18 +527,13 @@ describe("多文件操作", () => {
     const log = new OperationLog(new VaultFiles(root), ops);
     const next = Buffer.from("same intended bytes");
     await expect(
-      log.run(
-        "unaccepted",
-        "test",
-        [{ action: "write", path: "a.md", bytes: Buffer.from("own bytes") }, action === "write" ? { action, path: "b.md", bytes: next } : { action, path: "b.md" }],
-        {
-          afterStep: () => {
-            if (action === "write") writeFileSync(path.join(root, "b.md"), next);
-            else rmSync(path.join(root, "b.md"));
-            throw new Error("stop before second step");
-          },
+      log.run("unaccepted", "test", [{ action: "write", path: "a.md", bytes: Buffer.from("own bytes") }, action === "write" ? { action, path: "b.md", bytes: next } : { action, path: "b.md" }], {
+        afterStep: () => {
+          if (action === "write") writeFileSync(path.join(root, "b.md"), next);
+          else rmSync(path.join(root, "b.md"));
+          throw new Error("stop before second step");
         },
-      ),
+      }),
     ).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
     expect(read(root, "a.md")).toBe("A-old");
     expect(read(root, "b.md")).toBe(action === "write" ? next.toString() : null);

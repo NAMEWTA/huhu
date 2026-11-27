@@ -125,7 +125,8 @@ export class Trash {
       last.path !== `${RETIRED}/${op.opId}` ||
       !last.from?.startsWith(`${TRASH}/`) ||
       !last.renameIdentity
-    ) return;
+    )
+      return;
     try {
       this.files.guardSynchronousCommit([last.path]);
       const absolute = this.files.abs(last.path);

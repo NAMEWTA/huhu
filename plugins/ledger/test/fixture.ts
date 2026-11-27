@@ -16,20 +16,36 @@ export async function ledgerEngine(directory: string, readOnly = false, clock?: 
   const repo = new SemanticRepository(vault.files, operations);
   const trash = new Trash(vault.files, undefined, operations);
   const lifecycle = createHuhuContext({
-    registry, events,
+    registry,
+    events,
     vault: { files: vault.files, stateDir: vault.stateDir, vaultId: vault.id, repo, index, trash },
-    call: async () => { throw new Error("unexpected plugin call"); },
+    call: async () => {
+      throw new Error("unexpected plugin call");
+    },
   });
   const plugins = new PluginManager(lifecycle.root, lifecycle.facade, events);
   let tail: Promise<unknown> = Promise.resolve();
-  const periodic = clock ? new PeriodicPlans(new VaultFiles(vault.stateDir, undefined, readOnly), {
-    vaultId: vault.id, machineId: "ledger-fixture-machine", instance: "ledger-fixture-owner",
-  }, { withRuleConfiguration(operation) {
-    const next = tail.then(operation);
-    tail = next.catch(() => undefined);
-    return next;
-  } }, ["ledger"], (plugin) => lifecycle.getService<PeriodicPlanSource>(periodicPlanSourceService(plugin)), clock,
-  (id, sourcePlugin, kind) => events.publish("entity.changed", { id, sourcePlugin, kind, op: "updated" })) : undefined;
+  const periodic = clock
+    ? new PeriodicPlans(
+        new VaultFiles(vault.stateDir, undefined, readOnly),
+        {
+          vaultId: vault.id,
+          machineId: "ledger-fixture-machine",
+          instance: "ledger-fixture-owner",
+        },
+        {
+          withRuleConfiguration(operation) {
+            const next = tail.then(operation);
+            tail = next.catch(() => undefined);
+            return next;
+          },
+        },
+        ["ledger"],
+        (plugin) => lifecycle.getService<PeriodicPlanSource>(periodicPlanSourceService(plugin)),
+        clock,
+        (id, sourcePlugin, kind) => events.publish("entity.changed", { id, sourcePlugin, kind, op: "updated" }),
+      )
+    : undefined;
   if (periodic) lifecycle.facade("automations", lifecycle.root).provide(PERIODIC_PLANS_SERVICE, periodic);
   registry.declareDescriptors("ledger", ledgerCapabilityDescriptors);
   plugins.register({ manifest: PluginManifestSchema.parse(manifest), apply: (ctx, api) => apply(ctx, api, () => dispatcher) });
@@ -38,13 +54,21 @@ export async function ledgerEngine(directory: string, readOnly = false, clock?: 
     const notes = await import("../../notes/src/engine/index.js");
     const notesManifest = PluginManifestSchema.parse((await import("../../notes/huhu-plugin.json")).default);
     registry.declareDescriptors("notes", notes.notesCapabilityDescriptors);
-    plugins.register({ manifest: notesManifest, apply: (ctx, api) => { notes.apply(ctx, api); } });
+    plugins.register({
+      manifest: notesManifest,
+      apply: (ctx, api) => {
+        notes.apply(ctx, api);
+      },
+    });
   }
   const dispatcher: Dispatcher = new Dispatcher({
-    registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(),
+    registry,
+    audit: new GatewayAudit(),
+    idempotency: new IdempotencyStore(),
     isPluginEnabled: (id) => plugins.isEnabled(id),
     toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
-    grantedPermissions: (id) => plugins.permissionsOf(id), pluginOrigin: () => "builtin",
+    grantedPermissions: (id) => plugins.permissionsOf(id),
+    pluginOrigin: () => "builtin",
   });
   await plugins.enableAll();
   const invoke = (capability: string, input: unknown = {}) => dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
@@ -55,7 +79,12 @@ export async function ledgerEngine(directory: string, readOnly = false, clock?: 
   }
   let closed = false;
   return {
-    call, invoke, plugins, vault, events, periodic,
+    call,
+    invoke,
+    plugins,
+    vault,
+    events,
+    periodic,
     async close() {
       if (closed) return;
       closed = true;

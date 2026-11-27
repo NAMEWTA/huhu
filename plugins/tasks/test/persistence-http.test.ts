@@ -51,7 +51,7 @@ vi.mock("@huhu/plugin-tasks/engine", async (original) => {
         {
           ...api,
           service<T>(name: string) {
-            return name === "mail.outbox" && mailOutboxFixture ? mailOutboxFixture as T : api.service<T>(name);
+            return name === "mail.outbox" && mailOutboxFixture ? (mailOutboxFixture as T) : api.service<T>(name);
           },
           provide(name, service) {
             api.provide(name, service);
@@ -508,11 +508,15 @@ test("TW6 明确的新轮次从选中的消息和产物版本继续，保持任�
   await vi.waitFor(async () => expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ data: { status: "in_progress" } }));
   const active = await call<TaskDto>(engine, "tasks.read", { id: task.id });
   const questions = () => call(engine, "tasks.questions.list", { taskId: task.id });
-  expect(await submitReceipt(engine, {
-    version: 1, kind: "question", receiptId: "tw6-original-question",
-    execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: execution.sessionBinding.nativeSessionId! } },
-    payload: { mode: "native_deferred", requestId: "tw6-original-question", requestVersion: 1, nativeRequestId: "tw6-native", text: "原生问题", options: [] },
-  })).toMatchObject({ ok: true });
+  expect(
+    await submitReceipt(engine, {
+      version: 1,
+      kind: "question",
+      receiptId: "tw6-original-question",
+      execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: execution.sessionBinding.nativeSessionId! } },
+      payload: { mode: "native_deferred", requestId: "tw6-original-question", requestVersion: 1, nativeRequestId: "tw6-native", text: "原生问题", options: [] },
+    }),
+  ).toMatchObject({ ok: true });
   expect(await questions()).toMatchObject({ ok: true, data: [{ runId: run.runId, status: "awaiting" }] });
   expect(await call(engine, "tasks.dispatch", { ...intent(active.data), newRound: true })).toMatchObject({ ok: false, error: { details: { reason: "task_occupied" } } });
   expect(await submitReceipt(engine, { version: 1, kind: "no_update", receiptId: "tw6-first-ended", execution, payload: {} })).toMatchObject({ ok: true });
@@ -539,7 +543,10 @@ test("TW6 明确的新轮次从选中的消息和产物版本继续，保持任�
   await stop(engine);
   const reopened = await start(root);
   expect(await call(reopened, "tasks.dispatch", request)).toMatchObject({ ok: true, data: { runId: next.runId } });
-  vi.mocked(fake.dispatch).mockResolvedValue({ state: "accepted", execution: { ...execution, dispatchId: next.dispatchId, runId: next.runId, sessionBinding: { ...execution.sessionBinding, sessionId: "fixture-new-session", nativeSessionId: "fixture-new-thread" } } });
+  vi.mocked(fake.dispatch).mockResolvedValue({
+    state: "accepted",
+    execution: { ...execution, dispatchId: next.dispatchId, runId: next.runId, sessionBinding: { ...execution.sessionBinding, sessionId: "fixture-new-session", nativeSessionId: "fixture-new-thread" } },
+  });
   vi.mocked(fake.ready).mockResolvedValue("ready");
   await waitDispatch(reopened, next, { state: "running" });
   const { snapshot, boundExecution } = recordOf(reopened, next);
@@ -567,7 +574,14 @@ test.skipIf(!process.getuid)("TW6 本机名额在两个 Vault 的规则之间共
   const bound = new Map<string, ExecutionBinding & { sessionBinding: { nativeSessionId: string } }>();
   fake.dispatch = vi.fn<TaskDispatchExecutor["dispatch"]>().mockImplementation(async ({ snapshot, dispatchId, runId, attempt }) => {
     if (snapshot.taskId === b.id) return "unknown";
-    const execution = { vaultId: first.vault.id, taskId: snapshot.taskId, dispatchId, runId, attempt, sessionBinding: { machineId: machineId(), sessionId: `session-${runId}`, coreId: "fixture-core", coreAddress: "t2", processGeneration: runId, provider: "codex", nativeSessionId: `thread-${runId}` } } satisfies ExecutionBinding;
+    const execution = {
+      vaultId: first.vault.id,
+      taskId: snapshot.taskId,
+      dispatchId,
+      runId,
+      attempt,
+      sessionBinding: { machineId: machineId(), sessionId: `session-${runId}`, coreId: "fixture-core", coreAddress: "t2", processGeneration: runId, provider: "codex", nativeSessionId: `thread-${runId}` },
+    } satisfies ExecutionBinding;
     bound.set(runId, execution);
     return { state: "accepted", execution };
   });
@@ -576,17 +590,30 @@ test.skipIf(!process.getuid)("TW6 本机名额在两个 Vault 的规则之间共
   const r2 = await secondRules.acceptRule(intent(b), rule("device-second"));
   await waitDispatch(second, r2, { reason: "waiting_resource" });
   expect(fake.dispatch).toHaveBeenCalledTimes(1);
-  expect(await submitReceipt(first, { version: 1, receiptId: "device-question", kind: "question", execution: bound.get(r1.runId)!, payload: { mode: "native_deferred", requestId: "device-question", requestVersion: 1, nativeRequestId: "device-native", text: "等待", options: ["一"] } })).toMatchObject({ ok: true });
+  expect(
+    await submitReceipt(first, {
+      version: 1,
+      receiptId: "device-question",
+      kind: "question",
+      execution: bound.get(r1.runId)!,
+      payload: { mode: "native_deferred", requestId: "device-question", requestVersion: 1, nativeRequestId: "device-native", text: "等待", options: ["一"] },
+    }),
+  ).toMatchObject({ ok: true });
   await waitDispatch(second, r2, { state: "unknown" });
   const view = (engine: RunningEngine) => call(engine, "tasks.dispatch.resources", {});
   await vi.waitFor(async () => expect(await view(first)).toMatchObject({ ok: true, data: { vault: { active: 0, waitingNative: 1, oldestNativeWaitAt: expect.any(String) }, device: { active: { limit: 1, occupied: 1 } } } }));
   await vi.waitFor(async () => expect(await view(second)).toMatchObject({ ok: true, data: { vault: { active: 1, unknown: 1 } } }));
   const extra = await firstRules.acceptRule(intent(await createDispatchable(first, "第三个待排队运行")), rule("device-third"));
   await waitDispatch(first, extra, { reason: "waiting_resource" });
-  await vi.waitFor(async () => expect(await view(first)).toMatchObject({ ok: true, data: {
-    vault: { pending: 1, oldestPendingAt: extra.acceptedAt, waitingNative: 1 },
-    device: { active: { limit: 1, occupied: 1 }, retained: { limit: 2, occupied: 0 } },
-  } }));
+  await vi.waitFor(async () =>
+    expect(await view(first)).toMatchObject({
+      ok: true,
+      data: {
+        vault: { pending: 1, oldestPendingAt: extra.acceptedAt, waitingNative: 1 },
+        device: { active: { limit: 1, occupied: 1 }, retained: { limit: 2, occupied: 0 } },
+      },
+    }),
+  );
   expect(fake.dispatch).toHaveBeenCalledTimes(2);
   const core = vi.spyOn(HerdrCore.prototype, "peek");
   try {
@@ -851,13 +878,16 @@ test("UX06 / TW8 转换保留原捕获身份，待回答问题通过原运行投
   const { data: sourceTask } = await call<TaskDto>(engine, "tasks.read", { id: processed.result.id });
   expect(sourceTask).toMatchObject({ status: "not_started", origin: { kind: "inbox", captureId: capture.id } });
   expect(await call(engine, "tasks.create", { title, inboxCaptureId: capture.id })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
-  const { data: [space] } = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
+  const {
+    data: [space],
+  } = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
   const { data: agentTask } = await call<TaskDto>(engine, "tasks.create", { title: "等待回答的任务", type: "agent", execution: { provider: "codex", spaceId: space!.id } });
   const { runId, requestId, text } = await seedAttentionQuestion(new VaultFiles(engine.vault.stateDir), engine.vault.id, agentTask);
   const question = { taskId: agentTask.id, title: agentTask.title, runId, questionId: requestId, state: "awaiting" };
   const pending = { taskId: sourceTask.id, title: sourceTask.title, state: "pending" };
   expect(await call(engine, "tasks.questions.list", { taskId: agentTask.id })).toEqual({
-    ok: true, data: [expect.objectContaining({ runId, requestId, text, status: "awaiting" })],
+    ok: true,
+    data: [expect.objectContaining({ runId, requestId, text, status: "awaiting" })],
   });
   const attention = () => call(engine, "tasks.attention", {});
   expect(await attention()).toEqual({ ok: true, data: expect.arrayContaining([pending, question]) });
@@ -918,8 +948,7 @@ test.each(["normal", "native_deferred"] as const)("%s 回答只消费授权主�
   for (const capability of ["tasks.dispatch", "tasks.reply", "tasks.reply.read", "tasks.questions.list", "tasks.comments.add"]) {
     expect(await call(engine, "gateway.update", { capability, exposed: true })).toMatchObject({ ok: true });
   }
-  const external = (subject: string, capability: string, input: unknown) =>
-    engine.dispatcher.call("http", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }, undefined, subject);
+  const external = (subject: string, capability: string, input: unknown) => engine.dispatcher.call("http", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }, undefined, subject);
   const owner = "fixture-owner";
   const other = "fixture-other-subject";
   const dispatch = await external(owner, "tasks.dispatch", intent(task));
@@ -930,9 +959,10 @@ test.each(["normal", "native_deferred"] as const)("%s 回答只消费授权主�
   const execution = recordOf(engine, run).boundExecution!;
   const envelope = { version: 1, kind: "question", receiptId: "actor-question" } as const;
   const payload = { requestId: "versioned-ask", requestVersion: 2, text: "请确认", options: ["选项"] };
-  const question: ExecutionReceipt = mode === "normal"
-    ? { ...envelope, execution, payload: { ...payload, mode } }
-    : { ...envelope, execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: "fixture-thread" } }, payload: { ...payload, mode, nativeRequestId: "actor-native-route" } };
+  const question: ExecutionReceipt =
+    mode === "normal"
+      ? { ...envelope, execution, payload: { ...payload, mode } }
+      : { ...envelope, execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: "fixture-thread" } }, payload: { ...payload, mode, nativeRequestId: "actor-native-route" } };
   expect(await submitReceipt(engine, question)).toMatchObject({ ok: true });
   const list = { taskId: task.id };
   expect(await external(owner, "tasks.questions.list", list)).toMatchObject({ ok: true, data: [{ requestId: "versioned-ask", status: "awaiting" }] });
@@ -957,7 +987,9 @@ test.each(["normal", "native_deferred"] as const)("%s 回答只消费授权主�
   const timeline = (await call<TaskDto>(engine, "tasks.read", { id: task.id })).data.comments.filter(({ event }) => event === "answer");
   expect(timeline).toMatchObject([{ body: "选项", source: "external", author: "http", ask: lookup.requestId }]);
   const folder = path.join(engine.vault.stateDir, "tasks", mode === "normal" ? "dispatches" : "replies");
-  const saved = readdirSync(folder).filter((file) => file.endsWith(".json")).map((file) => JSON.parse(readFileSync(path.join(folder, file), "utf8")) as { snapshot?: { source: { actor?: unknown } }; entries?: { actor?: unknown }[] });
+  const saved = readdirSync(folder)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => JSON.parse(readFileSync(path.join(folder, file), "utf8")) as { snapshot?: { source: { actor?: unknown } }; entries?: { actor?: unknown }[] });
   const actors = saved.flatMap(({ snapshot, entries }) => entries?.map(({ actor }) => actor) ?? [snapshot?.source.actor]);
   expect(actors).toContainEqual(expect.objectContaining({ caller: "http", subject: owner }));
   expect(answer).toHaveBeenCalledTimes(mode === "normal" ? 0 : 1);
@@ -1014,7 +1046,8 @@ test("跟进改期与过期进程只针对原任务受理一次，关闭任务�
   const closed = await createDispatchable(engine, "关闭后无需跟进");
   const first = "2026-11-21T10:01:00.000Z";
   const next = "2026-11-21T10:02:00.000Z";
-  const schedule = (taskId: string, scheduledFor: string, expectedRevision: string | null) => call<{ revision: string; followUpId: string; planId: string }>(engine, "automations.followUps.schedule", { taskId, scheduledFor, expectedRevision });
+  const schedule = (taskId: string, scheduledFor: string, expectedRevision: string | null) =>
+    call<{ revision: string; followUpId: string; planId: string }>(engine, "automations.followUps.schedule", { taskId, scheduledFor, expectedRevision });
   const original = await schedule(task.id, first, null);
   expect(original).toMatchObject({ ok: true, data: { state: "scheduled", scheduledFor: first } });
   const scheduled = await schedule(task.id, next, original.data.revision);
@@ -1043,7 +1076,8 @@ test("跟进改期与过期进程只针对原任务受理一次，关闭任务�
     ok: true,
     data: {
       plan: { planId: scheduled.data.planId, revision: scheduled.data.revision },
-      state: "accepted", acceptedAt: fixture.now.toISOString(),
+      state: "accepted",
+      acceptedAt: fixture.now.toISOString(),
       timing: { trigger: "scheduled", scheduledFor: next },
       frozenInput: { revision: task.inputRevision, digest: task.inputHash },
     },
@@ -1063,7 +1097,9 @@ test("统一计划目录通过正式能力管理 Cron 和一次性跟进，重�
   let engine = await start(root, true);
   const task = await createDispatchable(engine, "目录中的任务");
   const schedule = await call<{ followUpId: string; revision: string }>(engine, "automations.followUps.schedule", {
-    taskId: task.id, scheduledFor: "2026-11-21T10:10:00.000Z", expectedRevision: null,
+    taskId: task.id,
+    scheduledFor: "2026-11-21T10:10:00.000Z",
+    expectedRevision: null,
   });
   expect(schedule.ok).toBe(true);
   const dir = path.join(engine.vault.stateDir, "automations", "follow-ups");
@@ -1072,7 +1108,8 @@ test("统一计划目录通过正式能力管理 Cron 和一次性跟进，重�
   delete original.plan; // Simulate the format installed by versions before the directory.
   writeFileSync(file, JSON.stringify(original));
   const rule = await call<{ id: string; version: string }>(engine, "automations.create", {
-    title: "Cron fixture", trigger: { preset: "hourly", cron: "0 * * * *", zone: "UTC" },
+    title: "Cron fixture",
+    trigger: { preset: "hourly", cron: "0 * * * *", zone: "UTC" },
     action: { kind: "reminder", mode: "notification", text: "目录提醒", taskId: null },
   });
   expect(rule.ok).toBe(true);
@@ -1093,9 +1130,11 @@ test("统一计划目录通过正式能力管理 Cron 和一次性跟进，重�
   expect((await list({ cursor: page.nextCursor })).plans).toHaveLength(1);
   const cron = (await list()).plans.find(({ planId }) => planId === rule.data.id)!;
   expect(cron).toMatchObject({ revision: rule.data.version, intent: "paused", nextAt: null });
-  expect(await list({
-    source: { plugin: "automations", object: { kind: "automation-rule", id: "unrelated" } },
-  })).toEqual({ plans: [], nextCursor: null });
+  expect(
+    await list({
+      source: { plugin: "automations", object: { kind: "automation-rule", id: "unrelated" } },
+    }),
+  ).toEqual({ plans: [], nextCursor: null });
 
   const submit = async (change: PlanWrite, intentKey = change.intentId) => {
     const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
@@ -1123,7 +1162,8 @@ test("统一计划目录通过正式能力管理 Cron 和一次性跟进，重�
   expect(pausedCron.nextAt).toBeNull();
   expect(await submit({ ...ref(newCron), change: "delete" })).toMatchObject({ outcome: "not-accepted", error: { code: "VERSION_CONFLICT" } });
   expect(await call(engine, "automations.read", { id: cron.planId })).toMatchObject({
-    ok: true, data: { version: pausedCron.revision, data: { enabled: false, trigger: { cron: "15 * * * *" } } },
+    ok: true,
+    data: { version: pausedCron.revision, data: { enabled: false, trigger: { cron: "15 * * * *" } } },
   });
   const onAgain = (await change({ ...ref(pausedCron), change: "set-intent", intent: "enabled" })).plan;
   expect(onAgain.revision).not.toBe(newCron.revision);
@@ -1134,7 +1174,9 @@ test("统一计划目录通过正式能力管理 Cron 和一次性跟进，重�
   expect(await call(engine, "automations.plans.readOccurrence", { occurrenceId: run.data.activationId })).toMatchObject({
     ok: true,
     data: {
-      plan: { planId: cron.planId, revision: offAgain.revision }, timing: { trigger: "manual" }, state: "completed",
+      plan: { planId: cron.planId, revision: offAgain.revision },
+      timing: { trigger: "manual" },
+      state: "completed",
       effects: [{ kind: "notification", state: "completed" }],
     },
   });
@@ -1144,7 +1186,8 @@ test("统一计划目录通过正式能力管理 Cron 和一次性跟进，重�
   await fixture.followUps!.tick();
   expect(fake.dispatch).not.toHaveBeenCalled();
   expect(await call(engine, "automations.followUps.get", { taskId: task.id })).toMatchObject({
-    ok: true, data: { planId: followUp.planId, revision: paused.revision, state: "paused", followUpId: schedule.data.followUpId },
+    ok: true,
+    data: { planId: followUp.planId, revision: paused.revision, state: "paused", followUpId: schedule.data.followUpId },
   });
   expect(await submit({ ...ref(followUp), change: "delete" })).toMatchObject({ outcome: "not-accepted", error: { code: "VERSION_CONFLICT" } });
   const future = "2026-11-21T10:30:00.000Z";
@@ -1155,7 +1198,9 @@ test("统一计划目录通过正式能力管理 Cron 和一次性跟进，重�
   const current = await call<{ followUpId: string }>(engine, "automations.followUps.get", { taskId: task.id });
   expect(current.data.followUpId).not.toBe(schedule.data.followUpId);
   const sourceUpdate = await call<{ revision: string }>(engine, "automations.followUps.schedule", {
-    taskId: task.id, scheduledFor: future, expectedRevision: resumed.revision,
+    taskId: task.id,
+    scheduledFor: future,
+    expectedRevision: resumed.revision,
   });
   expect(sourceUpdate.ok).toBe(true);
   const fromSource = (await list({ source })).plans[0]!;
@@ -1170,7 +1215,8 @@ test("统一计划目录通过正式能力管理 Cron 和一次性跟进，重�
   expect(await call(engine, "automations.plans.read", { planId: removed.plan.planId })).toMatchObject({ ok: true, data: null });
   expect(await call(engine, "automations.followUps.get", { taskId: task.id })).toMatchObject({ ok: true, data: null });
   expect(await call(engine, "automations.plans.readOccurrence", { occurrenceId: run.data.activationId })).toMatchObject({
-    ok: true, data: { plan: { planId: cron.planId, revision: offAgain.revision }, state: "completed" },
+    ok: true,
+    data: { plan: { planId: cron.planId, revision: offAgain.revision }, state: "completed" },
   });
   expect(await submit(remove)).toEqual(removed);
   const receipt = await fetch(`http://127.0.0.1:${engine.port}/api/v1/operations?operationId=${removed.operationId}`, {
@@ -1382,7 +1428,15 @@ test("原生回答先落盘，竞争只保存一个回答，确认丢失后只�
 test.each([false, true])("原生回答回包丢失后只核实并通知两个读取方（运行已结束：%s）", async (finished) => {
   const { fake, engine, task, run, execution } = await startBoundRun();
   const question = { mode: "native_deferred" as const, requestId: "ask-delivery", requestVersion: 1, text: "请选一个", options: ["一", "二"], nativeRequestId: "original-request" };
-  expect(await submitReceipt(engine, { version: 1, receiptId: "delivery-question", kind: "question" as const, execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: execution.sessionBinding.nativeSessionId! } }, payload: question })).toMatchObject({ ok: true });
+  expect(
+    await submitReceipt(engine, {
+      version: 1,
+      receiptId: "delivery-question",
+      kind: "question" as const,
+      execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: execution.sessionBinding.nativeSessionId! } },
+      payload: question,
+    }),
+  ).toMatchObject({ ok: true });
   const answer = vi.fn<NonNullable<TaskDispatchExecutor["answer"]>>().mockRejectedValue(new Error("原生写入后的回包丢失"));
   const inspect = vi.fn<NonNullable<TaskDispatchExecutor["inspectAnswer"]>>().mockResolvedValue({ status: "unknown" });
   fake.answer = answer;
@@ -2099,7 +2153,19 @@ test.each(externalEntries)("%s 逐项开放和撤销 Tasks 目标快照，冷与
     const bytes = JSON.stringify(existing);
     writeFileSync(targetFile, bytes);
     const warm = await list();
-    expect(warm).toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ mode: "existing", provider: "claude", sessionId: existing.id, available: false, reason: "binding_unverified", capabilities: expect.objectContaining({ liveSession: { state: "runtime_check", reason: "binding_unverified" } }) })]) });
+    expect(warm).toMatchObject({
+      ok: true,
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          mode: "existing",
+          provider: "claude",
+          sessionId: existing.id,
+          available: false,
+          reason: "binding_unverified",
+          capabilities: expect.objectContaining({ liveSession: { state: "runtime_check", reason: "binding_unverified" } }),
+        }),
+      ]),
+    });
     expect(readFileSync(targetFile, "utf8")).toBe(bytes);
     expect(await external.call(id, { spaceId: "space-missing" })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     expect(vi.mocked(spawn).mock.calls).toHaveLength(initialStarts);
@@ -2146,7 +2212,10 @@ async function bindGitHubFixture(engine: RunningEngine, replyActorIds: number[] 
   const token = await call<{ id: string; token: string }>(engine, "gateway.tokens.create", { name: "github-connector-fixture" });
   expect(token.ok).toBe(true);
   const config = await call<{ sourceId: string }>(engine, "tasks.github.source.create", {
-    connectorId: token.data.id, repositoryId: githubRepository.id, repository: githubRepository.name, replyActorIds,
+    connectorId: token.data.id,
+    repositoryId: githubRepository.id,
+    repository: githubRepository.name,
+    replyActorIds,
   });
   expect(config.ok).toBe(true);
   for (const capability of ["tasks.github.events.accept", "tasks.github.events.read"]) {
@@ -2160,8 +2229,7 @@ test("TW4 GitHub 事件重投、冲突、乱序和来源归并经过实际 HTTP 
   let engine = await start(root, true);
   const first = await bindGitHubFixture(engine);
   const second = await bindGitHubFixture(engine);
-  const accept = (raw: unknown, connection = first, sourceId = connection.sourceId) =>
-    call<{ taskId: string; state: string }>(engine, "tasks.github.events.accept", { sourceId, raw }, connection.token);
+  const accept = (raw: unknown, connection = first, sourceId = connection.sourceId) => call<{ taskId: string; state: string }>(engine, "tasks.github.events.accept", { sourceId, raw }, connection.token);
   const created = await accept(githubIssueEvent());
   expect(created).toMatchObject({ ok: true, data: { state: "created", taskId: expect.any(String) } });
   const id = created.data.taskId;
@@ -2181,7 +2249,8 @@ test("TW4 GitHub 事件重投、冲突、乱序和来源归并经过实际 HTTP 
   expect(task.origin).toMatchObject({ kind: "external", github: { sourceId: first.sourceId, issueId: githubIssue.id, eventId: "20101" } });
   expect(task.comments.map(({ event }) => event)).toEqual(["github-issue-updated", "github-comment"]);
   expect(await call(engine, "tasks.github.events.read", { sourceId: first.sourceId, eventId: "20104" }, first.token)).toMatchObject({
-    ok: true, data: { raw: githubCommentEvent("20104", "同一 Issue 的评论"), connectorId: first.id, actor: githubAuthor, taskId: id },
+    ok: true,
+    data: { raw: githubCommentEvent("20104", "同一 Issue 的评论"), connectorId: first.id, actor: githubAuthor, taskId: id },
   });
   expect(await call(engine, "tasks.github.source.retire", { sourceId: first.sourceId })).toMatchObject({ ok: true });
   expect(await accept(githubIssueEvent())).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
@@ -2191,11 +2260,15 @@ test("TW4 GitHub 已认证事件仍按真实作者、原对象及当前版本消
   const { fake, engine } = await startBoundRun();
   const connector = await bindGitHubFixture(engine, [githubAuthor.id]);
   const submit = (raw: unknown) => call<{ taskId: string; reply: unknown }>(engine, "tasks.github.events.accept", { sourceId: connector.sourceId, raw }, connector.token);
-  const { data: { taskId } } = await submit(githubIssueEvent());
+  const {
+    data: { taskId },
+  } = await submit(githubIssueEvent());
   const { data: original } = await call<TaskDto>(engine, "tasks.read", { id: taskId });
   const { data: spaces } = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
   const { data: task } = await call<TaskDto>(engine, "tasks.update", {
-    id: taskId, expectedVersion: original.version, patch: { type: "agent", execution: { spaceId: spaces[0]!.id, provider: "codex" } },
+    id: taskId,
+    expectedVersion: original.version,
+    patch: { type: "agent", execution: { spaceId: spaces[0]!.id, provider: "codex" } },
   });
   const run = await acceptDispatch(engine, intent(task));
   await waitDispatch(engine, run, { state: "running" });
@@ -2203,11 +2276,15 @@ test("TW4 GitHub 已认证事件仍按真实作者、原对象及当前版本消
   const question = { taskId, runId: run.runId, sessionId: execution.sessionBinding.sessionId, requestId: "github-ask", requestVersion: 2 };
   const answer = vi.fn<NonNullable<TaskDispatchExecutor["answer"]>>().mockResolvedValue({ status: "accepted" });
   fake.answer = answer;
-  expect(await submitReceipt(engine, {
-    version: 1, kind: "question", receiptId: "github-question",
-    execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: "fixture-thread" } },
-    payload: { mode: "native_deferred", requestId: question.requestId, requestVersion: 2, text: "选择结果", options: ["明确答复"], nativeRequestId: "gh-native" },
-  })).toMatchObject({ ok: true });
+  expect(
+    await submitReceipt(engine, {
+      version: 1,
+      kind: "question",
+      receiptId: "github-question",
+      execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: "fixture-thread" } },
+      payload: { mode: "native_deferred", requestId: question.requestId, requestVersion: 2, text: "选择结果", options: ["明确答复"], nativeRequestId: "gh-native" },
+    }),
+  ).toMatchObject({ ok: true });
   expect(await call(engine, "tasks.github.question.allow", { ...question, sourceId: connector.sourceId, issueId: githubIssue.id })).toMatchObject({ ok: true });
   const body = (version: number) => `/huhu answer ${question.runId} ${question.sessionId} ${question.requestId} ${version}\n明确答复`;
   expect(await submit(githubCommentEvent("20102", "只是讨论"))).toMatchObject({ ok: true, data: { state: "discussion" } });
@@ -2229,20 +2306,27 @@ test.each(["echo", "list", "none"] as const)("TW5 GitHub 丢失 POST 回包（%s
   let engine = first;
   const connector = await bindGitHubFixture(engine);
   const receive = (raw: unknown) => call<{ taskId: string; state: string }>(engine, "tasks.github.events.accept", { sourceId: connector.sourceId, raw }, connector.token);
-  const { data: { taskId } } = await receive(githubIssueEvent());
+  const {
+    data: { taskId },
+  } = await receive(githubIssueEvent());
   const { data: original } = await call<TaskDto>(engine, "tasks.read", { id: taskId });
   const { data: spaces } = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
   const { data: task } = await call<TaskDto>(engine, "tasks.update", {
-    id: taskId, expectedVersion: original.version, patch: { type: "agent", execution: { spaceId: spaces[0]!.id, provider: "codex" } },
+    id: taskId,
+    expectedVersion: original.version,
+    patch: { type: "agent", execution: { spaceId: spaces[0]!.id, provider: "codex" } },
   });
   const run = await acceptDispatch(engine, intent(task));
   await waitDispatch(engine, run, { state: "running" });
   const execution = recordOf(engine, run).boundExecution!;
   const result = { version: 1, kind: "result", receiptId: "github-result-receipt", execution, payload: { message: "待投递的稳定结果" } } as const satisfies ExecutionReceipt;
   expect(await submitReceipt(engine, result)).toEqual(await submitReceipt(engine, result));
-  await expect.poll(() => call(engine, "tasks.runs", { id: taskId })).toMatchObject({
-    ok: true, data: [{ result: { receiptId: result.receiptId, delivery: "delivered" } }],
-  });
+  await expect
+    .poll(() => call(engine, "tasks.runs", { id: taskId }))
+    .toMatchObject({
+      ok: true,
+      data: [{ result: { receiptId: result.receiptId, delivery: "delivered" } }],
+    });
   const outputActor = { id: 81, login: "github-delivery-bot" };
   const scope = { sourceId: connector.sourceId, issueId: githubIssue.id };
   expect(await call(engine, "tasks.github.deliveries.allow", { ...scope, actorId: outputActor.id })).toMatchObject({ ok: true });
@@ -2327,7 +2411,8 @@ test.each(["echo", "list", "none"] as const)("TW5 GitHub 丢失 POST 回包（%s
       const restored = await start(targetDir);
       expect(restored.vault.id).toBe(imported.data.vaultId);
       expect(await call(restored, "tasks.read", { id: taskId })).toMatchObject({
-        ok: true, data: { id: taskId, body: saved.body, origin: saved.origin, comments: saved.comments },
+        ok: true,
+        data: { id: taskId, body: saved.body, origin: saved.origin, comments: saved.comments },
       });
       expect(await call(restored, "tasks.github.deliveries.read", key)).toEqual(readDelivery);
       expect(await call(restored, "tasks.github.deliveries.read", key, connector.token)).toEqual({ error: "未授权" });
@@ -2343,9 +2428,7 @@ test.each(["echo", "list", "none"] as const)("TW5 GitHub 丢失 POST 回包（%s
 
 test("TW5 邮件结果关联冷恢复沿用 Mail Outbox 原草稿版与回执", async () => {
   const operation = { operationId: "smtp-fixture-operation", messageId: "<smtp-fixture@example.invalid>" };
-  const outboxSubmit = vi.fn<NonNullable<typeof mailOutboxFixture>["submit"]>()
-    .mockRejectedValueOnce(new Error("提交后响应丢失"))
-    .mockResolvedValue(operation);
+  const outboxSubmit = vi.fn<NonNullable<typeof mailOutboxFixture>["submit"]>().mockRejectedValueOnce(new Error("提交后响应丢失")).mockResolvedValue(operation);
   mailOutboxFixture = { submit: outboxSubmit };
   const { root, engine, task, execution, fake } = await startBoundRun();
   const receipt = { version: 1, kind: "result", receiptId: "mail-task-result", execution, payload: { message: "需要邮件投递的结果" } } as const satisfies ExecutionReceipt;
@@ -2363,9 +2446,13 @@ test("TW5 邮件结果关联冷恢复沿用 Mail Outbox 原草稿版与回执", 
   const retry = await submit(reopened);
   expect(retry).toMatchObject({ ok: true, data: { ...operation, resultMessageId: expect.stringMatching(/^receipt-/u) } });
   expect(await submit(reopened)).toEqual(retry);
-  expect(await reopened.dispatcher.call("web:delivery-fixture", {
-    capability: "tasks.mail.deliveries.read", input: resultKey, requestId: randomUUID(),
-  })).toMatchObject({ ok: true, data: operation });
+  expect(
+    await reopened.dispatcher.call("web:delivery-fixture", {
+      capability: "tasks.mail.deliveries.read",
+      input: resultKey,
+      requestId: randomUUID(),
+    }),
+  ).toMatchObject({ ok: true, data: operation });
   expect(outboxSubmit.mock.calls.map(([input]) => input)).toEqual([draft, draft]);
   expect(fake.dispatch).toHaveBeenCalledTimes(1);
 });

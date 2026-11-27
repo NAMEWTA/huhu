@@ -280,7 +280,12 @@ async function documentSnapshot(s: SFTPWrapper, abs: string, signal: AbortSignal
 
 export async function openDocument(s: SFTPWrapper, input: string, signal: AbortSignal): Promise<FileDocument> {
   const abs = await documentPath(s, input);
-  const { permissions: { mode }, bytes, bom, version } = await documentSnapshot(s, abs, signal);
+  const {
+    permissions: { mode },
+    bytes,
+    bom,
+    version,
+  } = await documentSnapshot(s, abs, signal);
   if (bytes.includes(0)) throw errors.invalidInput("文件含空字符，不能作为 UTF-8 文本编辑");
   try {
     const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bom ? bytes.subarray(BOM.length) : bytes);

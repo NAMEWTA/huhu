@@ -19,9 +19,13 @@ const materialSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("remote"), headers: common, query: z.string() }),
   z.strictObject({ kind: z.literal("stdio"), environment: common }),
   z.strictObject({
-    kind: z.literal("oauth"), issuer: z.string(), client: OAuthClientInformationFullSchema,
+    kind: z.literal("oauth"),
+    issuer: z.string(),
+    client: OAuthClientInformationFullSchema,
     metadata: z.union([OAuthMetadataSchema, OpenIdProviderMetadataSchema]).optional(),
-    resource: z.string(), tokens: OAuthTokensSchema, expiresAt: z.number().nullable(),
+    resource: z.string(),
+    tokens: OAuthTokensSchema,
+    expiresAt: z.number().nullable(),
   }),
 ]);
 export type McpCredentialMaterial = z.infer<typeof materialSchema>;
@@ -47,9 +51,7 @@ export function clearCredential(config: McpSource["configuration"]): McpSource["
 
 const targetOf = (source: McpSource) => {
   const config = source.configuration;
-  return config.transport === "stdio"
-    ? JSON.stringify([config.transport, config.command, config.cwd ?? null, config.args])
-    : JSON.stringify([config.transport, config.url]);
+  return config.transport === "stdio" ? JSON.stringify([config.transport, config.command, config.cwd ?? null, config.args]) : JSON.stringify([config.transport, config.url]);
 };
 
 function bound(source: McpSource, material: McpCredentialMaterial, reference: string): McpSource["configuration"] {
@@ -80,23 +82,34 @@ export class McpCredentials {
   private readonly refreshes = new Map<string, { scope: AbortSignal; result: Promise<OAuthMaterial> }>();
   private readonly lifetime = new AbortController();
 
-  constructor(private readonly store: McpSourceStore, host?: McpCredentialHost) {
-    if (host) this.owner = new ModuleCredentials({
-      ...host, pluginId: "mcp", definition: definitionSchema,
-      targets: (definition) => ({ authentication: JSON.stringify([definition.sourceId, definition.target, definition.account, definition.kind]) }),
-    });
+  constructor(
+    private readonly store: McpSourceStore,
+    host?: McpCredentialHost,
+  ) {
+    if (host)
+      this.owner = new ModuleCredentials({
+        ...host,
+        pluginId: "mcp",
+        definition: definitionSchema,
+        targets: (definition) => ({ authentication: JSON.stringify([definition.sourceId, definition.target, definition.account, definition.kind]) }),
+      });
   }
 
-  get available() { return !!this.owner && !this.store.files.readOnly; }
+  get available() {
+    return !!this.owner && !this.store.files.readOnly;
+  }
 
-  dispose() { this.lifetime.abort(); }
+  dispose() {
+    this.lifetime.abort();
+  }
 
   current(source: McpSource, requireRevision = true) {
     try {
       const latest = this.store.source(source.sourceId);
-      return (!requireRevision || latest.revision === source.revision) && latest.enabled === source.enabled &&
-        canonicalJson(latest.configuration) === canonicalJson(source.configuration);
-    } catch { return false; }
+      return (!requireRevision || latest.revision === source.revision) && latest.enabled === source.enabled && canonicalJson(latest.configuration) === canonicalJson(source.configuration);
+    } catch {
+      return false;
+    }
   }
 
   async stage(source: McpSource, account: string, material: McpCredentialMaterial, signal?: AbortSignal, isCurrent?: () => boolean): Promise<SourceCredentialStage> {
@@ -108,13 +121,17 @@ export class McpCredentials {
     const lifetime = AbortSignal.any([this.lifetime.signal, ...(signal ? [signal] : [])]);
     try {
       const saved = await owner.save({
-        entityId: reference, expectedRevision: null,
+        entityId: reference,
+        expectedRevision: null,
         definition: { sourceId: source.sourceId, target: targetOf(source), account, kind: material.kind },
         actions: [{ purpose: "authentication", action: "replace", value: JSON.stringify(materialSchema.parse(material)) }],
-        signal: lifetime, ...(isCurrent && { isCurrent }),
+        signal: lifetime,
+        ...(isCurrent && { isCurrent }),
       });
       return { reference, revision: saved.revision, configuration };
-    } catch (error) { throw credentialFailure(error); }
+    } catch (error) {
+      throw credentialFailure(error);
+    }
   }
 
   async discard(reference: string, revision?: string): Promise<void> {
@@ -145,7 +162,9 @@ export class McpCredentials {
     try {
       const row = (await this.owner.list()).find((entry) => entry.entityId === reference && entry.definition.sourceId === source.sourceId && entry.definition.target === targetOf(source));
       return { state: row?.authState["authentication"] ?? "needs-reconfiguration", account: row?.definition.account ?? null };
-    } catch { return { state: "temporarily-unavailable", account: null }; }
+    } catch {
+      return { state: "temporarily-unavailable", account: null };
+    }
   }
 
   async values(source: McpSource, scope = this.lifetime.signal): Promise<McpCredentialMaterial | undefined> {
@@ -153,8 +172,7 @@ export class McpCredentials {
     const config = source.configuration;
     const reference = credentialReference(source);
     if (!reference) {
-      if ((config.transport === "stdio" && config.credentialEnvironment?.names.length) ||
-          (config.transport !== "stdio" && ["credential-needed", "oauth"].includes(config.authentication.kind))) {
+      if ((config.transport === "stdio" && config.credentialEnvironment?.names.length) || (config.transport !== "stdio" && ["credential-needed", "oauth"].includes(config.authentication.kind))) {
         throw mcpRouteError("authentication-required", { sourceId: source.sourceId });
       }
       return undefined;
@@ -172,8 +190,11 @@ export class McpCredentials {
       if (existing && !existing.scope.aborted) return await existing.result;
       const refresh = { scope, result: this.refresh(source, reference, read.definition, read.revision, read.material, scope) };
       this.refreshes.set(reference, refresh);
-      try { return await refresh.result; }
-      finally { if (this.refreshes.get(reference) === refresh) this.refreshes.delete(reference); }
+      try {
+        return await refresh.result;
+      } finally {
+        if (this.refreshes.get(reference) === refresh) this.refreshes.delete(reference);
+      }
     } catch {
       scope.throwIfAborted();
       throw mcpRouteError("authentication-required", { sourceId: source.sourceId });
@@ -185,16 +206,23 @@ export class McpCredentials {
     if (!refreshToken) throw mcpRouteError("authentication-required");
     const signal = AbortSignal.any([this.lifetime.signal, scope, AbortSignal.timeout(12_000)]);
     const tokens = await refreshAuthorization(material.issuer, {
-      clientInformation: material.client, ...(material.metadata && { metadata: material.metadata }), refreshToken, resource: material.resource,
+      clientInformation: material.client,
+      ...(material.metadata && { metadata: material.metadata }),
+      refreshToken,
+      resource: material.resource,
       fetchFn: oauthFetch(new URL(material.resource), signal),
     });
     const updated = { ...material, tokens, expiresAt: expiry(tokens.expires_in) };
     await this.owner!.save({
-      entityId: reference, expectedRevision: revision, definition, signal, isCurrent: () => this.current(source, false),
+      entityId: reference,
+      expectedRevision: revision,
+      definition,
+      signal,
+      isCurrent: () => this.current(source, false),
       actions: [{ purpose: "authentication", action: "replace", value: JSON.stringify(updated) }],
     });
     return updated;
   }
 }
 
-export const expiry = (expiresIn: number | undefined) => expiresIn === undefined ? null : Date.now() + expiresIn * 1000;
+export const expiry = (expiresIn: number | undefined) => (expiresIn === undefined ? null : Date.now() + expiresIn * 1000);

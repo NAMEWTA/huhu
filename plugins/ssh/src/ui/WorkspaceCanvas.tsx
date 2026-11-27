@@ -36,10 +36,7 @@ function customCells(node: SplitTree, cell: Cell, splitters: Splitter[], path: S
   const fraction = node.firstPercent / 100;
   const firstCount = paneCount(node.first);
   splitters.push({ path, cell, axis: node.axis, percent: node.firstPercent, firstIndex, firstCount, size: firstCount + paneCount(node.second) });
-  const children = (first: Cell, second: Cell) => [
-    ...customCells(node.first, first, splitters, [...path, "first"], firstIndex),
-    ...customCells(node.second, second, splitters, [...path, "second"], firstIndex + firstCount),
-  ];
+  const children = (first: Cell, second: Cell) => [...customCells(node.first, first, splitters, [...path, "first"], firstIndex), ...customCells(node.second, second, splitters, [...path, "second"], firstIndex + firstCount)];
   if (node.axis === "row") {
     const w = cell.w * fraction;
     return children({ ...cell, w }, { ...cell, x: cell.x + w, w: cell.w - w });
@@ -163,8 +160,8 @@ export function WorkspaceCanvas({
     const bounds = slots.slice(splitter.firstIndex, splitter.firstIndex + splitter.size).map((slot) => slot.getBoundingClientRect());
     if (!bounds.length) return;
     const horizontal = splitter.axis === "row";
-    const first = Math.min(...bounds.map((bound) => horizontal ? bound.left : bound.top));
-    const last = Math.max(...bounds.map((bound) => horizontal ? bound.right : bound.bottom));
+    const first = Math.min(...bounds.map((bound) => (horizontal ? bound.left : bound.top)));
+    const last = Math.max(...bounds.map((bound) => (horizontal ? bound.right : bound.bottom)));
     if (last <= first) return;
     event.currentTarget.focus({ preventScroll: true });
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -175,7 +172,7 @@ export function WorkspaceCanvas({
     const drag = splitDrag.current;
     if (!drag || drag.id !== event.pointerId || drag.revision !== layoutRevision) return;
     const position = axis === "row" ? event.clientX : event.clientY;
-    drag.next = Math.max(10, Math.min(90, Math.round(drag.start + 100 * (position - drag.origin) / drag.length)));
+    drag.next = Math.max(10, Math.min(90, Math.round(drag.start + (100 * (position - drag.origin)) / drag.length)));
     setPreview({ tree: resizeSplit(drag.tree, drag.path, drag.next), revision: drag.revision });
   }
 
@@ -245,11 +242,13 @@ export function WorkspaceCanvas({
       )}
       {tabbed && collapseVerticalGroups && tabs === "left" && groupVerticalTabs && (
         <div className="ssh-workspace-controls" aria-label="纵向标签组">
-          {tabGroups.filter((group) => group.panes.length > 1).map((group) => (
-            <Button key={group.key} aria-expanded={!groupCollapsed(group)} type="button" onClick={() => setExpandedGroups((current) => ({ ...current, [group.key]: !current[group.key] }))}>
-              {group.label} · {group.panes.length} 个标签
-            </Button>
-          ))}
+          {tabGroups
+            .filter((group) => group.panes.length > 1)
+            .map((group) => (
+              <Button key={group.key} aria-expanded={!groupCollapsed(group)} type="button" onClick={() => setExpandedGroups((current) => ({ ...current, [group.key]: !current[group.key] }))}>
+                {group.label} · {group.panes.length} 个标签
+              </Button>
+            ))}
         </div>
       )}
       <div className={tabbed ? "ssh-workspace-tabs" : undefined} data-tab-side={tabs}>
@@ -275,37 +274,60 @@ export function WorkspaceCanvas({
                     {group.label}
                   </span>
                 ),
-                ...group.panes.filter((pane) => !groupCollapsed(group) || pane.paneId === active).map((pane) => (
-                  <span key={pane.paneId} className="ssh-workspace-tab-entry">
-                    <button type="button" role="tab" id={`${tabPrefix}-tab-${pane.paneId}`}
-                      aria-selected={pane.paneId === active} aria-describedby={heading} tabIndex={pane.paneId === active ? 0 : -1}
-                      data-grouped={Boolean(heading)}
-                      onFocus={() => onActive(pane.paneId)} onClick={() => onActive(pane.paneId)}
-                      onContextMenu={(event) => {
-                        if (!tabActions(pane, tabIds).length) return;
-                        event.preventDefault();
-                        setTabMenu(pane.paneId);
-                      }}
-                      onKeyDown={(event) => {
-                        if ((event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) || !tabActions(pane, tabIds).length) return;
-                        event.preventDefault();
-                        setTabMenu(pane.paneId);
-                      }}
-                    >
-                      {pane.label}
-                    </button>
-                    {tabActions(pane, tabIds).length > 0 && <Popover.Root open={tabMenu === pane.paneId} onOpenChange={(shown) => setTabMenu((current) => shown ? pane.paneId : current === pane.paneId ? undefined : current)}>
-                      <Popover.Trigger asChild><IconButton icon={Ellipsis} label={`标签操作 ${pane.label}`} tabIndex={pane.paneId === active ? 0 : -1} /></Popover.Trigger>
-                      <Popover.Portal>
-                        <Popover.Content className="ssh-directory-actions" align="end" sideOffset={4} collisionPadding={8} aria-label={`${pane.label} 标签操作`}>
-                          {tabActions(pane, tabIds).map(({ label, run, disabled }) => (
-                            <Button key={label} type="button" variant="ghost" disabled={disabled} onClick={() => { setTabMenu(undefined); run(); }}>{label}</Button>
-                          ))}
-                        </Popover.Content>
-                      </Popover.Portal>
-                    </Popover.Root>}
-                  </span>
-                )),
+                ...group.panes
+                  .filter((pane) => !groupCollapsed(group) || pane.paneId === active)
+                  .map((pane) => (
+                    <span key={pane.paneId} className="ssh-workspace-tab-entry">
+                      <button
+                        type="button"
+                        role="tab"
+                        id={`${tabPrefix}-tab-${pane.paneId}`}
+                        aria-selected={pane.paneId === active}
+                        aria-describedby={heading}
+                        tabIndex={pane.paneId === active ? 0 : -1}
+                        data-grouped={Boolean(heading)}
+                        onFocus={() => onActive(pane.paneId)}
+                        onClick={() => onActive(pane.paneId)}
+                        onContextMenu={(event) => {
+                          if (!tabActions(pane, tabIds).length) return;
+                          event.preventDefault();
+                          setTabMenu(pane.paneId);
+                        }}
+                        onKeyDown={(event) => {
+                          if ((event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) || !tabActions(pane, tabIds).length) return;
+                          event.preventDefault();
+                          setTabMenu(pane.paneId);
+                        }}
+                      >
+                        {pane.label}
+                      </button>
+                      {tabActions(pane, tabIds).length > 0 && (
+                        <Popover.Root open={tabMenu === pane.paneId} onOpenChange={(shown) => setTabMenu((current) => (shown ? pane.paneId : current === pane.paneId ? undefined : current))}>
+                          <Popover.Trigger asChild>
+                            <IconButton icon={Ellipsis} label={`标签操作 ${pane.label}`} tabIndex={pane.paneId === active ? 0 : -1} />
+                          </Popover.Trigger>
+                          <Popover.Portal>
+                            <Popover.Content className="ssh-directory-actions" align="end" sideOffset={4} collisionPadding={8} aria-label={`${pane.label} 标签操作`}>
+                              {tabActions(pane, tabIds).map(({ label, run, disabled }) => (
+                                <Button
+                                  key={label}
+                                  type="button"
+                                  variant="ghost"
+                                  disabled={disabled}
+                                  onClick={() => {
+                                    setTabMenu(undefined);
+                                    run();
+                                  }}
+                                >
+                                  {label}
+                                </Button>
+                              ))}
+                            </Popover.Content>
+                          </Popover.Portal>
+                        </Popover.Root>
+                      )}
+                    </span>
+                  )),
               ];
             })}
           </div>
@@ -371,7 +393,7 @@ export function WorkspaceCanvas({
           {splitters.map((splitter) => {
             const { cell, axis, path, percent, firstIndex, firstCount } = splitter;
             const across = axis === "row";
-            const boundary = across ? edge(x, cell.x + cell.w * percent / 100) : edge(y, cell.y + cell.h * percent / 100);
+            const boundary = across ? edge(x, cell.x + (cell.w * percent) / 100) : edge(y, cell.y + (cell.h * percent) / 100);
             const first = panes.slice(firstIndex, firstIndex + firstCount);
             return (
               <div

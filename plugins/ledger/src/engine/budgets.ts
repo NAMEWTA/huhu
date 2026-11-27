@@ -6,8 +6,7 @@ import { calendarMonth } from "../shared/reports.js";
 import { filteredRecords, recordView } from "./records.js";
 import type { BookState, LedgerStore } from "./store.js";
 
-const key = ({ name, ...definition }: Budget["definition"]) =>
-  JSON.stringify([definition.type, definition.type === "fixed" ? definition.month : null, name.normalize("NFKC").toLowerCase()]);
+const key = ({ name, ...definition }: Budget["definition"]) => JSON.stringify([definition.type, definition.type === "fixed" ? definition.month : null, name.normalize("NFKC").toLowerCase()]);
 
 export function readBudget(state: BookState, id: string) {
   const budget = state.budgets.find((row) => row.id === id && row.bookId === state.book.id);
@@ -29,7 +28,7 @@ function validateDimensions(state: BookState, definition: Budget["definition"], 
 }
 
 export function saveBudgets(state: BookState, { budgets }: z.infer<typeof SaveBudgets>) {
-  const replacing = new Set(budgets.flatMap(({ id }) => id ? [id] : []));
+  const replacing = new Set(budgets.flatMap(({ id }) => (id ? [id] : [])));
   if (replacing.size !== budgets.filter(({ id }) => id).length) throw errors.invalidInput("同一预算只能修改一次");
   const retained = state.budgets.filter(({ id }) => !replacing.has(id));
   const names = new Set(retained.map(({ definition }) => key(definition)));
@@ -53,7 +52,7 @@ export function removeBudget(state: BookState, id: string) {
 }
 
 export function copyBudgets(state: BookState, { source, targets }: z.infer<typeof CopyBudgets>): CopyBudgetResult {
-  const originals = state.budgets.flatMap(({ definition }) => definition.type === "fixed" && definition.month === source ? [definition] : []);
+  const originals = state.budgets.flatMap(({ definition }) => (definition.type === "fixed" && definition.month === source ? [definition] : []));
   const names = new Map(state.budgets.map((budget) => [key(budget.definition), budget.id]));
   const result: CopyBudgetResult = { created: 0, skipped: [] };
   for (const month of targets) {
@@ -81,25 +80,25 @@ function selectPeriod(state: BookState, { year, month, currency }: z.infer<typeo
     if (definition.type === "fixed") return month ? definition.month === year + "-" + month : definition.month.startsWith(year + "-");
     return (!definition.from || definition.from <= to) && (!definition.to || definition.to >= from);
   });
-  const records = filteredRecords(state, { from, to, currency, offset: false }).flatMap((record) =>
-    record.type === "transfer" ? [] : [{ record, date: ledgerBusinessDate(record.occurredAt, state.book.timeZone) }]);
+  const records = filteredRecords(state, { from, to, currency, offset: false }).flatMap((record) => (record.type === "transfer" ? [] : [{ record, date: ledgerBusinessDate(record.occurredAt, state.book.timeZone) }]));
   return { budgets, records };
 }
 
 function match({ definition }: Budget, records: ReturnType<typeof selectPeriod>["records"]) {
   if (definition.type === "fixed") {
     const categories = new Set(definition.categoryIds);
-    return records.filter(({ record, date }) => record.currency === definition.currency && record.type === definition.direction &&
-      date.startsWith(definition.month + "-") && (categories.size === 0 || (record.categoryId !== null && categories.has(record.categoryId))));
+    return records.filter(
+      ({ record, date }) =>
+        record.currency === definition.currency && record.type === definition.direction && date.startsWith(definition.month + "-") && (categories.size === 0 || (record.categoryId !== null && categories.has(record.categoryId))),
+    );
   }
   const tags = new Set(definition.tagIds);
-  return records.filter(({ record, date }) => record.currency === definition.currency && record.type === "expense" &&
-    (!definition.from || date >= definition.from) && (!definition.to || date <= definition.to) &&
-    record.tagIds.some((id) => tags.has(id)));
+  return records.filter(
+    ({ record, date }) => record.currency === definition.currency && record.type === "expense" && (!definition.from || date >= definition.from) && (!definition.to || date <= definition.to) && record.tagIds.some((id) => tags.has(id)),
+  );
 }
 
-const amounts = (limit: bigint, actual: bigint) =>
-  ({ limitMinor: limit.toString(), actualMinor: actual.toString(), remainingMinor: (limit - actual).toString() });
+const amounts = (limit: bigint, actual: bigint) => ({ limitMinor: limit.toString(), actualMinor: actual.toString(), remainingMinor: (limit - actual).toString() });
 const actualAmount = (matched: ReturnType<typeof match>) => matched.reduce((sum, { record }) => sum + BigInt(record.amountMinor), 0n);
 
 export function budgetOverview(state: BookState, query: z.infer<typeof BudgetQuery>): BudgetOverview {
@@ -130,7 +129,11 @@ export function budgetDetail(store: LedgerStore, state: BookState, query: z.infe
   const { page, pageSize } = query;
   const start = (page - 1) * pageSize;
   return {
-    ...budget, ...amounts(BigInt(budget.definition.limitMinor), actualAmount(matched)), count: matched.length, page, pageSize,
+    ...budget,
+    ...amounts(BigInt(budget.definition.limitMinor), actualAmount(matched)),
+    count: matched.length,
+    page,
+    pageSize,
     rows: matched.slice(start, start + pageSize).map(({ record }) => recordView(store, state, record, false)),
   };
 }

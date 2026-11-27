@@ -63,8 +63,7 @@ export function AgentSettingsPage() {
     );
   if (!loaded.data) return <p>…</p>;
   const settings = loaded.data.settings;
-  const save = (next: Pick<AgentSettingsFile, "defaultAgent" | "agents">) =>
-    call("agent.settings.update", { expectedRevision: settings.revision, ...next });
+  const save = (next: Pick<AgentSettingsFile, "defaultAgent" | "agents">) => call("agent.settings.update", { expectedRevision: settings.revision, ...next });
   const commit = (id: string, patch: AgentSettingsEntry) => save({ defaultAgent: settings.defaultAgent, agents: { ...settings.agents, [id]: { ...entryOf(settings, id), ...patch } } });
   const found = (detected.data ?? []).filter((d) => d.installed);
   const checkedAt = detected.data?.[0]?.detectedAt;

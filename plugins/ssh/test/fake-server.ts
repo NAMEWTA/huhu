@@ -88,10 +88,13 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
           const questions = rounds?.[index];
           if (!questions) return ctx.accept();
           if (ctx.method !== "keyboard-interactive") return ctx.reject();
-          ctx.prompt(questions.map(({ text, echo }) => ({ prompt: text, echo })), (responses) => {
-            if (responses.length !== questions.length || questions.some(({ answer }, item) => answer !== responses[item])) return ctx.reject();
-            prompt(index + 1);
-          });
+          ctx.prompt(
+            questions.map(({ text, echo }) => ({ prompt: text, echo })),
+            (responses) => {
+              if (responses.length !== questions.length || questions.some(({ answer }, item) => answer !== responses[item])) return ctx.reject();
+              prompt(index + 1);
+            },
+          );
         }
         prompt(0);
         return;

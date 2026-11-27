@@ -13,8 +13,9 @@ const project = (state: BookState, records: RecordRow[]) => records.map((record)
 
 function identity(mode: "merge" | "offset", input: MergeInput | OffsetInput) {
   const members = input.members.map(({ recordId, recordRevision }) => [recordId, recordRevision]).sort(([a], [b]) => a!.localeCompare(b!));
-  return createHash("sha256").update(canonicalJson([mode, input.bookId, input.expectedRevision, members,
-    "keepRecordId" in input ? input.keepRecordId : null])).digest("hex");
+  return createHash("sha256")
+    .update(canonicalJson([mode, input.bookId, input.expectedRevision, members, "keepRecordId" in input ? input.keepRecordId : null]))
+    .digest("hex");
 }
 
 function ungrouped(state: BookState, input: MergeInput | OffsetInput) {
@@ -36,20 +37,24 @@ export function previewMerge(state: BookState, input: MergeInput): MergePreview 
   const ids = new Set(records.map(({ id }) => id));
   const notes = distinct([
     ...state.recordReferences.filter(({ kind, recordId }) => kind === "note" && ids.has(recordId)).map(({ targetId }) => targetId),
-    ...state.resourceReferences.flatMap(({ owner, resource }) => owner.kind === "record" && ids.has(owner.id) ? [documentKey(resource)] : []),
+    ...state.resourceReferences.flatMap(({ owner, resource }) => (owner.kind === "record" && ids.has(owner.id) ? [documentKey(resource)] : [])),
   ]);
   const occurrences = distinct(state.recordReferences.filter(({ kind, recordId }) => kind === "occurrence" && ids.has(recordId)).map(({ targetId }) => targetId));
   const combined = distinct([keeper, ...records.filter((row) => row !== keeper)].map(({ memo }) => memo?.trim()).filter(Boolean)).join(" / ");
   return {
-    expectedRevision: input.expectedRevision, previewId: identity("merge", input), keepRecordId: keeper.id,
+    expectedRevision: input.expectedRevision,
+    previewId: identity("merge", input),
+    keepRecordId: keeper.id,
     rows: project(state, records),
-    accounts: distinct(records.map((row) => row.type === "transfer" ? row.fromAccountId : row.accountId)),
-    toAccounts: distinct(records.flatMap((row) => row.type === "transfer" ? [row.toAccountId] : [])),
+    accounts: distinct(records.map((row) => (row.type === "transfer" ? row.fromAccountId : row.accountId))),
+    toAccounts: distinct(records.flatMap((row) => (row.type === "transfer" ? [row.toAccountId] : []))),
     categories: distinct(records.map(({ categoryId }) => categoryId)),
     suggestedMemo: combined.slice(0, 500) || null,
     memoOverflow: combined.length > 500,
     references: {
-      attachments: distinct(records.flatMap(({ attachmentIds }) => attachmentIds)).length, notes: notes.length, occurrences: occurrences.length,
+      attachments: distinct(records.flatMap(({ attachmentIds }) => attachmentIds)).length,
+      notes: notes.length,
+      occurrences: occurrences.length,
       conflictingOccurrences: occurrences.length > 1 ? occurrences : [],
     },
   };
@@ -77,7 +82,11 @@ export function merge(state: BookState, input: z.infer<typeof ConfirmMerge>) {
   const attachments = distinct(records.flatMap(({ attachmentIds }) => attachmentIds));
   if (tags.length > 50 || attachments.length > 20) throw errors.invalidInput("标签或凭证超出单笔上限，合并会丢失引用");
   const fields = {
-    ...previous, categoryId, tagIds: tags, attachmentIds: attachments, revision: randomUUID(),
+    ...previous,
+    categoryId,
+    tagIds: tags,
+    attachmentIds: attachments,
+    revision: randomUUID(),
     memo: input.memo === undefined ? preview.suggestedMemo : input.memo,
   };
   let retained: RecordRow;
@@ -88,16 +97,17 @@ export function merge(state: BookState, input: z.infer<typeof ConfirmMerge>) {
   } else {
     retained = LedgerRecord.parse({ ...fields, accountId: source });
   }
-  state.records = state.records.flatMap((row) => retired.has(row.id) ? [] : [row.id === id ? retained : row]);
+  state.records = state.records.flatMap((row) => (retired.has(row.id) ? [] : [row.id === id ? retained : row]));
   state.legacyOffsetRecordIds = state.legacyOffsetRecordIds.filter((recordId) => !retired.has(recordId));
   for (const removedId of removed) delete state.recordTitles[removedId];
-  const references = new Map(state.recordReferences.map((row) => {
-    const next = retired.has(row.recordId) ? { ...row, recordId: id } : row;
-    return [canonicalJson([next.kind, next.targetId, next.recordId]), next];
-  }));
+  const references = new Map(
+    state.recordReferences.map((row) => {
+      const next = retired.has(row.recordId) ? { ...row, recordId: id } : row;
+      return [canonicalJson([next.kind, next.targetId, next.recordId]), next];
+    }),
+  );
   state.recordReferences = [...references.values()];
-  const keptResources = new Set(state.resourceReferences.flatMap(({ owner, resource }) =>
-    owner.kind === "record" && owner.id === id ? [documentKey(resource)] : []));
+  const keptResources = new Set(state.resourceReferences.flatMap(({ owner, resource }) => (owner.kind === "record" && owner.id === id ? [documentKey(resource)] : [])));
   state.resourceReferences = state.resourceReferences.flatMap((row) => {
     if (row.owner.kind !== "record" || !retired.has(row.owner.id)) return [row];
     const key = documentKey(row.resource);
@@ -122,14 +132,23 @@ export function previewOffset(state: BookState, input: OffsetInput): OffsetPrevi
   let expenseCount = 0;
   for (const row of rows) {
     if (row.type === "transfer" || row.currency !== currency) throw errors.invalidInput("平账须选择同币种的收入与支出");
-    if (row.type === "income") { income += BigInt(row.amountMinor); incomeCount++; }
-    else { expense += BigInt(row.amountMinor); expenseCount++; }
+    if (row.type === "income") {
+      income += BigInt(row.amountMinor);
+      incomeCount++;
+    } else {
+      expense += BigInt(row.amountMinor);
+      expenseCount++;
+    }
   }
   if (Math.min(incomeCount, expenseCount) !== 1 || income !== expense) {
     throw errors.invalidInput("平账须由一笔流水与一至五笔反向等额流水组成");
   }
   return {
-    expectedRevision: input.expectedRevision, previewId: identity("offset", input), rows: project(state, rows), currency, amountMinor: income.toString(),
+    expectedRevision: input.expectedRevision,
+    previewId: identity("offset", input),
+    rows: project(state, rows),
+    currency,
+    amountMinor: income.toString(),
   };
 }
 
@@ -137,8 +156,12 @@ export function addOffset(state: BookState, input: OffsetInput & { previewId: st
   const preview = previewOffset(state, input);
   if (input.previewId !== preview.previewId) throw errors.invalidInput("平账组已变化，请重新预览");
   const group = LedgerOffsetGroup.parse({
-    id: randomUUID(), bookId: state.book.id, currency: preview.currency, memberRecordIds: preview.rows.map(({ record }) => record.id),
-    createdAt: new Date().toISOString(), revision: randomUUID(),
+    id: randomUUID(),
+    bookId: state.book.id,
+    currency: preview.currency,
+    memberRecordIds: preview.rows.map(({ record }) => record.id),
+    createdAt: new Date().toISOString(),
+    revision: randomUUID(),
   });
   state.offsets.push(group);
   return group;
@@ -147,7 +170,14 @@ export function addOffset(state: BookState, input: OffsetInput & { previewId: st
 export function groupView(state: BookState, recordId: string): OffsetGroupView {
   const group = state.offsets.find((entry) => entry.memberRecordIds.includes(recordId));
   if (!group) throw errors.notFound("流水不属于任何平账组");
-  return { group, expectedRevision: state.book.revision, rows: project(state, group.memberRecordIds.map((id) => findRecord(state, id))) };
+  return {
+    group,
+    expectedRevision: state.book.revision,
+    rows: project(
+      state,
+      group.memberRecordIds.map((id) => findRecord(state, id)),
+    ),
+  };
 }
 
 export function undoOffset(state: BookState, input: z.infer<typeof UndoOffset>) {

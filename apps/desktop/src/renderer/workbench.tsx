@@ -71,23 +71,26 @@ function WorkbenchCommandPalette({ registry, ui }: Pick<CommandPaletteProps, "re
     };
   }, [client]);
 
-  const onOpenResult = useCallback(({ kind, id, path }: PaletteSearchHit) => {
-    const open = (module: string, onOpen: () => void) =>
-      ui.getState().openModule(module, {
-        onOpen: () => {
-          onOpen();
-          focusOpenedModule(ui, module);
-        },
-        isCurrent: () => current.current === client && registry.getSnapshot().modules.some(({ id }) => id === module),
-      });
-    if (kind === "task") {
-      if (id) void open("tasks", () => requestOpenTask(id));
-    } else if (kind === "capture") {
-      if (id) void open("inbox", () => requestOpenCapture(client, id));
-    } else {
-      void open("notes", () => requestOpenPath(path, true));
-    }
-  }, [client, registry, ui]);
+  const onOpenResult = useCallback(
+    ({ kind, id, path }: PaletteSearchHit) => {
+      const open = (module: string, onOpen: () => void) =>
+        ui.getState().openModule(module, {
+          onOpen: () => {
+            onOpen();
+            focusOpenedModule(ui, module);
+          },
+          isCurrent: () => current.current === client && registry.getSnapshot().modules.some(({ id }) => id === module),
+        });
+      if (kind === "task") {
+        if (id) void open("tasks", () => requestOpenTask(id));
+      } else if (kind === "capture") {
+        if (id) void open("inbox", () => requestOpenCapture(client, id));
+      } else {
+        void open("notes", () => requestOpenPath(path, true));
+      }
+    },
+    [client, registry, ui],
+  );
 
   return <CommandPalette registry={registry} ui={ui} client={client} onOpenResult={onOpenResult} />;
 }
@@ -113,8 +116,15 @@ export function WorkbenchApp(props: AppProps) {
   }
   return (
     <EngineProvider endpoint={endpoint} {...(onConnection ? { onConnection } : {})}>
-      {"fileSessionId" in target ? <SshFileWindow id={target.fileSessionId} /> : "runId" in target ? <SshWorkspaceWindow target={target} /> :
-        "handoffId" in target ? <SshTerminalWindow target={target} /> : <SshToolWindow hostId={target.hostId} shellId={target.shellId} name={target.name} />}
+      {"fileSessionId" in target ? (
+        <SshFileWindow id={target.fileSessionId} />
+      ) : "runId" in target ? (
+        <SshWorkspaceWindow target={target} />
+      ) : "handoffId" in target ? (
+        <SshTerminalWindow target={target} />
+      ) : (
+        <SshToolWindow hostId={target.hostId} shellId={target.shellId} name={target.name} />
+      )}
     </EngineProvider>
   );
 }
@@ -123,7 +133,9 @@ function WorkbenchShell({ endpoint, state, version, onRestartEngine, onConnectio
   const [vaultName, setVaultName] = useState("HUHU");
   const currentEndpoint = useRef(endpoint);
   const notificationRequest = useRef(0);
-  useLayoutEffect(() => { currentEndpoint.current = endpoint; }, [endpoint]);
+  useLayoutEffect(() => {
+    currentEndpoint.current = endpoint;
+  }, [endpoint]);
   const ui = useMemo(() => {
     const active = (browser && browserLocation(location.pathname)?.module) || "home";
     return createUiStore({ activeModule: active, openTabs: active === "home" ? ["home"] : ["home", active] });
@@ -139,8 +151,7 @@ function WorkbenchShell({ endpoint, state, version, onRestartEngine, onConnectio
         const request = ++notificationRequest.current;
         void ui.getState().openModule("automations", {
           guardCurrent: true,
-          isCurrent: () => request === notificationRequest.current
-            && currentEndpoint.current?.vaultId === source.vaultId && currentEndpoint.current.baseUrl === source.baseUrl,
+          isCurrent: () => request === notificationRequest.current && currentEndpoint.current?.vaultId === source.vaultId && currentEndpoint.current.baseUrl === source.baseUrl,
           onOpen: () => writeAutomationOccurrenceLink(source.vaultId, occurrence),
         });
       } else if (module === "mail") void requestMailNotification({ id, vaultId: source.vaultId, endpoint: source.baseUrl }, open);
@@ -153,11 +164,13 @@ function WorkbenchShell({ endpoint, state, version, onRestartEngine, onConnectio
     r.register(notesUi);
     r.register(tasksUi);
     r.register(inboxUi);
-    r.register(createLedgerContributions(() => {
-      const state = ui.getState();
-      state.setSection("ledger", "records");
-      state.openModule("ledger");
-    }));
+    r.register(
+      createLedgerContributions(() => {
+        const state = ui.getState();
+        state.setSection("ledger", "records");
+        state.openModule("ledger");
+      }),
+    );
     r.register(createMailContributions(() => ui.getState().openModule("mail")));
     r.register(safeUi);
     r.register(agentCliUi);
@@ -282,7 +295,7 @@ function WorkbenchShell({ endpoint, state, version, onRestartEngine, onConnectio
         else requestOpenPath(link.target, true);
       }
       const current = currentEndpoint.current;
-      const active = current && readAutomationOccurrenceLink(current.vaultId) ? "automations" : link?.module ?? "home";
+      const active = current && readAutomationOccurrenceLink(current.vaultId) ? "automations" : (link?.module ?? "home");
       if (ui.getState().activeModule !== active) ui.getState().openModule(active);
     };
     openLocation();
@@ -329,8 +342,13 @@ function WorkbenchShell({ endpoint, state, version, onRestartEngine, onConnectio
       {endpoint ? <PluginFilter registry={registry} /> : null}
       {endpoint ? <QuickCapture /> : null}
       {endpoint ? <FocusPauseOnClose /> : null}
-      {endpoint ? <ReminderToasts onOpenTasks={() => ui.getState().openModule("tasks")} onOpenNotification={openNotification}
-        {...(!browser && { onDesktopNotification: (notice, vaultId) => void window.huhuHost?.showAutomationNotification(notice, vaultId).catch(() => undefined) })} /> : null}
+      {endpoint ? (
+        <ReminderToasts
+          onOpenTasks={() => ui.getState().openModule("tasks")}
+          onOpenNotification={openNotification}
+          {...(!browser && { onDesktopNotification: (notice, vaultId) => void window.huhuHost?.showAutomationNotification(notice, vaultId).catch(() => undefined) })}
+        />
+      ) : null}
       <WorkbenchCommandPalette registry={registry} ui={ui} />
     </>
   );

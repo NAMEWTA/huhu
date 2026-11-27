@@ -14,20 +14,32 @@ test("AU16 calendar edits use one plan revision and retain overdue dates from th
   const engine = await ledgerEngine(root, false, { now: () => now });
   try {
     const book = await engine.call<Book>("ledger.books.create", {
-      name: "改期账本", defaultCurrency: "CNY", timeZone: "Asia/Taipei", firstAccount: { name: "账户" },
+      name: "改期账本",
+      defaultCurrency: "CNY",
+      timeZone: "Asia/Taipei",
+      firstAccount: { name: "账户" },
     });
     const key = { bookId: book.id };
     const { accounts, book: latest } = await engine.call<AccountsView>("ledger.accounts.list", key);
-    const rule = { id: randomUUID(), title: "改期订阅", type: "expense", accountId: accounts[0]!.id,
-      currency: "CNY", amountMinor: "123", startOn: "2026-01-02", frequency: "monthly", memo: null };
+    const rule = { id: randomUUID(), title: "改期订阅", type: "expense", accountId: accounts[0]!.id, currency: "CNY", amountMinor: "123", startOn: "2026-01-02", frequency: "monthly", memo: null };
     const { plan } = await engine.call<RecurringRow>("ledger.recurring.create", { ...key, expectedRevision: latest.revision, rule });
     const signal = new AbortController().signal;
-    const enabled = await engine.periodic!.change({
-      change: "set-intent", intent: "enabled", planId: plan!.planId, expectedRevision: plan!.revision, intentId: randomUUID(),
-    }, signal);
+    const enabled = await engine.periodic!.change(
+      {
+        change: "set-intent",
+        intent: "enabled",
+        planId: plan!.planId,
+        expectedRevision: plan!.revision,
+        intentId: randomUUID(),
+      },
+      signal,
+    );
     now = Date.parse("2026-02-03T12:00:00Z");
     const edit = {
-      change: "reschedule", planId: enabled.planId, expectedRevision: enabled.revision, intentId: randomUUID(),
+      change: "reschedule",
+      planId: enabled.planId,
+      expectedRevision: enabled.revision,
+      intentId: randomUUID(),
       trigger: { kind: "calendar", frequency: "daily", startOn: "2026-02-03" },
     } as const;
     const changed = await engine.periodic!.change(edit, signal);

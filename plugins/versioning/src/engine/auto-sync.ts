@@ -48,8 +48,7 @@ export class AutoSync {
 
   availability(mode: RunMode): PlanSummary["availability"] {
     if (this.d.hasConflict() || this.paused === "conflict") return { state: "blocked", reason: "domain-conflict", detail: "存在待解决的 Git 冲突" };
-    if (this.paused === "auth-failed" && this.authFailure?.scope.target === this.d.authTarget()
-      && (!this.repair || this.repairMode(this.repair) !== mode)) return { state: "blocked", reason: "credentials-unavailable" };
+    if (this.paused === "auth-failed" && this.authFailure?.scope.target === this.d.authTarget() && (!this.repair || this.repairMode(this.repair) !== mode)) return { state: "blocked", reason: "credentials-unavailable" };
     if (this.retryAt > (this.d.now?.() ?? Date.now())) return { state: "blocked", reason: "domain-conflict", detail: "Git 正在等待重试" };
     return { state: "ready" };
   }

@@ -38,10 +38,14 @@ export function TasksModule({ onNavigate }: ModuleProps) {
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [failure, setFailure] = useState<string | null>(null);
   const [taskDestination, setTaskDestination] = useState<{ taskId: string; destination: TaskDestination } | null>(null);
-  useEffect(() => onOpenTaskRequest((id, destination) => {
-    setSelectedId(id);
-    setTaskDestination(destination ? { taskId: id, destination } : null);
-  }), []);
+  useEffect(
+    () =>
+      onOpenTaskRequest((id, destination) => {
+        setSelectedId(id);
+        setTaskDestination(destination ? { taskId: id, destination } : null);
+      }),
+    [],
+  );
   const today = useTaskToday(settings.data?.dateTime.zone);
   const tasks = data ?? [];
   const visible = useMemo(
@@ -240,7 +244,10 @@ export function TasksModule({ onNavigate }: ModuleProps) {
           onEdit={() => setEditor({ mode: "edit", task: selected })}
           onDuplicate={() => void run("tasks.duplicate", { id: selected.id }).then((r) => r && setSelectedId(r.id))}
           onDelete={() => void run("tasks.delete", { id: selected.id }).then((r) => r !== null && setSelectedId(null))}
-          onClose={() => { setSelectedId(null); setTaskDestination(null); }}
+          onClose={() => {
+            setSelectedId(null);
+            setTaskDestination(null);
+          }}
           onMessage={setFailure}
         />
       ) : null}

@@ -20,11 +20,22 @@ export function huhuMcpStep(tool: string, args: object) {
 }
 
 export function huhuMcpTools(request: ModelRequest | undefined): string[] {
-  return request?.tools.find(({ name }) => name === "mcp__huhu")?.tools?.flatMap(({ name }) => name ? [name] : []) ?? [];
+  return request?.tools.find(({ name }) => name === "mcp__huhu")?.tools?.flatMap(({ name }) => (name ? [name] : [])) ?? [];
 }
 
-export async function startCodexResponsesFixture({ seedReply, seedReplies = seedReply === undefined ? [] : [seedReply], result = "You chose Circle.", failedTurn, workspaceCommand, step }: {
-  seedReply?: string; seedReplies?: readonly string[]; result?: string; failedTurn?: string; workspaceCommand?: { command: string; cwd: string };
+export async function startCodexResponsesFixture({
+  seedReply,
+  seedReplies = seedReply === undefined ? [] : [seedReply],
+  result = "You chose Circle.",
+  failedTurn,
+  workspaceCommand,
+  step,
+}: {
+  seedReply?: string;
+  seedReplies?: readonly string[];
+  result?: string;
+  failedTurn?: string;
+  workspaceCommand?: { command: string; cwd: string };
   step?: (request: ModelRequest, index: number) => ModelStep | Promise<ModelStep>;
 } = {}) {
   const requests: ModelRequest[] = [];
@@ -47,24 +58,37 @@ export async function startCodexResponsesFixture({ seedReply, seedReplies = seed
         return;
       }
       const ask = scripted ? "tool" in scripted : index === questionRequest;
-      const reply = scripted && "result" in scripted ? scripted.result : seedReplies[index - 1] ?? result;
+      const reply = scripted && "result" in scripted ? scripted.result : (seedReplies[index - 1] ?? result);
       const shell = workspaceCommand && tools.find(({ name }) => name === "exec_command" || name === "shell_command")?.name;
       if (!scripted && ask && workspaceCommand && !shell) throw new Error("App Server did not offer the approved shell tool");
       const command = workspaceCommand && shell && (shell === "exec_command" ? { cmd: workspaceCommand.command, workdir: workspaceCommand.cwd } : { command: workspaceCommand.command, workdir: workspaceCommand.cwd });
-      const name = scripted && "tool" in scripted ? scripted.tool : shell ?? toolName;
+      const name = scripted && "tool" in scripted ? scripted.tool : (shell ?? toolName);
       const args = scripted && "tool" in scripted ? scripted.arguments : command || { questions: [question] };
-      const item = scripted && "noFinal" in scripted ? undefined : ask
-        ? { id: "fc_fixture_" + index, type: "function_call", status: "completed", call_id: step ? callId + "_" + index : callId, name, ...(scripted && "namespace" in scripted && { namespace: scripted.namespace }), arguments: JSON.stringify(args) }
-        : { id: "msg_fixture_" + index, type: "message", status: "completed", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: reply, annotations: [] }] };
+      const item =
+        scripted && "noFinal" in scripted
+          ? undefined
+          : ask
+            ? {
+                id: "fc_fixture_" + index,
+                type: "function_call",
+                status: "completed",
+                call_id: step ? callId + "_" + index : callId,
+                name,
+                ...(scripted && "namespace" in scripted && { namespace: scripted.namespace }),
+                arguments: JSON.stringify(args),
+              }
+            : { id: "msg_fixture_" + index, type: "message", status: "completed", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: reply, annotations: [] }] };
       // Reuse the Responses lifecycle from deepseek-harness's subagent-codex fixture.
       const response = { id: "resp_fixture_" + index, object: "response", output: item ? [item] : [], usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } };
       const events = [
         { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
-        ...(item ? [
-          { type: "response.output_item.added", output_index: 0, item: ask ? { ...item, arguments: "", status: "in_progress" } : { ...item, content: [], status: "in_progress" } },
-          ...(ask ? [] : [{ type: "response.output_text.delta", item_id: item.id, output_index: 0, content_index: 0, delta: reply }]),
-          { type: "response.output_item.done", output_index: 0, item },
-        ] : []),
+        ...(item
+          ? [
+              { type: "response.output_item.added", output_index: 0, item: ask ? { ...item, arguments: "", status: "in_progress" } : { ...item, content: [], status: "in_progress" } },
+              ...(ask ? [] : [{ type: "response.output_text.delta", item_id: item.id, output_index: 0, content_index: 0, delta: reply }]),
+              { type: "response.output_item.done", output_index: 0, item },
+            ]
+          : []),
         { type: "response.completed", response: { ...response, status: "completed" } },
       ];
       res.writeHead(200, { "content-type": "text/event-stream" });

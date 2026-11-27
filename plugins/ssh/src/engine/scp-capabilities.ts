@@ -74,13 +74,17 @@ export function registerScp(api: HuhuApi, sessions: FileSessions, manager: SshMa
   }
   api.defineCapability(bindCapability(sshScpDescriptors.scpDownloadSupport, ({ caller, signal }, { fileSessionId }) => available(caller, signal, fileSessionId, "command -v scp >/dev/null 2>&1")));
   api.defineCapability(bindCapability(sshScpDescriptors.scpUploadSupport, ({ caller, signal }, { fileSessionId }) => available(caller, signal, fileSessionId, scpUploadProbe)));
-  api.defineCapability(bindCapability(sshScpDescriptors.scpDownload, ({ caller, signal }, { fileSessionId, remote, local }) => {
-    const current = source(caller, fileSessionId, signal);
-    const client = current.getClient();
-    return downloadScp(client, remote, local, current.signal, current.getClient);
-  }));
-  api.defineCapability(bindCapability(sshScpDescriptors.scpUpload, ({ caller, signal }, { fileSessionId, remote, local }) => {
-    const current = source(caller, fileSessionId, signal);
-    return uploadScp(current.getClient(), local, remote, current.signal, current.getClient);
-  }));
+  api.defineCapability(
+    bindCapability(sshScpDescriptors.scpDownload, ({ caller, signal }, { fileSessionId, remote, local }) => {
+      const current = source(caller, fileSessionId, signal);
+      const client = current.getClient();
+      return downloadScp(client, remote, local, current.signal, current.getClient);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshScpDescriptors.scpUpload, ({ caller, signal }, { fileSessionId, remote, local }) => {
+      const current = source(caller, fileSessionId, signal);
+      return uploadScp(current.getClient(), local, remote, current.signal, current.getClient);
+    }),
+  );
 }

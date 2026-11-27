@@ -13,7 +13,10 @@ import "./dashboard.css";
 type Instance = DashboardBoard["instances"][number];
 type Controller = ReturnType<typeof useDashboard>;
 const arrowSteps = new Map<string, readonly [-1 | 0 | 1, -1 | 0 | 1]>([
-  ["ArrowLeft", [-1, 0]], ["ArrowRight", [1, 0]], ["ArrowUp", [0, -1]], ["ArrowDown", [0, 1]],
+  ["ArrowLeft", [-1, 0]],
+  ["ArrowRight", [1, 0]],
+  ["ArrowUp", [0, -1]],
+  ["ArrowDown", [0, 1]],
 ] as const);
 
 function WidgetPlaceholder({ name, message, retry }: { name: string; message: string; retry?: () => void }) {
@@ -113,16 +116,18 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
     const [dx, dy] = step;
     if (event.shiftKey ? !definition : narrow && !dy) return;
     event.preventDefault();
-    const next = event.shiftKey && definition
-      ? resizePlacement(board.layout, { ...placement, w: placement.w + dx, h: placement.h + dy }, definition, narrow)
-      : narrow && dy
-        ? reorderPlacement(board.layout, placement.instanceId, dy)
-        : movePlacement(board.layout, { ...placement, x: placement.x + dx, y: placement.y + dy });
+    const next =
+      event.shiftKey && definition
+        ? resizePlacement(board.layout, { ...placement, w: placement.w + dx, h: placement.h + dy }, definition, narrow)
+        : narrow && dy
+          ? reorderPlacement(board.layout, placement.instanceId, dy)
+          : movePlacement(board.layout, { ...placement, x: placement.x + dx, y: placement.y + dy });
     changeLayout(next, placement.instanceId);
     const tile = event.currentTarget.closest(".hu-dashboard-tile");
-    if (next && tile) requestAnimationFrame(() => {
-      if (tile.contains(tile.ownerDocument.activeElement)) tile.scrollIntoView({ block: "nearest", inline: "nearest" });
-    });
+    if (next && tile)
+      requestAnimationFrame(() => {
+        if (tile.contains(tile.ownerDocument.activeElement)) tile.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
   }
   const changeInstance = (id: string, patch: Partial<Instance>) => {
     if (!board) return;
@@ -295,41 +300,70 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
         <Dialog open title={`设置 ${label(settingsCard)}`} onClose={() => setCardSettings(undefined)}>
           <label className="hu-field">
             <span className="hu-field-label">标题</span>
-            <input aria-label="卡片标题" placeholder={settingsDefinition?.title ?? "卡片标题"} value={settingsCard.title ?? ""} disabled={locked}
-              onChange={(event) => changeInstance(settingsCard.instanceId, { title: event.target.value })} />
+            <input
+              aria-label="卡片标题"
+              placeholder={settingsDefinition?.title ?? "卡片标题"}
+              value={settingsCard.title ?? ""}
+              disabled={locked}
+              onChange={(event) => changeInstance(settingsCard.instanceId, { title: event.target.value })}
+            />
           </label>
           {configureWidget?.(settingsCard, (config) => changeInstance(settingsCard.instanceId, { config }), locked)}
           <div className="row hu-dashboard-settings-actions">
             {settingsDefinition && (
-              <Button icon={RotateCcw} disabled={locked} onClick={() => {
-                const size = settingsDefinition.defaultSize;
-                const candidate = { ...settingsPlacement, ...size, x: Math.min(settingsPlacement.x, DASHBOARD_COLUMNS - size.w) };
-                if (board) changeLayout(resizePlacement(board.layout, candidate, settingsDefinition, narrow), settingsCard.instanceId);
-              }}>恢复推荐尺寸</Button>
+              <Button
+                icon={RotateCcw}
+                disabled={locked}
+                onClick={() => {
+                  const size = settingsDefinition.defaultSize;
+                  const candidate = { ...settingsPlacement, ...size, x: Math.min(settingsPlacement.x, DASHBOARD_COLUMNS - size.w) };
+                  if (board) changeLayout(resizePlacement(board.layout, candidate, settingsDefinition, narrow), settingsCard.instanceId);
+                }}
+              >
+                恢复推荐尺寸
+              </Button>
             )}
             {settingsDefinition?.maxInstances === null && allowed(settingsCard.widgetType) && (
-              <Button icon={Copy} disabled={locked} onClick={() => {
-                insert({ ...settingsCard, instanceId: createRequestId(), config: structuredClone(settingsCard.config) }, settingsPlacement);
-                setCardSettings(undefined);
-              }}>复制卡片</Button>
+              <Button
+                icon={Copy}
+                disabled={locked}
+                onClick={() => {
+                  insert({ ...settingsCard, instanceId: createRequestId(), config: structuredClone(settingsCard.config) }, settingsPlacement);
+                  setCardSettings(undefined);
+                }}
+              >
+                复制卡片
+              </Button>
             )}
-            <Button icon={X} variant="danger" disabled={locked} onClick={() => {
-              if (board) state.update({ ...board,
-                instances: board.instances.filter((item) => item.instanceId !== settingsCard.instanceId),
-                layout: board.layout.filter((item) => item.instanceId !== settingsCard.instanceId),
-              });
-              setCardSettings(undefined);
-            }}>移除卡片</Button>
+            <Button
+              icon={X}
+              variant="danger"
+              disabled={locked}
+              onClick={() => {
+                if (board) state.update({ ...board, instances: board.instances.filter((item) => item.instanceId !== settingsCard.instanceId), layout: board.layout.filter((item) => item.instanceId !== settingsCard.instanceId) });
+                setCardSettings(undefined);
+              }}
+            >
+              移除卡片
+            </Button>
           </div>
         </Dialog>
       )}
       {addOpen && editing && board && (
-        <DashboardCatalog definitions={definitions} instances={board.instances} allowed={allowed} unavailableReason={unavailableReason} sourceName={sourceName}
-          onAdd={add} onRestore={(instance) => {
+        <DashboardCatalog
+          definitions={definitions}
+          instances={board.instances}
+          allowed={allowed}
+          unavailableReason={unavailableReason}
+          sourceName={sourceName}
+          onAdd={add}
+          onRestore={(instance) => {
             if (locked || !allowed(instance.widgetType)) return;
             changeInstance(instance.instanceId, { hidden: false });
             setAddOpen(false);
-          }} onClose={() => setAddOpen(false)} />
+          }}
+          onClose={() => setAddOpen(false)}
+        />
       )}
       <Dialog open={backupOpen && !editing} title="选择布局备份" onClose={() => setBackupOpen(false)}>
         <label htmlFor={backupPicker}>布局备份文件（JSON）</label>

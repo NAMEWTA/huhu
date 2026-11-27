@@ -253,7 +253,14 @@ export function NoteDocument(props: NoteDocumentProps) {
         </select>
         <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={reading || readOnly || !props.onAddComment} onClick={props.onAddComment} />
         <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "notes-star" : ""} onClick={props.onToggleFavorite} />
-        <IconButton icon={PanelRight} label={n.inspector} aria-expanded={props.inspectorOpen} aria-controls={props.inspectorOpen ? props.inspectorId : undefined} className={props.inspectorOpen ? "active" : ""} onClick={(event) => props.onToggleInspector(event.currentTarget)} />
+        <IconButton
+          icon={PanelRight}
+          label={n.inspector}
+          aria-expanded={props.inspectorOpen}
+          aria-controls={props.inspectorOpen ? props.inspectorId : undefined}
+          className={props.inspectorOpen ? "active" : ""}
+          onClick={(event) => props.onToggleInspector(event.currentTarget)}
+        />
         <IconButton icon={MoreHorizontal} label={n.noteActions} onClick={(e) => (e.stopPropagation(), props.onMenu(e.currentTarget, secondaryActions))} />
       </div>
       {state === "conflict" || snap.writeUnconfirmed ? (
@@ -270,9 +277,11 @@ export function NoteDocument(props: NoteDocumentProps) {
               </>
             ) : (
               <>
-                {snap.writeUnconfirmed ? <Button variant="primary" data-testid="note-verify-save" disabled={verifying} onClick={() => void verifySave()}>
-                  {verifying ? n.verifyingSave : n.verifySave}
-                </Button> : null}
+                {snap.writeUnconfirmed ? (
+                  <Button variant="primary" data-testid="note-verify-save" disabled={verifying} onClick={() => void verifySave()}>
+                    {verifying ? n.verifyingSave : n.verifySave}
+                  </Button>
+                ) : null}
                 {state === "conflict" && snap.hasUnsaved ? (
                   <>
                     <Button variant="primary" data-testid="note-merge" onClick={() => void merge()}>
@@ -315,10 +324,22 @@ export function NoteDocument(props: NoteDocumentProps) {
           {n.draftFound(draft.savedAt.replace("T", " ").slice(0, 16))}
         </Banner>
       ) : null}
-      {encodingNotice ?? (flushError && !snap.writeUnconfirmed ? <Banner tone="danger" data-testid="note-save-failed" action={
-        state === "dirty" && snap.hasUnsaved && !readOnly
-          ? <Button data-testid="note-retry-save" onClick={() => void save()}>{n.retrySave}</Button> : null
-      }>{n.saveFailed(flushError)}</Banner> : null)}
+      {encodingNotice ??
+        (flushError && !snap.writeUnconfirmed ? (
+          <Banner
+            tone="danger"
+            data-testid="note-save-failed"
+            action={
+              state === "dirty" && snap.hasUnsaved && !readOnly ? (
+                <Button data-testid="note-retry-save" onClick={() => void save()}>
+                  {n.retrySave}
+                </Button>
+              ) : null
+            }
+          >
+            {n.saveFailed(flushError)}
+          </Banner>
+        ) : null)}
       {vaultReadOnly ? <Banner tone="blue">此 Vault 以只读方式打开，不能编辑或保存文档。</Banner> : null}
       <div className="notes-editor-mode-hint">
         <strong>{n.modes[mode]}</strong>
@@ -366,7 +387,9 @@ export function NoteDocument(props: NoteDocumentProps) {
       </div>
       <div className="notes-document-status">
         <span aria-hidden className={`notes-save-dot${state === "saved" && !flushError && !snap.writeUnconfirmed ? "" : " notes-unsaved"}`} />
-        <span role="status" data-testid="save-state">{snap.writeUnconfirmed ? n.status.unknown : flushError && state === "dirty" ? n.status.error : n.status[state]}</span>
+        <span role="status" data-testid="save-state">
+          {snap.writeUnconfirmed ? n.status.unknown : flushError && state === "dirty" ? n.status.error : n.status[state]}
+        </span>
         <span>{n.words(stats.chars)}</span>
         <span>{n.lines(stats.lines)}</span>
         <span className="hu-flex-fill" />

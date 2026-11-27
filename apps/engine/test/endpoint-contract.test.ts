@@ -60,7 +60,11 @@ test("在现有端口启用 MCP 后，CLI 重新发现同一端点，独立客�
   expect((await mcpRequest(endpoint, token, initializeMcp)).status).toBe(404);
 
   await expect(capability(baseUrl, engine.rendererToken, "gateway.mcp.update", { enabled: true })).resolves.toEqual({
-    enabled: true, url: endpoint, activePort: port, configuredPort: port, restartRequired: false,
+    enabled: true,
+    url: endpoint,
+    activePort: port,
+    configuredPort: port,
+    restartRequired: false,
   });
   expect((await mcpRequest(endpoint, "unknown", initializeMcp)).status).toBe(401);
   expect((await mcpRequest(endpoint, engine.rendererToken, initializeMcp)).status).toBe(403);
@@ -105,13 +109,15 @@ test("占用固定端口时保留冲突，复制的描述文件也不能把另�
   const otherDescriptor = other.descriptorPath;
   await stop(other);
   const engine = await start(root, { create: true });
-  await expect(startEngineServer({
-    dispatcher: engine.dispatcher,
-    registry: engine.registry,
-    tokens: new TokenTable(),
-    events: engine.events,
-    port: engine.port,
-  })).rejects.toMatchObject({ code: "EADDRINUSE" });
+  await expect(
+    startEngineServer({
+      dispatcher: engine.dispatcher,
+      registry: engine.registry,
+      tokens: new TokenTable(),
+      events: engine.events,
+      port: engine.port,
+    }),
+  ).rejects.toMatchObject({ code: "EADDRINUSE" });
   expect(readLiveEndpoint(engine.vault)).toMatchObject({ vaultId: engine.vault.id, port: engine.port });
 
   await capability(`http://127.0.0.1:${engine.port}`, engine.rendererToken, "gateway.mcp.update", { enabled: true });
@@ -139,7 +145,11 @@ test("修改端口标记待重启，端口占用时启动明确失败，原令�
   expect((await mcpRequest(`${occupiedUrl}/mcp`, token, initializeMcp)).status).toBe(401);
   await expect(capability(base, first.rendererToken, "gateway.mcp.update", { enabled: true, port: 6000 })).rejects.toThrow("INVALID_INPUT");
   await expect(capability(base, first.rendererToken, "gateway.mcp.update", { enabled: true, port: fixed })).resolves.toEqual({
-    enabled: true, url: `${base}/mcp`, activePort: first.port, configuredPort: fixed, restartRequired: true,
+    enabled: true,
+    url: `${base}/mcp`,
+    activePort: first.port,
+    configuredPort: fixed,
+    restartRequired: true,
   });
   await openMcpSession(`${base}/mcp`, token);
   await stop(first);

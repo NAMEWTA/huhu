@@ -109,8 +109,13 @@ export const resultDeliveryDescriptors = {
     description: "将已保存的结果关联到明确选择的草稿版本，交给 Mail Outbox。",
   }),
   readMailDelivery: defineCapabilityDescriptor({
-    ...desktop, desktopOnly: false, scope: "read", name: "tasks.mail.deliveries.read", input: resultKey,
-    output: mailReceipt.nullable(), title: "查看任务邮件投递",
+    ...desktop,
+    desktopOnly: false,
+    scope: "read",
+    name: "tasks.mail.deliveries.read",
+    input: resultKey,
+    output: mailReceipt.nullable(),
+    title: "查看任务邮件投递",
     description: "读取原任务结果已关联的 Mail Outbox 操作。",
   }),
 };
@@ -124,8 +129,7 @@ function view(record: GitHubDelivery) {
 }
 
 function sameIssue(record: GitHubDelivery, scope: GitHubScope) {
-  return record.sourceId === scope.sourceId && record.repositoryId === scope.repositoryId && record.issueId === scope.issueId &&
-    record.issueNumber === scope.issueNumber && record.repository === scope.repository;
+  return record.sourceId === scope.sourceId && record.repositoryId === scope.repositoryId && record.issueId === scope.issueId && record.issueNumber === scope.issueNumber && record.repository === scope.repository;
 }
 
 export class GitHubDeliveries {
@@ -187,13 +191,7 @@ export class GitHubDeliveries {
 
   private matches(record: GitHubDelivery, scope: GitHubScope, proof: GitHubProof) {
     const url = `https://github.com/${scope.repository}/issues/${scope.issueNumber}#issuecomment-${proof.id}`;
-    return (
-      sameIssue(record, scope) &&
-      record.actorId === proof.actorId &&
-      (!record.comment || record.comment.id === proof.id) &&
-      record.body === proof.body &&
-      proof.url.toLowerCase() === url
-    );
+    return sameIssue(record, scope) && record.actorId === proof.actorId && (!record.comment || record.comment.id === proof.id) && record.body === proof.body && proof.url.toLowerCase() === url;
   }
 
   async confirm(scope: GitHubScope, id: string, proof: GitHubProof, beforeCommit: () => void) {
@@ -279,7 +277,7 @@ export class TaskMailDeliveries {
 
   read({ taskId, receiptId }: z.output<typeof resultKey>) {
     const saved = this.files.read(this.file(taskId, receiptId));
-    return saved ? mailLink.parse(JSON.parse(saved.bytes.toString("utf8"))).outbox ?? null : null;
+    return saved ? (mailLink.parse(JSON.parse(saved.bytes.toString("utf8"))).outbox ?? null) : null;
   }
 
   submit(c: CapabilityContext, input: z.infer<typeof mailInput>) {

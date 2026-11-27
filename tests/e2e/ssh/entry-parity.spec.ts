@@ -146,7 +146,10 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       expect(await invoke("ssh.disconnect", { ...binding, attemptId })).toMatchObject({ ok: true });
       await expect.poll(async () => data<Probe>(await invoke("ssh.resources.connection.get", { hostId, attemptId })).state).toBe("disconnected");
       const { hostId: jumpId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-        ...target, name: "入口一致性跳板", port: jump.port, expectedRevision: null,
+        ...target,
+        name: "入口一致性跳板",
+        port: jump.port,
+        expectedRevision: null,
         credentials: [{ purpose: "password", action: "replace", value: password }],
       });
       const jumpBinding = await desktopCall<ResourceHost>(page, "ssh.resources.host.get", { hostId: jumpId });

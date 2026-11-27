@@ -17,8 +17,12 @@ test("managed periods serialize admission, preserve tombstones and fence each oc
   let tail: Promise<unknown> = Promise.resolve();
   const object = { kind: "fixture", id: "sample" };
   const legacy = {
-    planId: "fixture-periodic", title: "fixture", source: { plugin: "fixture", object },
-    action: { capability: "fixture.read", object, summary: "fixture read" }, everySeconds: 2, intent: "enabled",
+    planId: "fixture-periodic",
+    title: "fixture",
+    source: { plugin: "fixture", object },
+    action: { capability: "fixture.read", object, summary: "fixture read" },
+    everySeconds: 2,
+    intent: "enabled",
   } satisfies PeriodicPlanSpec;
   const run = vi.fn<PeriodicPlanSource["run"]>(async (_plan, { signal }) => {
     await new Promise<void>((resolve, reject) => {
@@ -35,7 +39,15 @@ test("managed periods serialize admission, preserve tombstones and fence each oc
     },
   };
   const make = (instance: string) => {
-    const plans = new PeriodicPlans(files, { vaultId: "vault", machineId: "machine", instance }, rules, ["fixture"], () => port, { now: () => now }, () => {});
+    const plans = new PeriodicPlans(
+      files,
+      { vaultId: "vault", machineId: "machine", instance },
+      rules,
+      ["fixture"],
+      () => port,
+      { now: () => now },
+      () => {},
+    );
     apps.push(plans);
     return plans;
   };
@@ -57,10 +69,18 @@ test("managed periods serialize admission, preserve tombstones and fence each oc
     const foreign = make("foreign");
     expect(foreign.read(legacy.planId)).toMatchObject({ actions: [], availability: { state: "blocked", reason: "foreign-owner" } });
     expect(foreign.readOccurrence(first)?.state).toBe("unknown");
-    await expect(foreign.change({
-      change: "set-intent", intent: "paused", planId: legacy.planId,
-      expectedRevision: enabled.revision, intentId: randomUUID(),
-    }, controller.signal)).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    await expect(
+      foreign.change(
+        {
+          change: "set-intent",
+          intent: "paused",
+          planId: legacy.planId,
+          expectedRevision: enabled.revision,
+          intentId: randomUUID(),
+        },
+        controller.signal,
+      ),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     await foreign.tick();
     expect(run).toHaveBeenCalledTimes(1);
 
@@ -88,10 +108,14 @@ test("managed periods serialize admission, preserve tombstones and fence each oc
     expect(old.signal.aborted).toBe(true);
     expect(old.isCurrent()).toBe(false);
     expect(replacement).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(plans.readOccurrence(old.occurrenceId)).toMatchObject({
-      occurrenceId: old.occurrenceId, plan: { planId: legacy.planId, revision: rescheduled!.revision },
-      state: "unknown", effects: [{ state: "unknown" }],
-    }));
+    await vi.waitFor(() =>
+      expect(plans.readOccurrence(old.occurrenceId)).toMatchObject({
+        occurrenceId: old.occurrenceId,
+        plan: { planId: legacy.planId, revision: rescheduled!.revision },
+        state: "unknown",
+        effects: [{ state: "unknown" }],
+      }),
+    );
 
     await plans.tick();
     now += 5_000;

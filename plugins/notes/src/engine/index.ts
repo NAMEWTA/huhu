@@ -78,7 +78,14 @@ const noteTools = {
     description: "创建笔记。",
     ...publicTool,
     scope: "write",
-    input: z.object({ name: z.string(), folder: z.string().optional(), template: z.enum(["blank", "meeting", "project", "daily"]).optional(), templatePath: z.string().optional(), body: z.string().optional(), inboxConversionId: z.uuid().optional() }),
+    input: z.object({
+      name: z.string(),
+      folder: z.string().optional(),
+      template: z.enum(["blank", "meeting", "project", "daily"]).optional(),
+      templatePath: z.string().optional(),
+      body: z.string().optional(),
+      inboxConversionId: z.uuid().optional(),
+    }),
     output: z.object({ path: z.string(), id: z.string() }),
   }),
   templatesList: descriptor({
@@ -502,13 +509,16 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       if (i.inboxConversionId && (c.caller !== "plugin:inbox" || c.delegatedBy)) throw errors.permissionDenied("收件转换标识");
       if (i.templatePath !== undefined && !isWorkbenchCaller(c.caller)) throw errors.permissionDenied("Vault 本地模板（仅工作台可用）");
       if (i.folder) writePath(c, i.folder);
-      const r = await svc.create({
-        name: i.name,
-        ...(i.folder ? { folder: i.folder } : {}),
-        ...(i.template ? { template: i.template } : {}),
-        ...(i.templatePath !== undefined ? { templatePath: i.templatePath } : {}),
-        ...(i.body !== undefined ? { body: i.body } : {}),
-      }, i.inboxConversionId);
+      const r = await svc.create(
+        {
+          name: i.name,
+          ...(i.folder ? { folder: i.folder } : {}),
+          ...(i.template ? { template: i.template } : {}),
+          ...(i.templatePath !== undefined ? { templatePath: i.templatePath } : {}),
+          ...(i.body !== undefined ? { body: i.body } : {}),
+        },
+        i.inboxConversionId,
+      );
       changed(r.id, "created");
       return r;
     }),
@@ -621,7 +631,12 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   api.defineCapability(
     bind(noteTools.restore, async (c, i) => {
       trashEntry(c, i.trashId);
-      const p = await svc.restore(i.trashId, i.newName, (rel) => writePath(c, rel), (documents) => comments.trashProjection(documents, "restore"));
+      const p = await svc.restore(
+        i.trashId,
+        i.newName,
+        (rel) => writePath(c, rel),
+        (documents) => comments.trashProjection(documents, "restore"),
+      );
       changed(null, "created");
       return { path: p };
     }),
@@ -700,11 +715,15 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       }),
     ),
   );
-  api.defineCapability(bind(noteTools.commentsUpdate, async (_c, i) => {
-    await migrated;
-    return comments.update(i.id, i.text, i.expectedVersion);
-  }));
-  api.defineCapability(bind(noteTools.commentsRelocate, async (_c, i) => (await migrated, comments.relocate(i.id, { start: i.start, end: i.end, quote: i.quote, prefix: i.prefix, suffix: i.suffix, expectedSourceVersion: i.expectedSourceVersion }))));
+  api.defineCapability(
+    bind(noteTools.commentsUpdate, async (_c, i) => {
+      await migrated;
+      return comments.update(i.id, i.text, i.expectedVersion);
+    }),
+  );
+  api.defineCapability(
+    bind(noteTools.commentsRelocate, async (_c, i) => (await migrated, comments.relocate(i.id, { start: i.start, end: i.end, quote: i.quote, prefix: i.prefix, suffix: i.suffix, expectedSourceVersion: i.expectedSourceVersion }))),
+  );
   api.defineCapability(bind(noteTools.commentsDelete, async (_c, i) => (await migrated, await comments.delete(i.id), { ok: true as const })));
   // 手动保存模式下离开时保留的草稿：写在 .huhu/drafts/，不改动笔记文件（ACC-KN-04）
   api.defineCapability(

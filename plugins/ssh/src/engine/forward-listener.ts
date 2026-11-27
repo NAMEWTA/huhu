@@ -212,14 +212,15 @@ export class ForwardListener {
     socket.once("close", closed);
     const signal = AbortSignal.any([socketLifetime.signal, this.abort.signal, AbortSignal.timeout(HANDSHAKE_MS)]);
     try {
-      channel = this.rule.relay === "shell"
-        ? await dialShellRelay(this.client, target, signal, "tcp")
-        : await sshRequest<ClientChannel>(
-          this.client,
-          signal,
-          (done) => this.client.forwardOut(FORWARD_BIND, socket.remotePort ?? 0, target.host, target.port, done),
-          (late) => late.destroy(),
-        );
+      channel =
+        this.rule.relay === "shell"
+          ? await dialShellRelay(this.client, target, signal, "tcp")
+          : await sshRequest<ClientChannel>(
+              this.client,
+              signal,
+              (done) => this.client.forwardOut(FORWARD_BIND, socket.remotePort ?? 0, target.host, target.port, done),
+              (late) => late.destroy(),
+            );
     } catch (reason) {
       if (this.serving && !socket.destroyed) this.lastError = this.rule.relay === "shell" && reason instanceof HuhuError ? reason.message : "SSH 拒绝打开 TCP 出口或目的地不可达";
       if (mode === "http-connect") socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");

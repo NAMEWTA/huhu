@@ -17,16 +17,20 @@ export function SshStartupSettings() {
   const connected = hosts.data?.filter(({ id }) => id.startsWith("host-owned-")) ?? [];
   const choices = [...connected, ...draft.hostIds.filter((id) => !connected.some((item) => item.id === id)).map((id) => ({ id, name: "已移除或不可用的主机" }))];
   return (
-    <form className="hu-settings-section hu-card-alt" aria-labelledby={title} onSubmit={(event) => {
-      event.preventDefault();
-      try {
-        saveStartupPreferences(vaultId, draft);
-        setSaved(draft);
-        setNotice("已保存到本机的当前 Vault，下次启动生效。");
-      } catch {
-        setNotice("无法保存本机 SSH 启动设置。");
-      }
-    }}>
+    <form
+      className="hu-settings-section hu-card-alt"
+      aria-labelledby={title}
+      onSubmit={(event) => {
+        event.preventDefault();
+        try {
+          saveStartupPreferences(vaultId, draft);
+          setSaved(draft);
+          setNotice("已保存到本机的当前 Vault，下次启动生效。");
+        } catch {
+          setNotice("无法保存本机 SSH 启动设置。");
+        }
+      }}
+    >
       <h2 id={title}>SSH 启动与恢复</h2>
       <label className="hu-setting-row">
         工作区恢复策略
@@ -41,9 +45,14 @@ export function SshStartupSettings() {
         {choices.map(({ id, name }) => (
           <label key={id} className="hu-setting-row">
             {name}
-            <input type="checkbox" checked={draft.hostIds.includes(id)} disabled={draft.hostIds.length >= 8 && !draft.hostIds.includes(id)} onChange={(event) => {
-              setDraft({ ...draft, hostIds: event.currentTarget.checked ? [...draft.hostIds, id] : draft.hostIds.filter((hostId) => hostId !== id) });
-            }} />
+            <input
+              type="checkbox"
+              checked={draft.hostIds.includes(id)}
+              disabled={draft.hostIds.length >= 8 && !draft.hostIds.includes(id)}
+              onChange={(event) => {
+                setDraft({ ...draft, hostIds: event.currentTarget.checked ? [...draft.hostIds, id] : draft.hostIds.filter((hostId) => hostId !== id) });
+              }}
+            />
           </label>
         ))}
         {hosts.isError && <p role="alert">无法读取 SSH 主机目录。</p>}
@@ -51,9 +60,28 @@ export function SshStartupSettings() {
       </fieldset>
       <p>下次桌面启动或重新载入 Vault 时生效。首次信任和交互认证仍需要用户在远程连接中确认。</p>
       <div className="ssh-workspace-controls">
-        <Button type="submit" variant="primary" disabled={!changed}>保存本机启动设置</Button>
-        <Button type="button" disabled={!changed} onClick={() => { setDraft(saved); setNotice(""); }}>取消启动设置修改</Button>
-        <Button type="button" onClick={() => { setDraft(defaultStartupPreferences); setNotice(""); }}>恢复启动默认值</Button>
+        <Button type="submit" variant="primary" disabled={!changed}>
+          保存本机启动设置
+        </Button>
+        <Button
+          type="button"
+          disabled={!changed}
+          onClick={() => {
+            setDraft(saved);
+            setNotice("");
+          }}
+        >
+          取消启动设置修改
+        </Button>
+        <Button
+          type="button"
+          onClick={() => {
+            setDraft(defaultStartupPreferences);
+            setNotice("");
+          }}
+        >
+          恢复启动默认值
+        </Button>
       </div>
       <p role="status">{notice}</p>
     </form>

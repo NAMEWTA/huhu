@@ -45,10 +45,12 @@ export const HostDateField = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("local-date-time"),
     zone: timeZone,
-    value: z.strictObject({
-      local: z.templateLiteral([z.iso.date(), "T", z.iso.time()]),
-      disambiguation: z.enum(["earlier", "later"]).optional(),
-    }).nullable(),
+    value: z
+      .strictObject({
+        local: z.templateLiteral([z.iso.date(), "T", z.iso.time()]),
+        disambiguation: z.enum(["earlier", "later"]).optional(),
+      })
+      .nullable(),
   }),
 ]);
 export type HostDateField = z.infer<typeof HostDateField>;

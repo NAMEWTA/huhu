@@ -30,29 +30,45 @@ test("A11 native server tools keep the original shell and query the actual Docke
   const docker = spawnSync("/bin/sh", ["-c", CONTAINER_LIST], { timeout: 5000, encoding: "utf8", env: { PATH: "/usr/bin:/bin", LANG: "C.UTF-8" } });
   test.skip(process.platform !== "linux" || docker.status !== 0, "需要 Linux 本机 Docker CLI 和可用的默认 Docker socket");
   let queries = 0;
-  const first = await startFakeSsh({ onInteractiveExec(command, channel) {
-    if (![PLATFORM_COMMAND, LINUX_SAMPLE, PROCESS_LIST, CONTAINER_LIST, IMAGE_LIST].includes(command)) return false;
-    if (command === CONTAINER_LIST) queries++;
-    localPosixCommand(channel, command);
-    return true;
-  } });
-  const second = await startFakeSsh({ onExec(command) {
-    if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
-    if (command === CONTAINER_LIST) return { stdout: "abcdef012345|wrong-host-fixture|fixture|running" };
-  } });
+  const first = await startFakeSsh({
+    onInteractiveExec(command, channel) {
+      if (![PLATFORM_COMMAND, LINUX_SAMPLE, PROCESS_LIST, CONTAINER_LIST, IMAGE_LIST].includes(command)) return false;
+      if (command === CONTAINER_LIST) queries++;
+      localPosixCommand(channel, command);
+      return true;
+    },
+  });
+  const second = await startFakeSsh({
+    onExec(command) {
+      if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
+      if (command === CONTAINER_LIST) return { stdout: "abcdef012345|wrong-host-fixture|fixture|running" };
+    },
+  });
   const fixture = await openApp();
   try {
     const { app, page } = fixture;
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const panes = [];
-    for (const [name, port] of [["Docker 原端点", first.port], ["Docker 另一端点", second.port]] as const) {
-      panes.push(await call<{ hostId: string }>(page, "ssh.hosts.configure", {
-        name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
-        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
-      }));
+    for (const [name, port] of [
+      ["Docker 原端点", first.port],
+      ["Docker 另一端点", second.port],
+    ] as const) {
+      panes.push(
+        await call<{ hostId: string }>(page, "ssh.hosts.configure", {
+          name,
+          host: "127.0.0.1",
+          port,
+          user: "fixture",
+          authKind: "password",
+          expectedRevision: null,
+          credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+        }),
+      );
     }
     await call(page, "ssh.workspace.runs.start", {
-      name: "Docker 原生工具", layout: { kind: "tabs" }, panes: panes.map(({ hostId }) => ({ hostId })),
+      name: "Docker 原生工具",
+      layout: { kind: "tabs" },
+      panes: panes.map(({ hostId }) => ({ hostId })),
     });
     await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
     await page.getByRole("button", { name: "工作区", exact: true }).click();
@@ -87,11 +103,13 @@ test("A11 native server tools keep the original shell and query the actual Docke
 test("H9.3 原生服务器工具复用原窗口并只取消自身查询", async () => {
   const readingImages = Promise.withResolvers<void>();
   let imagesClosed = false;
-  const a = await startFakeSsh({ onExec(command) {
-    if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
-    if (command === PROCESS_LIST) return { stdout: "21\t101\tprocess-a" };
-    if (command === CONTAINER_LIST) return { stderr: "docker: not found", code: 127 };
-  } });
+  const a = await startFakeSsh({
+    onExec(command) {
+      if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
+      if (command === PROCESS_LIST) return { stdout: "21\t101\tprocess-a" };
+      if (command === CONTAINER_LIST) return { stderr: "docker: not found", code: 127 };
+    },
+  });
   const b = await startFakeSsh({
     onExec(command) {
       if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
@@ -100,7 +118,9 @@ test("H9.3 原生服务器工具复用原窗口并只取消自身查询", async 
     },
     onInteractiveExec(command, _channel, session) {
       if (command !== IMAGE_LIST) return false;
-      session.once("close", () => { imagesClosed = true; });
+      session.once("close", () => {
+        imagesClosed = true;
+      });
       readingImages.resolve();
       return true;
     },
@@ -110,11 +130,21 @@ test("H9.3 原生服务器工具复用原窗口并只取消自身查询", async 
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const panes = [];
-    for (const [name, port] of [["工具甲", a.port], ["工具乙", b.port]] as const) {
-      panes.push(await call<{ hostId: string }>(page, "ssh.hosts.configure", {
-        name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
-        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
-      }));
+    for (const [name, port] of [
+      ["工具甲", a.port],
+      ["工具乙", b.port],
+    ] as const) {
+      panes.push(
+        await call<{ hostId: string }>(page, "ssh.hosts.configure", {
+          name,
+          host: "127.0.0.1",
+          port,
+          user: "fixture",
+          authKind: "password",
+          expectedRevision: null,
+          credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+        }),
+      );
     }
     await call(page, "ssh.workspace.runs.start", { name: "工具窗口归属", layout: { kind: "tabs" }, panes: panes.map(({ hostId }) => ({ hostId })) });
     await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
@@ -181,7 +211,9 @@ test("Workbench monitors a saved panel in the background and controls the active
       if (command === IMAGE_LIST) return { stdout: "abcdef123456|monitor/fixture:stable|10MB" };
       if (command !== LINUX_SAMPLE) return;
       const sequence = 100 + ++reads;
-      return { stdout: `cpu ${sequence * 25} ${sequence * 100}\ncpu0 ${sequence * 20} ${sequence * 40}\niface eth0 ${sequence * 80} ${sequence * 50}\nmemory 8388608 4194304\nuptime 3600\nload 1.25\ndisk 41943040 20971520\nnet ${sequence * 80} ${sequence * 50}\n` };
+      return {
+        stdout: `cpu ${sequence * 25} ${sequence * 100}\ncpu0 ${sequence * 20} ${sequence * 40}\niface eth0 ${sequence * 80} ${sequence * 50}\nmemory 8388608 4194304\nuptime 3600\nload 1.25\ndisk 41943040 20971520\nnet ${sequence * 80} ${sequence * 50}\n`,
+      };
     },
   });
   const app = await openApp();
@@ -208,8 +240,7 @@ test("Workbench monitors a saved panel in the background and controls the active
     await editor.getByRole("checkbox", { name: /回环 Linux 监控/ }).check();
     await editor.getByRole("button", { name: "保存面板" }).click();
     await expect(dashboard.getByText("历史 1 小时", { exact: false })).toBeVisible();
-    const sshPlans = () => call<{ plans: PlanSummary[] }>(page, "automations.plans.list", {}).then(({ plans }) =>
-      plans.filter(({ source }) => source.plugin === "ssh"));
+    const sshPlans = () => call<{ plans: PlanSummary[] }>(page, "automations.plans.list", {}).then(({ plans }) => plans.filter(({ source }) => source.plugin === "ssh"));
     expect(await sshPlans()).toEqual([]);
     expect(reads).toBe(0);
     expect(server.conns).toHaveLength(0);
@@ -303,13 +334,23 @@ test("A11 独立 Web 查看两个主机的桌面采样，采样控制由桌面�
   try {
     const { page } = app;
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-    const save = (name: string, port: number) => call<{ hostId: string }>(page, "ssh.hosts.configure", {
-      name, port, host: "127.0.0.1", user: "fixture", authKind: "password", expectedRevision: null,
-      credentials: [{ purpose: "password", action: "replace", value: "pw" }],
-    });
+    const save = (name: string, port: number) =>
+      call<{ hostId: string }>(page, "ssh.hosts.configure", {
+        name,
+        port,
+        host: "127.0.0.1",
+        user: "fixture",
+        authKind: "password",
+        expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+      });
     const [first, second] = [await save("监控甲", a.port), await save("监控乙", b.port)];
     const panel = await call<MonitorPanel>(page, "ssh.monitor.panels.save", {
-      name: "浏览器监控面板", hostIds: [first.hostId, second.hostId], note: "", interval: 2, retention: 15,
+      name: "浏览器监控面板",
+      hostIds: [first.hostId, second.hostId],
+      note: "",
+      interval: 2,
+      retention: 15,
     });
     const link = await localWebLink(page);
     browser = await chromium.launch({ executablePath: browserBinary });
@@ -329,7 +370,10 @@ test("A11 独立 Web 查看两个主机的桌面采样，采样控制由桌面�
     await page.getByRole("button", { name: "监控", exact: true }).click();
     const desktopDashboard = page.getByTestId("ssh-monitor-dashboard");
     await desktopDashboard.getByRole("button", { name: "开始监控", exact: true }).click();
-    for (const [name, percent] of [["监控甲", "25.0%"], ["监控乙", "65.0%"]] as const) {
+    for (const [name, percent] of [
+      ["监控甲", "25.0%"],
+      ["监控乙", "65.0%"],
+    ] as const) {
       const desktopHost = desktopDashboard.getByTestId("ssh-monitor-host").filter({ has: page.getByRole("heading", { name, exact: true }) });
       await desktopHost.getByRole("button", { name: "核对主机指纹" }).click();
       await page.getByRole("button", { name: "信任并连接" }).click();

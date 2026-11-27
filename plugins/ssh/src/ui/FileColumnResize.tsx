@@ -5,12 +5,7 @@ type Drag = { pointer: number; x: number; width: number; direction: number };
 const { min, max } = fileColumnLimits;
 const clamp = (width: number) => Math.max(min, Math.min(max, Math.round(width)));
 
-export function FileColumnResize({ label, width, preview, save }: {
-  label: string;
-  width: number;
-  preview(width?: number): void;
-  save(width: number): void;
-}) {
+export function FileColumnResize({ label, width, preview, save }: { label: string; width: number; preview(width?: number): void; save(width: number): void }) {
   const drag = useRef<Drag>(undefined);
   function clear() {
     if (!drag.current) return;
@@ -18,9 +13,16 @@ export function FileColumnResize({ label, width, preview, save }: {
     preview();
   }
   return (
-    <span className="ssh-file-col-resizer" role="separator" tabIndex={0}
-      aria-label={`调整“${label}”列宽`} aria-orientation="vertical"
-      aria-valuemin={min} aria-valuemax={max} aria-valuenow={width} aria-valuetext={`${width} 像素`}
+    <span
+      className="ssh-file-col-resizer"
+      role="separator"
+      tabIndex={0}
+      aria-label={`调整“${label}”列宽`}
+      aria-orientation="vertical"
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={width}
+      aria-valuetext={`${width} 像素`}
       onPointerDown={(event) => {
         if (!event.isPrimary || event.button !== 0 || drag.current) return;
         event.preventDefault();

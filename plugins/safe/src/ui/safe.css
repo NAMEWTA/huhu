@@ -53,7 +53,7 @@
   }
   @container safe-workspace (min-width: 48rem) {
     .safe-grid {
-      grid-template-columns: minmax(11rem, .85fr) minmax(13rem, 1fr) minmax(18rem, 1.25fr);
+      grid-template-columns: minmax(11rem, 0.85fr) minmax(13rem, 1fr) minmax(18rem, 1.25fr);
     }
     .safe-grid > .hu-card-alt {
       display: block;

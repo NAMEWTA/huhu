@@ -2,7 +2,10 @@ import { z } from "zod";
 import type { WorkspaceRun } from "../shared/workspace.js";
 
 const startup = z.strictObject({
-  hostIds: z.array(z.string().regex(/^host-owned-[a-f0-9]{32}$/u)).max(8).refine((ids) => new Set(ids).size === ids.length),
+  hostIds: z
+    .array(z.string().regex(/^host-owned-[a-f0-9]{32}$/u))
+    .max(8)
+    .refine((ids) => new Set(ids).size === ids.length),
   restore: z.enum(["manual", "last", "all"]),
 });
 export type StartupPreferences = z.infer<typeof startup>;

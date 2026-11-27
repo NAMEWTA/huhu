@@ -8,10 +8,20 @@ const Instant = z.iso.datetime();
 export const TaskDispatchInputIdentitySchema = z.object({ inputRevision: z.number().int().positive(), inputHash: z.string().regex(/^[a-f0-9]{16}$/) });
 const ContextSelection = z.strictObject({
   messageIds: z.array(Id).max(8).default([]),
-  artifacts: z.array(z.strictObject({ path: z.string().min(1).max(1024), expectedVersion: z.string().min(1).max(256).optional() })).max(4).default([]),
+  artifacts: z
+    .array(z.strictObject({ path: z.string().min(1).max(1024), expectedVersion: z.string().min(1).max(256).optional() }))
+    .max(4)
+    .default([]),
 });
 
-export const TaskDispatchInputSchema = TaskDispatchInputIdentitySchema.extend({ taskId: Id, dispatchId: Id, expectedVersion: z.string().min(1), allowEarly: z.boolean().optional(), newRound: z.literal(true).optional(), context: ContextSelection.optional() }).strict();
+export const TaskDispatchInputSchema = TaskDispatchInputIdentitySchema.extend({
+  taskId: Id,
+  dispatchId: Id,
+  expectedVersion: z.string().min(1),
+  allowEarly: z.boolean().optional(),
+  newRound: z.literal(true).optional(),
+  context: ContextSelection.optional(),
+}).strict();
 export const TaskDispatchLookupSchema = TaskDispatchInputSchema.pick({ taskId: true, dispatchId: true });
 export const TaskRetryDispatchSchema = TaskDispatchLookupSchema.extend({ retryId: Id });
 const TaskStopViewFields = z.strictObject({
@@ -33,8 +43,7 @@ export const TaskRuleDispatchSourceSchema = z.strictObject({
   instructions: z.string().max(20_000).optional(),
 });
 export const TaskFollowUpDispatchSchema = TaskDispatchInputIdentitySchema.extend({ taskId: Id, followUpId: Id, scheduledFor: Instant }).strict();
-export const TaskFollowUpSourceSchema = TaskFollowUpDispatchSchema.pick({ followUpId: true, scheduledFor: true })
-  .extend({ kind: z.literal("follow-up"), parent: ExecutionBindingSchema.optional() });
+export const TaskFollowUpSourceSchema = TaskFollowUpDispatchSchema.pick({ followUpId: true, scheduledFor: true }).extend({ kind: z.literal("follow-up"), parent: ExecutionBindingSchema.optional() });
 
 export const TaskDispatchReceiptSchema = TaskDispatchLookupSchema.extend({
   eventId: z.string(),

@@ -11,24 +11,42 @@ const { createRoot } = createRequire(new FileURL("../../../apps/desktop/package.
 };
 
 vi.mock("@huhu/ui", async (original) => ({
-  ...await original<typeof import("@huhu/ui")>(),
+  ...(await original<typeof import("@huhu/ui")>()),
   TerminalView: ({ ariaLabel }: { ariaLabel: string }) => <textarea aria-label={ariaLabel} />,
 }));
 
 const original: PaneLeaf = { kind: "leaf", id: "original", sessionId: "original-session" };
 const sibling: PaneLeaf = { kind: "leaf", id: "sibling", sessionId: "sibling-session" };
 const split = (axis: "rows" | "columns"): Pane => ({
-  kind: "split", id: "split", axis, ratio: 0.5, first: sibling, second: original,
+  kind: "split",
+  id: "split",
+  axis,
+  ratio: 0.5,
+  first: sibling,
+  second: original,
 });
 const props = {
-  zoom: null, retained: null, endpoint: { baseUrl: "http://127.0.0.1" },
-  editable: true, launchable: true, showReview: false,
+  zoom: null,
+  retained: null,
+  endpoint: { baseUrl: "http://127.0.0.1" },
+  editable: true,
+  launchable: true,
+  showReview: false,
   sessions: [
     { id: "original-session", spaceId: "space", provider: "shell", name: "原终端", state: "running", terminalId: "t1" },
     { id: "sibling-session", spaceId: "space", provider: "shell", name: "另一终端", state: "running", terminalId: "t2" },
   ],
-  onFocus: vi.fn(), onRequest: vi.fn(), onMoveStart: vi.fn(), onMoveDrop: vi.fn(), onMoveCancel: vi.fn(),
-  onClose: vi.fn(), onZoom: vi.fn(), onResize: vi.fn(), onReview: vi.fn(), onTerminalControl: vi.fn(), onInterrupt: vi.fn(),
+  onFocus: vi.fn(),
+  onRequest: vi.fn(),
+  onMoveStart: vi.fn(),
+  onMoveDrop: vi.fn(),
+  onMoveCancel: vi.fn(),
+  onClose: vi.fn(),
+  onZoom: vi.fn(),
+  onResize: vi.fn(),
+  onReview: vi.fn(),
+  onTerminalControl: vi.fn(),
+  onInterrupt: vi.fn(),
   status: () => null,
 } satisfies Omit<ComponentProps<typeof WorkspaceCanvas>, "pane" | "active">;
 
@@ -39,18 +57,22 @@ let notifyResize: () => void;
 const canvas = () => outer.querySelector<HTMLDivElement>('[data-testid="agent-workspace-canvas"]')!;
 const leaf = () => outer.querySelector<HTMLElement>('[data-pane-id="original"]')!;
 const input = () => leaf().querySelector("textarea")!;
-const render = (axis: "columns" | "rows", active = "original") =>
-  act(() => root.render(<WorkspaceCanvas {...props} pane={split(axis)} active={active} />));
+const render = (axis: "columns" | "rows", active = "original") => act(() => root.render(<WorkspaceCanvas {...props} pane={split(axis)} active={active} />));
 
 beforeEach(() => {
   canvasHeight = 340;
   props.onFocus.mockClear();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.stubGlobal("ResizeObserver", class {
-    constructor(callback: () => void) { notifyResize = callback; }
-    observe() {}
-    disconnect() {}
-  });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: () => void) {
+        notifyResize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
   outer = document.createElement("div");
   document.body.append(outer);
   root = createRoot(outer);

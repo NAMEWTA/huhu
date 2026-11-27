@@ -108,9 +108,7 @@ test("C12base 桌面和 Web 按原路径、计划修订及派遣标识核实写�
       expect(await lookup(other, noteIdentity)).toMatchObject(noReceipt);
 
       // 计划先拒绝过期任务版本。响应丢失后按同一任务读取已提交的计划修订。
-      const created = committed(
-        await call<TaskDto>(entry, "tasks.create", { title: name, type: "agent", body: "C12base", execution: { spaceId: "space-fixture-unavailable", provider: "codex" } }),
-      );
+      const created = committed(await call<TaskDto>(entry, "tasks.create", { title: name, type: "agent", body: "C12base", execution: { spaceId: "space-fixture-unavailable", provider: "codex" } }));
       const taskId = created.id;
       const plan = { taskId, scheduledFor: new Date(Date.now() + 86_400_000).toISOString(), expectedRevision: null, expectedTaskVersion: created.version };
       const schedule = "automations.followUps.schedule";

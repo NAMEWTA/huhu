@@ -42,7 +42,9 @@ test("本地离场先结算桥缓冲，有脏输入才提示，文件保存后�
     checkpoint,
     subscribe(next) {
       onChange = next;
-      return () => { onChange = undefined; };
+      return () => {
+        onChange = undefined;
+      };
     },
   });
   const unload = () => {

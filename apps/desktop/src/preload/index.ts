@@ -59,7 +59,9 @@ contextBridge.exposeInMainWorld("huhuHost", {
     const channel = "huhu:ssh-workspace:detached";
     const listener = (_event: Electron.IpcRendererEvent, id: string) => callback(id);
     ipcRenderer.on(channel, listener);
-    return () => { ipcRenderer.removeListener(channel, listener); };
+    return () => {
+      ipcRenderer.removeListener(channel, listener);
+    };
   },
   returnSshWorkspaceWindow: (handoffId: string, paneId: string): Promise<void> => ipcRenderer.invoke("huhu:ssh-workspace:return", handoffId, paneId),
   sshExternalEditor: {

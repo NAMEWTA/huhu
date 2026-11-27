@@ -48,10 +48,7 @@ test("桌面与 Web 将捕获的 Markdown 直接写入笔记并保留关联", as
       expect(body).toBe(markdown);
       expect(result).toMatchObject({ kind: "note", id: notes.find(({ path: file }) => file === `${title}.md`)?.id });
     }
-    expect(await call(page, "notes.backlinks", { path: reference.path })).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: `${titles[0]}.md` }),
-      expect.objectContaining({ path: `${titles[1]}.md` }),
-    ]));
+    expect(await call(page, "notes.backlinks", { path: reference.path })).toEqual(expect.arrayContaining([expect.objectContaining({ path: `${titles[0]}.md` }), expect.objectContaining({ path: `${titles[1]}.md` })]));
   } finally {
     await browser?.close();
     await close();

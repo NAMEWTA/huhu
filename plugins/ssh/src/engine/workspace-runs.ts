@@ -2,7 +2,21 @@ import { randomUUID } from "node:crypto";
 import { errors, HuhuError } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { BoundWorkspacePane, layoutProblem, MAX_WORKSPACE_PANES, removePaneAt, splitPaneAt, workspaceTree, WorkspaceDraft, WorkspaceLayout, WorkspaceName, type ChangeWorkbenchWorkspaceRun, type ChangeWorkspaceRun, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
+import {
+  BoundWorkspacePane,
+  layoutProblem,
+  MAX_WORKSPACE_PANES,
+  removePaneAt,
+  splitPaneAt,
+  workspaceTree,
+  WorkspaceDraft,
+  WorkspaceLayout,
+  WorkspaceName,
+  type ChangeWorkbenchWorkspaceRun,
+  type ChangeWorkspaceRun,
+  type WorkspaceRun,
+  type WorkspaceRunPane,
+} from "../shared/workspace.js";
 import type { HostConfigurations } from "./host-configurations.js";
 import type { SshManager } from "./manager.js";
 import { routeForHost, workspaceTarget } from "./workspace-target.js";
@@ -43,7 +57,7 @@ export function editWorkspacePanes<Pane extends { paneId: string; hostId: string
     layout = change.layout;
   } else if (change.action === "rename") {
     if (!byId.has(change.paneId)) throw errors.notFound("工作区分栏");
-    panes = current.panes.map((pane) => pane.paneId === change.paneId ? { ...pane, label: change.label } : pane);
+    panes = current.panes.map((pane) => (pane.paneId === change.paneId ? { ...pane, label: change.label } : pane));
   } else {
     const closed = change.action === "close" ? [change.paneId] : change.paneIds;
     const removed = new Set(closed);
@@ -210,8 +224,7 @@ export class WorkspaceRuns {
     const open = async (signal: AbortSignal, route?: string) => {
       const recovery = {
         failed,
-        reopen: (originalRoute: string, deadline: AbortSignal): Promise<void> =>
-          open(AbortSignal.any([controller.signal, deadline]), originalRoute),
+        reopen: (originalRoute: string, deadline: AbortSignal): Promise<void> => open(AbortSignal.any([controller.signal, deadline]), originalRoute),
       };
       const shell = await this.manager.openWorkspaceShell(pane, signal, () => this.changed(run.id), slot, recovery, route);
       if (current() && !signal.aborted) {

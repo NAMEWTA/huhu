@@ -36,10 +36,14 @@ test("UX01：混合 Markdown 三种模式铺满知识库编辑区并保留焦点
     await rich.getByText("中文正文与选择范围。").click();
     await page.keyboard.press("Shift+End");
     await expect(rich).toBeFocused();
-    await expect.poll(() => rich.evaluate((element) => {
-      const pane = element.closest("[data-testid=markdown-editor]")!;
-      return { outline: getComputedStyle(element).outlineStyle, fillsPane: element.getBoundingClientRect().width >= pane.getBoundingClientRect().width * 0.8 };
-    })).toEqual({ outline: "none", fillsPane: true });
+    await expect
+      .poll(() =>
+        rich.evaluate((element) => {
+          const pane = element.closest("[data-testid=markdown-editor]")!;
+          return { outline: getComputedStyle(element).outlineStyle, fillsPane: element.getBoundingClientRect().width >= pane.getBoundingClientRect().width * 0.8 };
+        }),
+      )
+      .toEqual({ outline: "none", fillsPane: true });
     await expect.poll(() => editor.evaluate((element) => getComputedStyle(element, "::before").borderBlockStartWidth)).toBe("2px");
 
     const toolbar = page.getByTestId("note-toolbar");

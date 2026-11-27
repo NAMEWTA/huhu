@@ -18,7 +18,16 @@ const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
 
 function remoteFilename(remote: string) {
   const name = path.posix.basename(remote);
-  if (!remote.startsWith("/") || /[\p{Cc}]/u.test(remote) || remote.endsWith("/") || remote.split("/").slice(1).some((part) => !part || part === "." || part === "..") || !safeTreeName(name)) {
+  if (
+    !remote.startsWith("/") ||
+    /[\p{Cc}]/u.test(remote) ||
+    remote.endsWith("/") ||
+    remote
+      .split("/")
+      .slice(1)
+      .some((part) => !part || part === "." || part === "..") ||
+    !safeTreeName(name)
+  ) {
     throw errors.invalidInput("请输入远端普通文件的绝对路径");
   }
   return name;
@@ -112,7 +121,9 @@ export async function downloadScp(client: Client, remote: string, local: string,
   const ended = once(channel, "close", { signal });
   void ended.catch(() => undefined);
   let exitCode: number | undefined;
-  channel.on("exit", (code) => { exitCode = typeof code === "number" ? code : undefined; });
+  channel.on("exit", (code) => {
+    exitCode = typeof code === "number" ? code : undefined;
+  });
   channel.stderr.resume();
   const stop = () => channel.destroy();
   signal.addEventListener("abort", stop, { once: true });
@@ -127,7 +138,9 @@ export async function downloadScp(client: Client, remote: string, local: string,
     if (!header || header[2] !== name || size > SFTP_TRANSFER_MAX) throw protocolError();
     channel.write(ack);
     const output = temporary.stage();
-    output.once("open", () => { created = true; });
+    output.once("open", () => {
+      created = true;
+    });
     await pipeline(Readable.from(reader.read(size, signal)), output, { signal });
     await reader.checkAck();
     channel.end(ack);
@@ -171,8 +184,8 @@ export async function uploadScp(client: Client, local: string, remote: string, s
   const ownsDirectory = `[ -d ${stage} ] && [ ! -L ${stage} ]`;
   const cleanup = `if ${ownsDirectory}; then rm -f -- ${payload}; rmdir -- ${stage}; fi`;
   const verify = `${ownsDirectory} && [ -f ${payload} ] && [ ! -L ${payload} ] && [ "$(wc -c < ${payload})" -eq ${snapshot.size} ]`;
-  const prepare = `${enter} [ ! -e ${target} ] && [ ! -L ${target} ] || exit 73; umask 077; mkdir -m 700 -- ${stage} || exit 74; `
-    + `trap '${cleanup}' EXIT; trap 'exit 1' HUP INT TERM; scp -t -- ${stage} && ${verify} || exit 75; trap - EXIT`;
+  const prepare =
+    `${enter} [ ! -e ${target} ] && [ ! -L ${target} ] || exit 73; umask 077; mkdir -m 700 -- ${stage} || exit 74; ` + `trap '${cleanup}' EXIT; trap 'exit 1' HUP INT TERM; scp -t -- ${stage} && ${verify} || exit 75; trap - EXIT`;
   let ownsStage = false;
   let commitStarted = false;
   try {
@@ -184,12 +197,14 @@ export async function uploadScp(client: Client, local: string, remote: string, s
     const ended = once(channel, "close", { signal });
     void ended.catch(() => undefined);
     let exitCode: number | undefined;
-    channel.on("exit", (code) => { exitCode = typeof code === "number" ? code : undefined; });
+    channel.on("exit", (code) => {
+      exitCode = typeof code === "number" ? code : undefined;
+    });
     channel.stderr.resume();
     const reader = new ScpReader(channel);
     async function write(data: Buffer | string) {
       signal.throwIfAborted();
-      await new Promise<void>((resolve, reject) => channel.write(data, (error) => error ? reject(error) : resolve()));
+      await new Promise<void>((resolve, reject) => channel.write(data, (error) => (error ? reject(error) : resolve())));
     }
     try {
       try {

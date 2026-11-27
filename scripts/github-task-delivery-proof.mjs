@@ -8,9 +8,7 @@ export async function verifyDeliveryIssue(github, { repository, issueId, issueNu
 }
 
 export function confirmDelivery(huhu, { sourceId, issueId, deliveryId, verification }, comment) {
-  const evidence = comment
-    ? { proof: { id: comment.id, actorId: comment.user?.id, url: comment.html_url, body: comment.body } }
-    : { proof: null, verificationId: verification.id };
+  const evidence = comment ? { proof: { id: comment.id, actorId: comment.user?.id, url: comment.html_url, body: comment.body } } : { proof: null, verificationId: verification.id };
   return huhu("tasks.github.deliveries.confirm", { sourceId, issueId, deliveryId, ...evidence });
 }
 
@@ -18,8 +16,7 @@ export async function findDeliveryComment(github, path, { actorId, body, reposit
   let match = null;
   for await (const page of github.pages(`${path}/comments`)) {
     for (const comment of page) {
-      if (comment.user?.id !== actorId || comment.body !== body || !Number.isSafeInteger(comment.id) || comment.id <= 0 ||
-          comment.html_url?.toLowerCase() !== `https://github.com/${repository}${path}#issuecomment-${comment.id}`) continue;
+      if (comment.user?.id !== actorId || comment.body !== body || !Number.isSafeInteger(comment.id) || comment.id <= 0 || comment.html_url?.toLowerCase() !== `https://github.com/${repository}${path}#issuecomment-${comment.id}`) continue;
       if (match && match.id !== comment.id) return null;
       match = comment;
     }

@@ -41,8 +41,10 @@ export function registerSshWorkspacePanes(api: HuhuApi, runs: WorkspaceRuns, ext
       return runs.changeLayout(input, context.signal);
     }),
   );
-  api.defineCapability(bindCapability(sshCancelPaneReconnectDescriptor, (context, input) => {
-    if (!isWorkbenchCaller(context.caller)) throw errors.permissionDenied("SSH 工作区重连");
-    return { cancelled: runs.cancelPaneReconnect(input) };
-  }));
+  api.defineCapability(
+    bindCapability(sshCancelPaneReconnectDescriptor, (context, input) => {
+      if (!isWorkbenchCaller(context.caller)) throw errors.permissionDenied("SSH 工作区重连");
+      return { cancelled: runs.cancelPaneReconnect(input) };
+    }),
+  );
 }

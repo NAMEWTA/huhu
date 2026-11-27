@@ -43,8 +43,11 @@ export function validateSourceConfiguration(configuration: McpSource["configurat
 export function validateCredentialHeaders(headers: Record<string, string>) {
   const names = Object.keys(headers).map((name) => name.toLowerCase());
   if (new Set(names).size !== names.length || names.some((name) => reservedHeader.test(name))) throw errors.invalidInput("认证 header 重复或由协议保留");
-  try { new Headers(headers); }
-  catch { throw errors.invalidInput("认证 header 无效"); }
+  try {
+    new Headers(headers);
+  } catch {
+    throw errors.invalidInput("认证 header 无效");
+  }
 }
 
 function localHost(host: string): boolean {
@@ -105,9 +108,7 @@ export function sourceTransport(source: McpSource, endpoint: () => string | null
     return fetch(input, { ...init, headers: requestHeaders, redirect: "manual" });
   };
   const options = { requestInit: { headers }, fetch: boundFetch };
-  return configuration.transport === "streamable-http"
-    ? new StreamableHTTPClientTransport(url, options)
-    : new SSEClientTransport(url, options);
+  return configuration.transport === "streamable-http" ? new StreamableHTTPClientTransport(url, options) : new SSEClientTransport(url, options);
 }
 
 export function remoteAuthFailure(error: unknown): boolean {

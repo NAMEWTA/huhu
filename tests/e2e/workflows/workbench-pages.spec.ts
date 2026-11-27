@@ -64,7 +64,7 @@ test("UX05：窄窗口可填写长中文、多个标签与 Agent 日期字段，
   try {
     await engineReady(page);
     const existing = (await call<{ id: string; root: string }[]>(page, "agent.spaces.list", {})).find((item) => item.root === vault);
-    const space = existing ?? await call<{ id: string }>(page, "agent.spaces.save", { name: "窄栏任务工作区", root: vault });
+    const space = existing ?? (await call<{ id: string }>(page, "agent.spaces.save", { name: "窄栏任务工作区", root: vault }));
     await page.route("**/api/v1/call", async (route) => {
       if (route.request().postDataJSON()?.capability !== "agent.catalog.detect") return route.continue();
       return route.fulfill({ json: { ok: true, data: [{ id: "codex", displayName: "Codex", headless: true, installed: true }] } });
@@ -91,20 +91,31 @@ test("UX05：窄窗口可填写长中文、多个标签与 Agent 日期字段，
     await type.selectOption("agent");
     await dialog.getByRole("combobox", { name: "工作目录（Space）" }).selectOption(space.id);
     await dialog.getByRole("combobox", { name: "任务Agent CLI" }).selectOption("codex");
-    await expect.poll(() => dialog.locator(".hu-form-grid").evaluate((grid) => {
-      const primary = grid.querySelector(".hu-form-primary")!.getBoundingClientRect();
-      const aside = grid.querySelector(".hu-form-aside")!.getBoundingClientRect();
-      return { stacked: aside.top >= primary.bottom, noHorizontalScroll: grid.scrollWidth <= grid.clientWidth + 1 };
-    })).toEqual({ stacked: true, noHorizontalScroll: true });
+    await expect
+      .poll(() =>
+        dialog.locator(".hu-form-grid").evaluate((grid) => {
+          const primary = grid.querySelector(".hu-form-primary")!.getBoundingClientRect();
+          const aside = grid.querySelector(".hu-form-aside")!.getBoundingClientRect();
+          return { stacked: aside.top >= primary.bottom, noHorizontalScroll: grid.scrollWidth <= grid.clientWidth + 1 };
+        }),
+      )
+      .toEqual({ stacked: true, noHorizontalScroll: true });
     const save = dialog.getByTestId("task-save");
     await expect(save).toBeInViewport();
     await save.click();
     await expect(dialog).toBeHidden();
     const tasks = await call<{ id: string; title: string }[]>(page, "tasks.list", { category: "all" });
     const task = tasks.find((row) => row.title === title)!;
-    await expect.poll(() => call(page, "tasks.read", { id: task.id })).toMatchObject({
-      title, body: text, tags, due: "2026-12-18", type: "agent", execution: { provider: "codex", spaceId: space.id },
-    });
+    await expect
+      .poll(() => call(page, "tasks.read", { id: task.id }))
+      .toMatchObject({
+        title,
+        body: text,
+        tags,
+        due: "2026-12-18",
+        type: "agent",
+        execution: { provider: "codex", spaceId: space.id },
+      });
     const detail = page.getByTestId("task-detail");
     await expect(detail.getByTestId("detail-title")).toHaveText(title);
     await detail.getByRole("button", { name: "关闭任务详情", exact: true }).click();
@@ -133,10 +144,14 @@ test("UX06：快速捕获的斜线菜单在模态框内，中文正文和来源�
     await page.keyboard.type("/");
     const heading = dialog.locator('[data-slash-command="heading2"]');
     await expect(heading).toBeVisible();
-    await expect.poll(() => heading.evaluate((item) => {
-      const { x, y, width, height } = item.getBoundingClientRect();
-      return item.contains(document.elementFromPoint(x + width / 2, y + height / 2));
-    })).toBe(true);
+    await expect
+      .poll(() =>
+        heading.evaluate((item) => {
+          const { x, y, width, height } = item.getBoundingClientRect();
+          return item.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+        }),
+      )
+      .toBe(true);
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Escape");
     await expect(heading).toHaveCount(0);
@@ -220,23 +235,32 @@ test("UX06 / TW8 AT-A14：转换身份、待处理跳转与通知清除保留原
       const operationId = operationIdFor(draftId, revision);
       const messageId = `<${randomUUID()}@huhu.local>`;
       const subject = state === "unknown" ? "待核实原投递" : "未送达原投递";
-      await outbox.write({
-        format: 1, operationId, draftId, revision, messageId, claimedAt: at, from: "sender@example.test", auth: "password",
-        smtp: { host: "localhost", port: 1, security: "none" },
-        draft: { accountId: randomUUID(), to: ["reader@example.test"], cc: [], bcc: [], subject, body: { type: "doc" } }, text: "验收投递",
-        result: state === "unknown" ? null : { stage: "data", finishedAt: at, recipients: [{ address: "reader@example.test", state: "not-delivered" }] },
-      }, null);
+      await outbox.write(
+        {
+          format: 1,
+          operationId,
+          draftId,
+          revision,
+          messageId,
+          claimedAt: at,
+          from: "sender@example.test",
+          auth: "password",
+          smtp: { host: "localhost", port: 1, security: "none" },
+          draft: { accountId: randomUUID(), to: ["reader@example.test"], cc: [], bcc: [], subject, body: { type: "doc" } },
+          text: "验收投递",
+          result: state === "unknown" ? null : { stage: "data", finishedAt: at, recipients: [{ address: "reader@example.test", state: "not-delivered" }] },
+        },
+        null,
+      );
       mail.push({ subject, messageId });
     }
     await page.reload();
     await engineReady(page);
-    await expect.poll(() => call(page, "tasks.questions.list", { taskId: agentTask.id })).toMatchObject([
-      { runId, requestId, text: questionText, status: "awaiting" },
-    ]);
+    await expect.poll(() => call(page, "tasks.questions.list", { taskId: agentTask.id })).toMatchObject([{ runId, requestId, text: questionText, status: "awaiting" }]);
     const openAttention = async (host: Page) => {
       await navigate(host, "收件箱");
       const pending = host.getByRole("tablist", { name: "收集状态" }).getByRole("tab", { name: "待处理", exact: true });
-      if (await pending.getAttribute("aria-selected") !== "true") await pending.click();
+      if ((await pending.getAttribute("aria-selected")) !== "true") await pending.click();
       const details = host.locator(".inbox-attention");
       if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
       return details;
@@ -298,10 +322,14 @@ test("UX06 / TW8 AT-A14：转换身份、待处理跳转与通知清除保留原
 
 test("UX07：邮件设置按需打开，三栏到窄窗继续阅读、回复草稿与逐收件人结果", async () => {
   const subject = "邮件工作区验收";
-  const imap = await openImapFixture({ message: {
-    uid: 1, uidValidity: 42, subject,
-    source: `From: Sender <sender@example.test>\r\nTo: reader@example.test\r\nSubject: ${subject}\r\nDate: ${new Date().toUTCString()}\r\n\r\nmail fixture original\r\n`,
-  } });
+  const imap = await openImapFixture({
+    message: {
+      uid: 1,
+      uidValidity: 42,
+      subject,
+      source: `From: Sender <sender@example.test>\r\nTo: reader@example.test\r\nSubject: ${subject}\r\nDate: ${new Date().toUTCString()}\r\n\r\nmail fixture original\r\n`,
+    },
+  });
   try {
     const { page, vault, close } = await openApp();
     try {
@@ -369,11 +397,31 @@ test("UX07：邮件设置按需打开，三栏到窄窗继续阅读、回复草�
       const messageId = `<${randomUUID()}@huhu.local>`;
       const claimedAt = new Date().toISOString();
       const recipients = ["accepted@example.test", "failed@example.test"];
-      await new OutboxStorage(new VaultFiles(vault)).write({
-        format: 1, operationId, draftId, revision, messageId, claimedAt, from: "reader@example.test", auth: "password", smtp: address,
-        draft: { accountId, to: recipients, cc: [], bcc: [], subject: "部分送达的邮件", body: { type: "doc" } }, text: "测试投递",
-        result: { stage: "data", finishedAt: claimedAt, smtpCode: 250, recipients: [{ address: recipients[0]!, state: "accepted" }, { address: recipients[1]!, state: "not-delivered" }] },
-      }, null);
+      await new OutboxStorage(new VaultFiles(vault)).write(
+        {
+          format: 1,
+          operationId,
+          draftId,
+          revision,
+          messageId,
+          claimedAt,
+          from: "reader@example.test",
+          auth: "password",
+          smtp: address,
+          draft: { accountId, to: recipients, cc: [], bcc: [], subject: "部分送达的邮件", body: { type: "doc" } },
+          text: "测试投递",
+          result: {
+            stage: "data",
+            finishedAt: claimedAt,
+            smtpCode: 250,
+            recipients: [
+              { address: recipients[0]!, state: "accepted" },
+              { address: recipients[1]!, state: "not-delivered" },
+            ],
+          },
+        },
+        null,
+      );
       await page.reload();
       await engineReady(page);
       await navigate(page, "邮件");

@@ -118,7 +118,9 @@ export function ChoiceSwitch({ checked, onChange, label, disabled = false }: { c
     <Switch.Root
       ref={trigger}
       checked={!!checked}
-      onCheckedChange={(next) => { if (trigger.current) onChange(next, trigger.current); }}
+      onCheckedChange={(next) => {
+        if (trigger.current) onChange(next, trigger.current);
+      }}
       aria-label={label}
       disabled={disabled}
       className={`toggle hu-switch ${checked ? "is-on" : ""}`}

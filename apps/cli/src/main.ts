@@ -25,16 +25,22 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
 
   const engine = program.command("engine").description("管理所选 Vault 的本机 Engine。计划只在机器和 Engine 在线时运行");
   for (const [action, description] of [
-    ["start", "启动 Engine，默认常驻"], ["status", "查看 Engine 实际状态"], ["stop", "有序停止当前 Engine"],
+    ["start", "启动 Engine，默认常驻"],
+    ["status", "查看 Engine 实际状态"],
+    ["stop", "有序停止当前 Engine"],
   ] as const) {
     const command = engine.command(action).description(description).option("--vault <path>", "Vault 路径").option("--json", "输出 JSON");
     if (action === "start") command.addOption(new Option("--mode <mode>", "选择临时或常驻模式").choices(["temporary", "resident"]).default("resident"));
     command.action(async (options: { vault?: string; json?: boolean; mode?: EngineMode }) => {
       try {
         const result = await engineLifecycle(action, options.vault, options.mode);
-        io.out(options.json ? JSON.stringify(result) : result.state === "running"
-          ? `Engine 运行中（${result.mode === "resident" ? "常驻" : "临时"}，端口 ${result.port}，进程 ${result.pid}）`
-          : "Engine 已停止。离线期间的时点按各计划的补偿策略处理。");
+        io.out(
+          options.json
+            ? JSON.stringify(result)
+            : result.state === "running"
+              ? `Engine 运行中（${result.mode === "resident" ? "常驻" : "临时"}，端口 ${result.port}，进程 ${result.pid}）`
+              : "Engine 已停止。离线期间的时点按各计划的补偿策略处理。",
+        );
       } catch (error) {
         if (!(error instanceof ConnectError)) throw error;
         io.err(error.message);

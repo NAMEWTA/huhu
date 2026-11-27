@@ -17,7 +17,17 @@ type OwnedOrigin = {
   directory?: { state(): DirectoryFollowState; follow(revision: number, path: string): Promise<boolean> };
 };
 type SudoScope = { sudoSessionId?: string | undefined };
-type Binding = { sudo?: { id: string; lifetime: AbortController; lease?: PrivilegedFileLease }; closeConnection?: () => void; session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController; navigation?: Navigation; owned?: OwnedOrigin };
+type Binding = {
+  sudo?: { id: string; lifetime: AbortController; lease?: PrivilegedFileLease };
+  closeConnection?: () => void;
+  session: FileSession;
+  controller: AbortController;
+  detached: boolean;
+  localRoot?: string;
+  search?: AbortController;
+  navigation?: Navigation;
+  owned?: OwnedOrigin;
+};
 
 export class FileSessions {
   private readonly bindings = new Map<string, Binding>();
@@ -237,7 +247,10 @@ export class FileSessions {
   }
 
   async moveEntry(id: string, path: string, revision: string, destination: string, signal: AbortSignal, beforeWrite?: () => void, sudo?: SudoScope) {
-    await this.manager.withSftp(sudo ? this.sudoSource(id, sudo) : this.source({ fileSessionId: id }), "move", path, (channel, active) => moveEntry(channel, path, revision, destination, active, beforeWrite), { signal, elevated: Boolean(sudo) });
+    await this.manager.withSftp(sudo ? this.sudoSource(id, sudo) : this.source({ fileSessionId: id }), "move", path, (channel, active) => moveEntry(channel, path, revision, destination, active, beforeWrite), {
+      signal,
+      elevated: Boolean(sudo),
+    });
     return { ok: true as const };
   }
 

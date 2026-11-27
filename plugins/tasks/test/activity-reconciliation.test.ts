@@ -15,9 +15,13 @@ vi.mock("@huhu/plugin-tasks/engine", async (original) => {
   const tasks = await original<typeof import("../src/engine/index.js")>();
   return {
     ...tasks,
-    apply: ((ctx, api, options) => tasks.apply(ctx, api, {
-      ...options, dispatchCheckMs: 3_600_000, dispatchExecutor: null, onError: (error) => fixture.errors.push(error),
-    })) satisfies typeof tasks.apply,
+    apply: ((ctx, api, options) =>
+      tasks.apply(ctx, api, {
+        ...options,
+        dispatchCheckMs: 3_600_000,
+        dispatchExecutor: null,
+        onError: (error) => fixture.errors.push(error),
+      })) satisfies typeof tasks.apply,
   };
 });
 
@@ -45,16 +49,41 @@ async function seed(engine: RunningEngine, closed: number) {
     const input = { taskId, dispatchId, inputRevision: 1, inputHash, expectedVersion: "fixture" };
     const source = { kind: "automation", ruleId: "rule-fixture", ruleVersion: "fixture", occurrenceId: dispatchId } as const;
     const snapshot: DispatchSnapshot = {
-      taskId, inputRevision: 1, inputHash, expectedVersion: "fixture", taskVersion: "fixture",
-      body: "Benchmark input", references: [], execution: TaskExecutionSchema.parse({ spaceId: "space-fixture", provider: "codex" }), source,
+      taskId,
+      inputRevision: 1,
+      inputHash,
+      expectedVersion: "fixture",
+      taskVersion: "fixture",
+      body: "Benchmark input",
+      references: [],
+      execution: TaskExecutionSchema.parse({ spaceId: "space-fixture", provider: "codex" }),
+      source,
     };
-    const execution: ExecutionBinding = { vaultId: engine.vault.id, taskId, dispatchId, runId, attempt: 1, sessionBinding: {
-      machineId: device, sessionId: `session-${index}`, coreId: "fixture-core", coreAddress: "t2", processGeneration: runId, provider: "codex", nativeSessionId: null,
-    } };
+    const execution: ExecutionBinding = {
+      vaultId: engine.vault.id,
+      taskId,
+      dispatchId,
+      runId,
+      attempt: 1,
+      sessionBinding: {
+        machineId: device,
+        sessionId: `session-${index}`,
+        coreId: "fixture-core",
+        coreAddress: "t2",
+        processGeneration: runId,
+        provider: "codex",
+        nativeSessionId: null,
+      },
+    };
     await store.create({
       receipt: { taskId, dispatchId, eventId: eventIdOf(dispatchId), runId, attempt: 1, acceptedAt: at, state: "running", reason: null, cancelRequested: false },
-      snapshot, requestHash: fingerprint({ input, source }), snapshotHash: fingerprint(snapshot),
-      claim: { at, machineId: device }, boundExecution: execution, startedAt: at, finishedAt: null,
+      snapshot,
+      requestHash: fingerprint({ input, source }),
+      snapshotHash: fingerprint(snapshot),
+      claim: { at, machineId: device },
+      boundExecution: execution,
+      startedAt: at,
+      finishedAt: null,
     });
     if (index >= closed) continue;
     const receipt: ExecutionReceipt = { version: 1, receiptId: `result-${index}`, execution, kind: "result", payload: { message: "Benchmark result" } };
@@ -106,7 +135,8 @@ test.runIf(process.env["HUHU_F11_BENCH"] === "1")("activity reconciliation again
         try {
           const requestAt = performance.now();
           const response = fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
-            method: "POST", headers: { authorization: `Bearer ${engine.rendererToken}`, "content-type": "application/json" },
+            method: "POST",
+            headers: { authorization: `Bearer ${engine.rendererToken}`, "content-type": "application/json" },
             body: JSON.stringify({ capability: "tasks.dispatch.resources", input: {}, requestId: randomUUID(), idempotencyKey: randomUUID() }),
           }).then(async (r) => ({ body: await r.json(), ms: performance.now() - requestAt }));
           const cpu = process.cpuUsage();

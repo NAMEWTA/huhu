@@ -77,8 +77,15 @@ export function DataTable<T>({ label, scrollLabel, columns, rows, rowKey, onOpen
   };
 
   return (
-    <div ref={scroller} className="hu-data-table-scroll" style={virtual ? { maxHeight: height } : undefined} data-virtual={virtual || undefined}
-      role={scrollLabel ? "region" : undefined} aria-label={scrollLabel} tabIndex={scrollLabel ? 0 : undefined}>
+    <div
+      ref={scroller}
+      className="hu-data-table-scroll"
+      style={virtual ? { maxHeight: height } : undefined}
+      data-virtual={virtual || undefined}
+      role={scrollLabel ? "region" : undefined}
+      aria-label={scrollLabel}
+      tabIndex={scrollLabel ? 0 : undefined}
+    >
       <table className="hu-table hu-data-table" aria-label={label} aria-rowcount={body.length + 1} style={{ width: table.getTotalSize(), minWidth: "100%" }}>
         <colgroup>
           {table.getFlatHeaders().map((h) => (

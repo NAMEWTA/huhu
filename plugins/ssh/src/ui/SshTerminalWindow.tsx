@@ -19,7 +19,7 @@ export function MovableSshTerminal({ name, visible = true, disabled = false, ...
     setError("");
     try {
       const handoffId = crypto.randomUUID();
-      if (!await prepare(handoffId)) throw new Error("原终端未能授权输入交接，请重试。");
+      if (!(await prepare(handoffId))) throw new Error("原终端未能授权输入交接，请重试。");
       await open({ vaultId: engine.vaultId, shellId: props.sessionId, name, handoffId });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法打开新的 SSH 终端窗口。");
@@ -30,16 +30,27 @@ export function MovableSshTerminal({ name, visible = true, disabled = false, ...
 
   return (
     <div className="ssh-movable-terminal">
-      {visible && <div className="ssh-workspace-controls">
-        {open
-          ? <Button type="button" disabled={!prepare || moving || props.observe || disabled} onClick={() => void move()}>将终端移至新窗口</Button>
-          : <small>Web 端暂不支持将终端移至新窗口。</small>}
-      </div>}
+      {visible && (
+        <div className="ssh-workspace-controls">
+          {open ? (
+            <Button type="button" disabled={!prepare || moving || props.observe || disabled} onClick={() => void move()}>
+              将终端移至新窗口
+            </Button>
+          ) : (
+            <small>Web 端暂不支持将终端移至新窗口。</small>
+          )}
+        </div>
+      )}
       {error && visible && <p role="alert">{error}</p>}
-      <SshTerminal {...props} {...(open && { onTerminalHandoff: (next) => {
-        setPrepare(() => next);
-        props.onTerminalHandoff?.(next);
-      } })} />
+      <SshTerminal
+        {...props}
+        {...(open && {
+          onTerminalHandoff: (next) => {
+            setPrepare(() => next);
+            props.onTerminalHandoff?.(next);
+          },
+        })}
+      />
     </div>
   );
 }
@@ -49,8 +60,18 @@ export function SshTerminalWindow({ target }: { target: SshTerminalWindowTarget 
   return (
     <main className="ssh-movable-terminal ssh-terminal-native-window" data-testid="ssh-terminal-window" data-shell-id={target.shellId}>
       <PageHead title={target.name} />
-      <SshTerminal sessionId={target.shellId} baseUrl={endpoint.baseUrl} token={endpoint.token} ariaLabel={`${target.name} 终端`}
-        handoffId={target.handoffId} onHandoffControl={() => void terminalHost()?.readySshTerminalWindow(target.handoffId).catch(() => undefined)} />
+      <SshTerminal
+        sessionId={target.shellId}
+        baseUrl={endpoint.baseUrl}
+        token={endpoint.token}
+        ariaLabel={`${target.name} 终端`}
+        handoffId={target.handoffId}
+        onHandoffControl={() =>
+          void terminalHost()
+            ?.readySshTerminalWindow(target.handoffId)
+            .catch(() => undefined)
+        }
+      />
     </main>
   );
 }

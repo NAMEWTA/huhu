@@ -60,9 +60,13 @@ export function RuleDetails({ rule: cur }: { rule: EditableRule }) {
       ) : null}
       <RuleSchedule next={query.data?.next} zone={cur.data.trigger.zone} />
       <div className="automations-rule-preview-action">
-        <Button icon={Search} disabled={query.isFetching} onClick={() => {
-          void query.refetch().then(() => setPreviewedRevision(cur.version));
-        }}>
+        <Button
+          icon={Search}
+          disabled={query.isFetching}
+          onClick={() => {
+            void query.refetch().then(() => setPreviewedRevision(cur.version));
+          }}
+        >
           {cur.data.action.kind === "agent" && cur.data.action.input.source === "tasks" ? "预览将处理的任务" : t.preview}
         </Button>
         <p>预览不写日志、不运行；立即运行才会记录一次激活。</p>
@@ -72,7 +76,9 @@ export function RuleDetails({ rule: cur }: { rule: EditableRule }) {
           <strong>{t.next}</strong>
           <div className="automations-schedule-preview">
             {query.data.next.map((n) => (
-              <time key={n} dateTime={n}>{new Date(n).toLocaleString("zh-CN", { timeZone: cur.data.trigger.zone, hour12: false, timeZoneName: "shortOffset" })}</time>
+              <time key={n} dateTime={n}>
+                {new Date(n).toLocaleString("zh-CN", { timeZone: cur.data.trigger.zone, hour12: false, timeZoneName: "shortOffset" })}
+              </time>
             ))}
           </div>
           {query.data.tasksDisabled ? <p>{t.tasksDisabled}</p> : null}

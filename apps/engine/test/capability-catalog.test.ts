@@ -224,13 +224,18 @@ test("MCP 来源管理按插件生命周期加载，显式停用关闭唯一 HTT
   try {
     engine = await boot({ vaultPath: dir, create: true });
     expect((await directory(engine, true)).find(({ name }) => name === "mcp.sources.create")).toMatchObject({
-      plugin: "mcp", availability: "active", exposed: false, risk: "high",
+      plugin: "mcp",
+      availability: "active",
+      exposed: false,
+      risk: "high",
     });
-    expect(await call(engine, "mcp.sources.create", {
-      displayName: "示例",
-      namespace: "fixture",
-      configuration: { transport: "stdio", command: "fixture-never-starts", args: [], environment: {} },
-    })).toMatchObject({ ok: true, data: { enabled: false } });
+    expect(
+      await call(engine, "mcp.sources.create", {
+        displayName: "示例",
+        namespace: "fixture",
+        configuration: { transport: "stdio", command: "fixture-never-starts", args: [], environment: {} },
+      }),
+    ).toMatchObject({ ok: true, data: { enabled: false } });
     expect(await call(engine, "gateway.mcp.update", { enabled: true })).toMatchObject({ ok: true, data: { enabled: true } });
     const endpoint = `http://127.0.0.1:${engine.port}/mcp`;
     const token = await issueMcpCredential(engine);

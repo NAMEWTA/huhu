@@ -286,8 +286,12 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                   aria-label={t.editor.tags}
                   value={tagInput}
                   placeholder={t.editor.tagPlaceholder}
-                  onCompositionStart={() => { composingTag.current = true; }}
-                  onCompositionEnd={() => { composingTag.current = false; }}
+                  onCompositionStart={() => {
+                    composingTag.current = true;
+                  }}
+                  onCompositionEnd={() => {
+                    composingTag.current = false;
+                  }}
                   onChange={(e) => {
                     const next = e.target.value;
                     if (!composingTag.current && /[,，]$/.test(next)) addTag(next.slice(0, -1));
@@ -300,13 +304,22 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                       addTag(tagInput);
                     } else if (e.key === "Backspace" && tagInput === "" && draft.tags.length > 0) set("tags", draft.tags.slice(0, -1));
                   }}
-                  onBlur={() => { if (!composingTag.current && tagInput.trim()) addTag(tagInput); }}
+                  onBlur={() => {
+                    if (!composingTag.current && tagInput.trim()) addTag(tagInput);
+                  }}
                 />
               </div>
             </Field>
             <div className="tasks-two-fields">
               <Field label={t.editor.due}>
-                <DateTimePicker label={t.editor.due} field={{ kind: "date", value: draft.due }} onChange={(next) => { if (next.kind === "date") set("due", next.value); }} data-testid="task-due" />
+                <DateTimePicker
+                  label={t.editor.due}
+                  field={{ kind: "date", value: draft.due }}
+                  onChange={(next) => {
+                    if (next.kind === "date") set("due", next.value);
+                  }}
+                  data-testid="task-due"
+                />
               </Field>
               <Field label={t.editor.project}>
                 <Combobox

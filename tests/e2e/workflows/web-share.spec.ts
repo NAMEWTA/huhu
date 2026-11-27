@@ -232,27 +232,32 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
       const makeToken = (name: string) => call<{ id: string; token: string }>(page, "gateway.tokens.create", { name });
       const firstCredential = await makeToken("F18 first");
       const secondCredential = await makeToken("F18 second");
-      const probe = (token: string) => new Promise<number>((resolve, reject) => {
-        const upgrade = request(new URL("/ws/events?lastSeq=0", control), {
-          headers: {
-            Connection: "Upgrade",
-            Upgrade: "websocket",
-            "Sec-WebSocket-Version": "13",
-            "Sec-WebSocket-Key": randomBytes(16).toString("base64"),
-            "Sec-WebSocket-Protocol": `bearer.${token}`,
-          },
-        }, (response) => {
-          response.resume();
-          resolve(response.statusCode ?? 0);
+      const probe = (token: string) =>
+        new Promise<number>((resolve, reject) => {
+          const upgrade = request(
+            new URL("/ws/events?lastSeq=0", control),
+            {
+              headers: {
+                Connection: "Upgrade",
+                Upgrade: "websocket",
+                "Sec-WebSocket-Version": "13",
+                "Sec-WebSocket-Key": randomBytes(16).toString("base64"),
+                "Sec-WebSocket-Protocol": `bearer.${token}`,
+              },
+            },
+            (response) => {
+              response.resume();
+              resolve(response.statusCode ?? 0);
+            },
+          );
+          upgrade.on("upgrade", (response, socket) => {
+            socket.destroy();
+            resolve(response.statusCode ?? 0);
+          });
+          upgrade.on("error", () => reject(new Error("工作台事件探测失败")));
+          upgrade.setTimeout(5_000, () => upgrade.destroy(new Error("工作台事件探测超时")));
+          upgrade.end();
         });
-        upgrade.on("upgrade", (response, socket) => {
-          socket.destroy();
-          resolve(response.statusCode ?? 0);
-        });
-        upgrade.on("error", () => reject(new Error("工作台事件探测失败")));
-        upgrade.setTimeout(5_000, () => upgrade.destroy(new Error("工作台事件探测超时")));
-        upgrade.end();
-      });
       const capabilities = async (token: string) => {
         const response = await fetch(new URL("/api/v1/capabilities", control), { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
         await response.text();

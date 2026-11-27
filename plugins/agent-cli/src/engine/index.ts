@@ -8,7 +8,19 @@ import path from "node:path";
 import { z } from "zod";
 import { mainAgentDescriptors, type HistoryLaunchInput, type HistoryReference, type HistoryScope, type SessionSelection } from "./capabilities.js";
 import { HerdrCore } from "./herdr-core.js";
-import { HistoryProjection, historyProfileKey, isUuidHistoryId, isValidNativeId, isWithin, nativeHistoryCandidates, nativeHistoryProfile, nativeHistorySourceMatches, readHistoryEntry, readSelectedHistory, type HistoryEntry } from "./history/scanner.js";
+import {
+  HistoryProjection,
+  historyProfileKey,
+  isUuidHistoryId,
+  isValidNativeId,
+  isWithin,
+  nativeHistoryCandidates,
+  nativeHistoryProfile,
+  nativeHistorySourceMatches,
+  readHistoryEntry,
+  readSelectedHistory,
+  type HistoryEntry,
+} from "./history/scanner.js";
 import { readTranscript } from "./history/transcript.js";
 import { reviewDiff } from "./review.js";
 import { PinStore } from "./pins.js";
@@ -275,12 +287,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     return isAgentTool(c.caller) ? { ...projected, requestId } : projected;
   };
   api.defineCapability(bindCapability(mainAgentDescriptors.spacesList, () => spaces.list()));
-  api.defineCapability(bindCapability(mainAgentDescriptors.dispatchWriteApproval, ({ caller, signal }, { id, expectedRevision, allowed }) => {
-    if (caller !== "desktop") throw errors.permissionDenied("需要在本机桌面批准工作区写入");
-    signal.throwIfAborted();
-    spaces.approveDispatchWrite(id, expectedRevision, allowed);
-    return { allowed };
-  }));
+  api.defineCapability(
+    bindCapability(mainAgentDescriptors.dispatchWriteApproval, ({ caller, signal }, { id, expectedRevision, allowed }) => {
+      if (caller !== "desktop") throw errors.permissionDenied("需要在本机桌面批准工作区写入");
+      signal.throwIfAborted();
+      spaces.approveDispatchWrite(id, expectedRevision, allowed);
+      return { allowed };
+    }),
+  );
   api.defineCapability(
     bindCapability(mainAgentDescriptors.spacesSave, ({ caller }, i) => {
       const external = isAgentTool(caller);
@@ -314,9 +328,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   api.defineCapability(
     bindCapability(mainAgentDescriptors.catalogDetect, ({ caller }) => {
       const snapshot = detector.cached();
-      if (isWorkbenchCaller(caller)) return snapshot.map((entry) => ({
-        ...entry, models: agentById(entry.id)?.options.models ?? [],
-      }));
+      if (isWorkbenchCaller(caller))
+        return snapshot.map((entry) => ({
+          ...entry,
+          models: agentById(entry.id)?.options.models ?? [],
+        }));
       return snapshot.map(({ id, displayName, installed, skipped, headless, detectedAt }) => ({ id, displayName, installed, skipped, headless, detectedAt }));
     }),
   );
@@ -463,8 +479,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   api.defineCapability(
     bindCapability(mainAgentDescriptors.sessionsList, (c, i) => {
       if (!isAgentTool(c.caller)) {
-        const records = isWorkbenchCaller(c.caller) && !api.vault.files.readOnly
-          ? sessions.listWithHistoryIdentities(i.spaceId) : sessions.list(i.spaceId);
+        const records = isWorkbenchCaller(c.caller) && !api.vault.files.readOnly ? sessions.listWithHistoryIdentities(i.spaceId) : sessions.list(i.spaceId);
         return records.map(publicSession);
       }
       if (i.spaceId) spaces.get(i.spaceId);
@@ -701,8 +716,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     if (!profile) throw new HuhuError("HEADLESS_UNSUPPORTED", "当前没有受控 Codex 历史资料目录");
     const source = nativeHistoryCandidates("codex", profile)?.get(target.nativeSessionId.toLowerCase());
     const entry = source && isWithin(path.join(profile, "sessions"), source) ? readHistoryEntry("codex", source) : undefined;
-    if (!entry || entry.nativeSessionId !== target.nativeSessionId || entry.historyId !== history.historyId ||
-        entry.revision !== history.historyRevision || !inDispatchSpace(sp, entry)) {
+    if (!entry || entry.nativeSessionId !== target.nativeSessionId || entry.historyId !== history.historyId || entry.revision !== history.historyRevision || !inDispatchSpace(sp, entry)) {
       throw errors.notFound("原生历史来源已变化，请重新选择");
     }
     await sessions.reconcile();

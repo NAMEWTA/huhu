@@ -21,12 +21,7 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
   const automations = await original<typeof import("../src/engine/index.js")>();
   return {
     ...automations,
-    apply: ((ctx, api, opts) =>
-      automations.apply(
-        ctx,
-        api,
-        { ...opts, now: () => fixture.now, schedule: fixture.schedule },
-      )) satisfies typeof automations.apply,
+    apply: ((ctx, api, opts) => automations.apply(ctx, api, { ...opts, now: () => fixture.now, schedule: fixture.schedule })) satisfies typeof automations.apply,
   };
 });
 
@@ -74,8 +69,7 @@ const list = (engine: RunningEngine) => call<Rule[]>(engine, "automations.list",
 const read = (engine: RunningEngine) => call<Rule>(engine, "automations.read", { id: ruleId });
 const zone = (engine: RunningEngine, value: string) => call(engine, "settings.update", { patch: { dateTime: { zone: value } } });
 const marker = (file: string) => readFileSync(file, "utf8");
-const defaultScan = (engine: RunningEngine, action: "create" | "restore" = "create") =>
-  call<{ ruleId: string; state: string }>(engine, "automations.plans.defaultTaskScan", { action });
+const defaultScan = (engine: RunningEngine, action: "create" | "restore" = "create") => call<{ ruleId: string; state: string }>(engine, "automations.plans.defaultTaskScan", { action });
 
 test("停用插件后，迟到的启动对账不会重新安装 Cron", async () => {
   fixture.schedule = true;
@@ -104,7 +98,11 @@ test("工作台可以读取规则草稿预览，预览不会创建规则或初�
   expect(result.at).toBe(fixture.now.toISOString());
   expect(result.next).toEqual([at("01:15:00"), at("01:30:00"), at("01:45:00")].map((time) => time.toISOString()));
   expect(await call(engine, "automations.plans.previewRuleDraft", { trigger })).toEqual({
-    at: result.at, next: result.next, tasksDisabled: false, candidates: [], skipped: [],
+    at: result.at,
+    next: result.next,
+    tasksDisabled: false,
+    candidates: [],
+    skipped: [],
   });
   expect(await list(engine)).toEqual([]);
   expect(existsSync(markerFile)).toBe(false);

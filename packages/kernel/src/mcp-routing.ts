@@ -1,16 +1,5 @@
 import type { CallToolResult, GetPromptResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import {
-  HuhuError,
-  MCP_ROUTING_ERRORS,
-  type CapabilityResult,
-  type McpEntryKind,
-  type McpExternalRoute,
-  type McpPublishPolicy,
-  type McpRoute,
-  type McpRoutingReason,
-  type McpSessionPrincipal,
-  type McpSourceCatalog,
-} from "@huhu/contracts";
+import { HuhuError, MCP_ROUTING_ERRORS, type CapabilityResult, type McpEntryKind, type McpExternalRoute, type McpPublishPolicy, type McpRoute, type McpRoutingReason, type McpSessionPrincipal, type McpSourceCatalog } from "@huhu/contracts";
 
 export interface McpRoutingSnapshot {
   readonly vaultInstance: string;
@@ -29,9 +18,7 @@ export type McpRouteRequest = {
 };
 
 export type McpUpstreamResult = CallToolResult | ReadResourceResult | GetPromptResult;
-export type McpRoutedResult =
-  | { readonly origin: "builtin"; readonly result: CapabilityResult<unknown> }
-  | { readonly origin: "external"; readonly result: McpUpstreamResult };
+export type McpRoutedResult = { readonly origin: "builtin"; readonly result: CapabilityResult<unknown> } | { readonly origin: "external"; readonly result: McpUpstreamResult };
 
 /**
  * Pass the current immutable Engine projection on every read. Authorization covers the
@@ -78,29 +65,39 @@ function checkSession(snapshot: McpRoutingSnapshot, principal: McpSessionPrincip
 
 function sourceStatus(route: McpExternalRoute, snapshot: McpRoutingSnapshot): McpRoutingReason | undefined {
   const source = snapshot.sources.get(route.sourceId);
-  if (!source || source.configRevision !== route.configRevision || source.authenticationRevision !== route.authenticationRevision ||
-    source.catalogRevision !== route.catalogRevision) return "stale-route";
+  if (!source || source.configRevision !== route.configRevision || source.authenticationRevision !== route.authenticationRevision || source.catalogRevision !== route.catalogRevision) return "stale-route";
   switch (source.state) {
-    case "ready": return source.complete ? undefined : "stale-route";
-    case "disabled": return "source-disabled";
-    case "offline": return "source-offline";
-    case "stale": return "stale-route";
-    case "auth-required": return "authentication-required";
-    case "approval-required": return "approval-required";
-    case "incompatible": return "protocol-incompatible";
+    case "ready":
+      return source.complete ? undefined : "stale-route";
+    case "disabled":
+      return "source-disabled";
+    case "offline":
+      return "source-offline";
+    case "stale":
+      return "stale-route";
+    case "auth-required":
+      return "authentication-required";
+    case "approval-required":
+      return "approval-required";
+    case "incompatible":
+      return "protocol-incompatible";
   }
 }
 
 function confirmRoute(route: McpRoute, snapshot: McpRoutingSnapshot, principal: McpSessionPrincipal, backend: McpRoutingBackend, calling: boolean): void {
   if (principal.taskActive && !principal.taskActive()) throw mcpRouteError("permission-denied");
-  if (principal.taskTools && (route.kind !== "tool" || !principal.taskTools.some((tool) =>
-    route.origin === "builtin"
-      ? tool.sourceId === "builtin" && tool.upstreamIdentity === route.capability
-      : tool.sourceId === route.sourceId && tool.upstreamIdentity === route.upstreamIdentity && tool.sourceRevision === route.configRevision
-  ))) throw mcpRouteError("permission-denied");
+  if (
+    principal.taskTools &&
+    (route.kind !== "tool" ||
+      !principal.taskTools.some((tool) =>
+        route.origin === "builtin"
+          ? tool.sourceId === "builtin" && tool.upstreamIdentity === route.capability
+          : tool.sourceId === route.sourceId && tool.upstreamIdentity === route.upstreamIdentity && tool.sourceRevision === route.configRevision,
+      ))
+  )
+    throw mcpRouteError("permission-denied");
   if (route.origin === "external") {
-    if (!snapshot.policy.selected.some(({ sourceId, kind, upstreamIdentity }) =>
-      sourceId === route.sourceId && kind === route.kind && upstreamIdentity === route.upstreamIdentity)) {
+    if (!snapshot.policy.selected.some(({ sourceId, kind, upstreamIdentity }) => sourceId === route.sourceId && kind === route.kind && upstreamIdentity === route.upstreamIdentity)) {
       throw mcpRouteError("not-exposed");
     }
     if (!backend.authorize(route, principal)) throw mcpRouteError("permission-denied");
@@ -152,9 +149,14 @@ export function createMcpRouting(backend: McpRoutingBackend) {
 
       const send = await backend.prepareExternal(route, principal.signal);
       const current = resolve(principal, request);
-      if (current.origin !== "external" || current.sourceId !== route.sourceId || current.upstreamIdentity !== route.upstreamIdentity ||
-        current.configRevision !== route.configRevision || current.authenticationRevision !== route.authenticationRevision ||
-        current.catalogRevision !== route.catalogRevision) {
+      if (
+        current.origin !== "external" ||
+        current.sourceId !== route.sourceId ||
+        current.upstreamIdentity !== route.upstreamIdentity ||
+        current.configRevision !== route.configRevision ||
+        current.authenticationRevision !== route.authenticationRevision ||
+        current.catalogRevision !== route.catalogRevision
+      ) {
         throw mcpRouteError("stale-route");
       }
       return { origin: "external", result: await send(request.input) };

@@ -128,11 +128,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: InboxOptions = {}): Inb
     now: opts.now ?? (() => new Date()),
     isTargetEnabled: (k) => opts.isPluginEnabled?.(TARGET_PLUGIN[k]) ?? true,
     createTarget: async (kind, fields, id, captureId, signal) => {
-      await api.call(
-        CREATE_CAP[kind],
-        { ...fields, inboxConversionId: id, ...(kind === "task" && { inboxCaptureId: captureId }) },
-        { idempotencyKey: `inbox-convert-${id}`, ...(signal && { signal }) },
-      );
+      await api.call(CREATE_CAP[kind], { ...fields, inboxConversionId: id, ...(kind === "task" && { inboxCaptureId: captureId }) }, { idempotencyKey: `inbox-convert-${id}`, ...(signal && { signal }) });
     },
     readTarget: (kind, id) => {
       if (kind === "task") {
@@ -190,7 +186,9 @@ export function apply(_ctx: Context, api: HuhuApi, opts: InboxOptions = {}): Inb
       change(c, i, undefined, async () => view(c, await svc.update(i.id, i.expectedVersion, { ...(i.title !== undefined ? { title: i.title } : {}), ...(i.body !== undefined ? { body: i.body } : {}) }))),
     ),
   );
-  api.defineCapability(bindCapability(inboxCapabilityDescriptors.convert, (c, i) => change(c, i, undefined, async () => view(c, await svc.convert(i.id, i.target, i.fields, { expectedVersion: i.expectedVersion, resume: i.resume, signal: c.signal })), false)));
+  api.defineCapability(
+    bindCapability(inboxCapabilityDescriptors.convert, (c, i) => change(c, i, undefined, async () => view(c, await svc.convert(i.id, i.target, i.fields, { expectedVersion: i.expectedVersion, resume: i.resume, signal: c.signal })), false)),
+  );
   api.defineCapability(bindCapability(inboxCapabilityDescriptors.dismiss, (c, i) => change(c, i, undefined, async () => view(c, await svc.dismiss(i.id)))));
   api.defineCapability(bindCapability(inboxCapabilityDescriptors.restore, (c, i) => change(c, i, "dismissed", async () => view(c, await svc.restore(i.id)))));
   api.defineCapability(bindCapability(inboxCapabilityDescriptors.undo, (c, i) => change(c, i, "processed", async () => view(c, await svc.undo(i.id)))));

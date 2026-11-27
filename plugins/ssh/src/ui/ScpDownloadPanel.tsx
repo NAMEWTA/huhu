@@ -57,13 +57,33 @@ function ScpDownload({ fileSessionId, desktop }: ScpProps) {
             远端文件绝对路径
             <input name="remote" value={remote} onChange={(event) => setRemote(event.currentTarget.value)} disabled={busy} maxLength={4096} required />
           </label>
-          <Button type="button" disabled={busy} onClick={() => void desktop.pickOpenPath("directory").then(
-            (folder) => { if (folder) setDirectory(folder); },
-            () => setError("无法选取本机目录。"),
-          )}>选择本机目录</Button>
-          {directory && <p>保存到 <code>{directory}</code></p>}
-          <Button type="submit" disabled={busy || !directory || !remote.startsWith("/")}>下载文件</Button>
-          {busy && <Button type="button" onClick={() => inFlight.current?.abort()}>取消下载</Button>}
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void desktop.pickOpenPath("directory").then(
+                (folder) => {
+                  if (folder) setDirectory(folder);
+                },
+                () => setError("无法选取本机目录。"),
+              )
+            }
+          >
+            选择本机目录
+          </Button>
+          {directory && (
+            <p>
+              保存到 <code>{directory}</code>
+            </p>
+          )}
+          <Button type="submit" disabled={busy || !directory || !remote.startsWith("/")}>
+            下载文件
+          </Button>
+          {busy && (
+            <Button type="button" onClick={() => inFlight.current?.abort()}>
+              取消下载
+            </Button>
+          )}
         </form>
       )}
       {result && <p role="status">{result}</p>}
@@ -113,13 +133,33 @@ function ScpUpload({ fileSessionId, desktop }: ScpProps) {
             <label htmlFor={remoteId}>新建远端文件绝对路径</label>
             <input id={remoteId} name="remote" value={remote} onChange={(event) => setRemote(event.currentTarget.value)} disabled={busy} maxLength={4096} required />
           </div>
-          <Button type="button" disabled={busy} onClick={() => void desktop.pickOpenPath("file").then(
-            (file) => { if (file) setLocal(file); },
-            () => setError("无法选取本机源文件。"),
-          )}>选择本机文件</Button>
-          {local && <p>本机源文件 <code>{local}</code></p>}
-          <Button type="submit" disabled={busy || !local || !remote.startsWith("/")}>上传文件</Button>
-          {busy && <Button type="button" onClick={() => inFlight.current?.abort()}>取消上传</Button>}
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void desktop.pickOpenPath("file").then(
+                (file) => {
+                  if (file) setLocal(file);
+                },
+                () => setError("无法选取本机源文件。"),
+              )
+            }
+          >
+            选择本机文件
+          </Button>
+          {local && (
+            <p>
+              本机源文件 <code>{local}</code>
+            </p>
+          )}
+          <Button type="submit" disabled={busy || !local || !remote.startsWith("/")}>
+            上传文件
+          </Button>
+          {busy && (
+            <Button type="button" onClick={() => inFlight.current?.abort()}>
+              取消上传
+            </Button>
+          )}
         </form>
       )}
       {result && <p role="status">{result}</p>}

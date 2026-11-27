@@ -51,12 +51,20 @@ beforeEach(async () => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  await act(() => root.render(
-    <>
-      <FileBatchProvider session={session}><Pane side="local" /><Pane side="remote" /></FileBatchProvider>
-      <FileBatchProvider session={{ ...session, fileSessionId: "other-session" }}><Pane side="local" /><Pane side="remote" /></FileBatchProvider>
-    </>,
-  ));
+  await act(() =>
+    root.render(
+      <>
+        <FileBatchProvider session={session}>
+          <Pane side="local" />
+          <Pane side="remote" />
+        </FileBatchProvider>
+        <FileBatchProvider session={{ ...session, fileSessionId: "other-session" }}>
+          <Pane side="local" />
+          <Pane side="remote" />
+        </FileBatchProvider>
+      </>,
+    ),
+  );
 });
 
 afterEach(async () => {
@@ -72,13 +80,18 @@ function dragFixture() {
   const handle = remote.querySelector<HTMLElement>('[data-testid="ssh-file-drag-handle"]')!;
   let capture: number | undefined;
   Object.assign(handle, {
-    setPointerCapture: (id: number) => { capture = id; },
+    setPointerCapture: (id: number) => {
+      capture = id;
+    },
     hasPointerCapture: (id: number) => capture === id,
-    releasePointerCapture: () => { capture = undefined; },
+    releasePointerCapture: () => {
+      capture = undefined;
+    },
   });
-  const pointer = (type: string, clientX: number) => act(async () => {
-    handle.dispatchEvent(new PointerEvent(type, { bubbles: true, isPrimary: true, button: 0, pointerId: 1, clientX }));
-  });
+  const pointer = (type: string, clientX: number) =>
+    act(async () => {
+      handle.dispatchEvent(new PointerEvent(type, { bubbles: true, isPrimary: true, button: 0, pointerId: 1, clientX }));
+    });
   return { remote, target: target!, otherSession: otherSession!, pointer };
 }
 
@@ -97,12 +110,16 @@ test("captured release in the opposite pane submits the selected files once", as
   await pointer("pointerup", 30);
   await pointer("pointerup", 30);
   expect(target.dataset.fileBatchOver).toBe("false");
-  expect(call).toHaveBeenCalledExactlyOnceWith("ssh.transfers.startBatch", {
-    source: { kind: "remote", fileSessionId: session.fileSessionId, path: "/remote" },
-    target: { kind: "local", path: "/local" },
-    names: ["folder", "note.txt"],
-    localFileSessionId: session.fileSessionId,
-  }, { write: true });
+  expect(call).toHaveBeenCalledExactlyOnceWith(
+    "ssh.transfers.startBatch",
+    {
+      source: { kind: "remote", fileSessionId: session.fileSessionId, path: "/remote" },
+      target: { kind: "local", path: "/local" },
+      names: ["folder", "note.txt"],
+      localFileSessionId: session.fileSessionId,
+    },
+    { write: true },
+  );
 });
 
 test("release in another session and lost capture both cancel without submitting", async () => {
@@ -127,7 +144,9 @@ test("system file drop shows the path prompt and the selection button still subm
   const { remote, target } = dragFixture();
   const drop = new MouseEvent("drop", { bubbles: true, cancelable: true });
   Object.defineProperty(drop, "dataTransfer", { value: { types: ["Files"] } });
-  await act(() => { target.dispatchEvent(drop); });
+  await act(() => {
+    target.dispatchEvent(drop);
+  });
   expect(drop.defaultPrevented).toBe(true);
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("请先选择本机目录");
   expect(call).not.toHaveBeenCalled();
@@ -135,6 +154,8 @@ test("system file drop shows the path prompt and the selection button still subm
   await act(() => remote.querySelector<HTMLInputElement>('input[aria-label="选择 note.txt"]')!.click());
   const download = [...remote.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "下载所选项目");
   expect(download?.disabled).toBe(false);
-  await act(async () => { download!.click(); });
+  await act(async () => {
+    download!.click();
+  });
   expect(call).toHaveBeenCalledExactlyOnceWith("ssh.transfers.startBatch", expect.objectContaining({ names: ["note.txt"] }), { write: true });
 });

@@ -58,7 +58,9 @@ test("Codex 恢复历史后只以原轮次记录中的同一原生回答确认�
     const secret = "1".repeat(64);
     writeFileSync(launch!, JSON.stringify({ ...identity, secret, resume: { ...history, threadId, file, cwd: dir, physical: `${dev}:${ino}:${birthtimeNs}`, dispatchId: execution.dispatchId } }));
     const signed = (name: string, data: unknown) => {
-      const mac = createHmac("sha256", Buffer.from(secret, "hex")).update(JSON.stringify([name, data])).digest("hex");
+      const mac = createHmac("sha256", Buffer.from(secret, "hex"))
+        .update(JSON.stringify([name, data]))
+        .digest("hex");
       writeFileSync(path.join(path.dirname(launch!), `${name}.json`), JSON.stringify({ data, mac }));
     };
     signed("thread", { attempt, threadId, address: session.address, pid: session.pid, protocol: 2, history });

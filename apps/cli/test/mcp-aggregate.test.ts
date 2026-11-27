@@ -24,14 +24,16 @@ async function desktop<T>(engine: RunningEngine, capability: string, input: unkn
 
 async function publishFixture(engine: RunningEngine, url: string) {
   const { sourceId, revision } = await desktop<Source>(engine, "mcp.sources.create", {
-    displayName: "P6 fixture", namespace: "p6_fixture",
+    displayName: "P6 fixture",
+    namespace: "p6_fixture",
     configuration: { transport: "streamable-http", url, headers: {}, authentication: { kind: "none" } },
   });
   const ref = { sourceId, expectedRevision: revision };
   expect(await desktop(engine, "mcp.sources.check", ref)).toMatchObject({ state: "ready", toolCount: 1 });
   const { catalogRevision, policyRevision } = await desktop<Catalogue>(engine, "mcp.catalog.list", { sourceId });
   await desktop(engine, "mcp.policy.update", {
-    expectedCatalogRevision: catalogRevision, expectedPolicyRevision: policyRevision,
+    expectedCatalogRevision: catalogRevision,
+    expectedPolicyRevision: policyRevision,
     choices: [{ sourceId, upstreamIdentity: "echo", selected: true }],
   });
   await desktop(engine, "mcp.sources.setEnabled", { ...ref, enabled: true });
@@ -74,8 +76,7 @@ test("P6 a standard MCP client uses the same configured URL for both tool origin
     const verify = async (client: Client, label: string) => {
       expect((await client.listTools()).tools.map(({ name }) => name)).toEqual(["vault_info", "p6_fixture__echo"]);
       expect((await client.callTool({ name: "vault_info", arguments: {} })).structuredContent).toMatchObject({ data: { id: vaultId } });
-      expect((await client.callTool({ name: "p6_fixture__echo", arguments: { value: label } })).structuredContent)
-        .toEqual({ value: label, transport: "streamable-http" });
+      expect((await client.callTool({ name: "p6_fixture__echo", arguments: { value: label } })).structuredContent).toEqual({ value: label, transport: "streamable-http" });
     };
 
     const initial = await connect(a);
@@ -105,18 +106,22 @@ test("P6 a standard MCP client uses the same configured URL for both tool origin
 }, 25_000);
 
 const codex = process.env["HUHU_P6_CODEX_BIN"];
-test.skipIf(!codex)("P6 pinned Codex App Server reads one native entry and calls both kinds of tool", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "huhu-p6-native-"));
-  let engine: RunningEngine | undefined;
-  let upstream: Awaited<ReturnType<typeof localUpstream>> | undefined;
-  try {
-    const profile = path.join(root, "profile");
-    const workspace = path.join(root, "workspace");
-    const vaultPath = path.join(root, "vault");
-    mkdirSync(profile, { mode: 0o700 });
-    mkdirSync(workspace);
-    mkdirSync(vaultPath);
-    writeFileSync(path.join(profile, "config.toml"), `check_for_update_on_startup = false
+test.skipIf(!codex)(
+  "P6 pinned Codex App Server reads one native entry and calls both kinds of tool",
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "huhu-p6-native-"));
+    let engine: RunningEngine | undefined;
+    let upstream: Awaited<ReturnType<typeof localUpstream>> | undefined;
+    try {
+      const profile = path.join(root, "profile");
+      const workspace = path.join(root, "workspace");
+      const vaultPath = path.join(root, "vault");
+      mkdirSync(profile, { mode: 0o700 });
+      mkdirSync(workspace);
+      mkdirSync(vaultPath);
+      writeFileSync(
+        path.join(profile, "config.toml"),
+        `check_for_update_on_startup = false
 model = "gpt-5.4"
 model_provider = "fixture"
 [model_providers.fixture]
@@ -124,58 +129,60 @@ name = "Local protocol fixture"
 base_url = "http://127.0.0.1:1/v1"
 wire_api = "responses"
 requires_openai_auth = false
-`, { mode: 0o600 });
-    upstream = await localUpstream("streamable-http");
-    engine = await boot({ vaultPath, create: true });
-    const { url } = await publishFixture(engine, upstream.url);
-    const { token } = await desktop<Credential>(engine, "gateway.tokens.create", { name: "P6 Codex" });
-    const env = { ...process.env, CODEX_HOME: profile, HUHU_P6_TEST_BEARER: token };
-    const native = (...args: string[]) => promisify(execFile)(codex!, args, { cwd: workspace, env, timeout: 5_000 });
-    await native("mcp", "add", "huhu", "--url", url, "--bearer-token-env-var", "HUHU_P6_TEST_BEARER");
-    expect(JSON.parse((await native("mcp", "list", "--json")).stdout)).toMatchObject([
-      { name: "huhu", transport: { type: "streamable_http", url, bearer_token_env_var: "HUHU_P6_TEST_BEARER" } },
-    ]);
-    const child = spawn(codex!, ["app-server", "--listen", "stdio://"], { cwd: workspace, env, stdio: ["pipe", "pipe", "ignore"], timeout: 25_000 });
-    const stopped = once(child, "close").catch(() => undefined);
-    child.stdin.on("error", () => undefined);
-    const lines = createInterface({ input: child.stdout });
-    const messages = lines[Symbol.asyncIterator]();
-    let latestId = 0;
-    const rpc = async <T>(method: string, params: object) => {
-      const id = ++latestId;
-      child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
-      for (;;) {
-        const line = await messages.next();
-        if (line.done) throw new Error(`Codex App Server closed during ${method}`);
-        const message = JSON.parse(line.value) as { id?: number; error?: { code: number; message: string }; result?: T };
-        if (message.id !== id) continue;
-        if (message.error) throw new Error(`Codex App Server rejected ${method}: ${message.error.code} ${message.error.message}`);
-        return message.result as T;
+`,
+        { mode: 0o600 },
+      );
+      upstream = await localUpstream("streamable-http");
+      engine = await boot({ vaultPath, create: true });
+      const { url } = await publishFixture(engine, upstream.url);
+      const { token } = await desktop<Credential>(engine, "gateway.tokens.create", { name: "P6 Codex" });
+      const env = { ...process.env, CODEX_HOME: profile, HUHU_P6_TEST_BEARER: token };
+      const native = (...args: string[]) => promisify(execFile)(codex!, args, { cwd: workspace, env, timeout: 5_000 });
+      await native("mcp", "add", "huhu", "--url", url, "--bearer-token-env-var", "HUHU_P6_TEST_BEARER");
+      expect(JSON.parse((await native("mcp", "list", "--json")).stdout)).toMatchObject([{ name: "huhu", transport: { type: "streamable_http", url, bearer_token_env_var: "HUHU_P6_TEST_BEARER" } }]);
+      const child = spawn(codex!, ["app-server", "--listen", "stdio://"], { cwd: workspace, env, stdio: ["pipe", "pipe", "ignore"], timeout: 25_000 });
+      const stopped = once(child, "close").catch(() => undefined);
+      child.stdin.on("error", () => undefined);
+      const lines = createInterface({ input: child.stdout });
+      const messages = lines[Symbol.asyncIterator]();
+      let latestId = 0;
+      const rpc = async <T>(method: string, params: object) => {
+        const id = ++latestId;
+        child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
+        for (;;) {
+          const line = await messages.next();
+          if (line.done) throw new Error(`Codex App Server closed during ${method}`);
+          const message = JSON.parse(line.value) as { id?: number; error?: { code: number; message: string }; result?: T };
+          if (message.id !== id) continue;
+          if (message.error) throw new Error(`Codex App Server rejected ${method}: ${message.error.code} ${message.error.message}`);
+          return message.result as T;
+        }
+      };
+      try {
+        await rpc("initialize", { clientInfo: { name: "huhu-p6-check", version: "1" }, capabilities: { experimentalApi: true } });
+        child.stdin.write('{"method":"initialized"}\n');
+        const { thread } = await rpc<{ thread: { id: string } }>("thread/start", { cwd: workspace, sandbox: "read-only", ephemeral: true });
+        const inventory = await rpc("mcpServerStatus/list", { threadId: thread.id });
+        expect(inventory).toMatchObject({ data: [{ name: "huhu", tools: { vault_info: expect.any(Object), p6_fixture__echo: expect.any(Object) } }] });
+        const invoke = (tool: string, args: object) => rpc("mcpServer/tool/call", { threadId: thread.id, server: "huhu", tool, arguments: args });
+        expect(await invoke("vault_info", {})).toMatchObject({ structuredContent: { data: { id: engine.vault.id } } });
+        expect(await invoke("p6_fixture__echo", { value: "native-codex" })).toMatchObject({ structuredContent: { value: "native-codex" } });
+        expect(upstream.calls).toEqual([{ name: "echo", input: { value: "native-codex" } }]);
+      } finally {
+        lines.close();
+        child.kill();
+        await stopped;
       }
-    };
-    try {
-      await rpc("initialize", { clientInfo: { name: "huhu-p6-check", version: "1" }, capabilities: { experimentalApi: true } });
-      child.stdin.write('{"method":"initialized"}\n');
-      const { thread } = await rpc<{ thread: { id: string } }>("thread/start", { cwd: workspace, sandbox: "read-only", ephemeral: true });
-      const inventory = await rpc("mcpServerStatus/list", { threadId: thread.id });
-      expect(inventory).toMatchObject({ data: [{ name: "huhu", tools: { vault_info: expect.any(Object), p6_fixture__echo: expect.any(Object) } }] });
-      const invoke = (tool: string, args: object) => rpc("mcpServer/tool/call", { threadId: thread.id, server: "huhu", tool, arguments: args });
-      expect(await invoke("vault_info", {})).toMatchObject({ structuredContent: { data: { id: engine.vault.id } } });
-      expect(await invoke("p6_fixture__echo", { value: "native-codex" })).toMatchObject({ structuredContent: { value: "native-codex" } });
-      expect(upstream.calls).toEqual([{ name: "echo", input: { value: "native-codex" } }]);
+      await native("mcp", "remove", "huhu");
+      expect(JSON.parse((await native("mcp", "list", "--json")).stdout)).toEqual([]);
     } finally {
-      lines.close();
-      child.kill();
-      await stopped;
+      try {
+        await engine?.shutdown();
+      } finally {
+        await upstream?.close();
+        rmSync(root, { recursive: true, force: true });
+      }
     }
-    await native("mcp", "remove", "huhu");
-    expect(JSON.parse((await native("mcp", "list", "--json")).stdout)).toEqual([]);
-  } finally {
-    try {
-      await engine?.shutdown();
-    } finally {
-      await upstream?.close();
-      rmSync(root, { recursive: true, force: true });
-    }
-  }
-}, 38_000);
+  },
+  38_000,
+);

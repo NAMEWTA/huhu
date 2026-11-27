@@ -242,7 +242,9 @@ export class GitHubSources {
     const { sourceId, issueId, deliveryId, proof, verificationId } = input;
     return this.writes.run(sourceId, () => {
       const scope = this.deliveryScope(this.connector(c, sourceId), issueId);
-      const authorize = () => { this.connector(c, sourceId); };
+      const authorize = () => {
+        this.connector(c, sourceId);
+      };
       if (proof) return this.deliveries.confirm(scope, deliveryId, proof, authorize);
       if (!verificationId) throw errors.invalidInput("需要原投递核实请求标识");
       return this.deliveries.finishUnconfirmed(scope, deliveryId, verificationId, authorize);

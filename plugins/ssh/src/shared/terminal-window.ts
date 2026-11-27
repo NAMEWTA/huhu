@@ -24,10 +24,7 @@ export type SshHandoffWindowTarget = z.infer<typeof SshHandoffWindowTarget>;
 
 export function sshTerminalWindowUrl(base: string, target: SshHandoffWindowTarget) {
   const url = new URL(base);
-  url.hash = new URLSearchParams([
-    ["sshTerminal", "1"],
-    ...Object.entries(target).map(([key, value]): [string, string] => [key, String(value)]),
-  ]).toString();
+  url.hash = new URLSearchParams([["sshTerminal", "1"], ...Object.entries(target).map(([key, value]): [string, string] => [key, String(value)])]).toString();
   return url.href;
 }
 

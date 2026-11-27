@@ -1,18 +1,46 @@
 import { describe, expect, it } from "vitest";
 import {
-  checkLedgerReference, ledgerBalanceFromBase, ledgerBusinessDate, ledgerBusinessDayRange, ledgerDecimalToMinor,
-  ledgerMinorToDecimal, ledgerSourceTime, LedgerAccount, LedgerBalanceBase, LedgerBook, LedgerConfirmImport, LedgerCreateRecord, LedgerRecord,
+  checkLedgerReference,
+  ledgerBalanceFromBase,
+  ledgerBusinessDate,
+  ledgerBusinessDayRange,
+  ledgerDecimalToMinor,
+  ledgerMinorToDecimal,
+  ledgerSourceTime,
+  LedgerAccount,
+  LedgerBalanceBase,
+  LedgerBook,
+  LedgerConfirmImport,
+  LedgerCreateRecord,
+  LedgerRecord,
 } from "../src/index.js";
 
 const book = LedgerBook.parse({
-  id: "shore", name: "北岸账本", defaultCurrency: "CNY", timeZone: "Asia/Taipei", status: "active", schemaVersion: 1, revision: "r1",
+  id: "shore",
+  name: "北岸账本",
+  defaultCurrency: "CNY",
+  timeZone: "Asia/Taipei",
+  status: "active",
+  schemaVersion: 1,
+  revision: "r1",
 });
 const account = LedgerAccount.parse({ id: "cash", bookId: book.id, name: "备用金", type: "cash", currency: "CNY", status: "active" });
 const base = LedgerBalanceBase.parse({
-  bookId: book.id, accountId: account.id, effectiveBusinessDate: "2026-11-25", balanceMinor: "-10025", revision: "r1",
+  bookId: book.id,
+  accountId: account.id,
+  effectiveBusinessDate: "2026-11-25",
+  balanceMinor: "-10025",
+  revision: "r1",
 });
 const common = {
-  bookId: book.id, occurredAt: "2026-11-24T16:00:00Z", categoryId: null, tagIds: [], payee: null, memo: null, attachmentIds: [], revision: "r1",
+  bookId: book.id,
+  occurredAt: "2026-11-24T16:00:00Z",
+  categoryId: null,
+  tagIds: [],
+  payee: null,
+  memo: null,
+  attachmentIds: [],
+  revision: "r1",
 };
 
 describe("ledger domain fixtures", () => {
@@ -25,14 +53,20 @@ describe("ledger domain fixtures", () => {
     expect(ledgerDecimalToMinor("-00.00", "USD")).toBe("0");
   });
 
-  it.each([["1.1", "JPY"], ["1.001", "CNY"], ["1e2", "CNY"], ["NaN", "CNY"], ["1.00", "XXX"], ["", "USD"]])(
-    "rejects unrepresentable amount %s for %s",
-    (decimal, currency) => expect(() => ledgerDecimalToMinor(decimal, currency)).toThrow(),
-  );
+  it.each([
+    ["1.1", "JPY"],
+    ["1.001", "CNY"],
+    ["1e2", "CNY"],
+    ["NaN", "CNY"],
+    ["1.00", "XXX"],
+    ["", "USD"],
+  ])("rejects unrepresentable amount %s for %s", (decimal, currency) => expect(() => ledgerDecimalToMinor(decimal, currency)).toThrow());
 
   it("uses the explicit source zone, then attributes the instant to the ledger day", () => {
     expect(ledgerSourceTime("2026-11-24T09:00", "America/Los_Angeles", book.timeZone)).toEqual({
-      state: "ready", occurredAt: "2026-11-24T17:00:00.000Z", businessDate: "2026-11-25",
+      state: "ready",
+      occurredAt: "2026-11-24T17:00:00.000Z",
+      businessDate: "2026-11-25",
     });
     expect(ledgerBusinessDate("2026-11-24T15:59:59.999Z", book.timeZone)).toBe("2026-11-24");
     expect(ledgerBusinessDate("2026-11-24T16:00:00Z", book.timeZone)).toBe("2026-11-25");
@@ -42,10 +76,12 @@ describe("ledger domain fixtures", () => {
   it("leaves gaps and folds for preview resolution", () => {
     expect(ledgerSourceTime("2026-03-08T02:30", "America/New_York", book.timeZone)).toEqual({ state: "gap" });
     expect(ledgerSourceTime("2026-11-01T01:30", "America/New_York", book.timeZone)).toEqual({
-      state: "ambiguous", instants: ["2026-11-01T05:30:00.000Z", "2026-11-01T06:30:00.000Z"],
+      state: "ambiguous",
+      instants: ["2026-11-01T05:30:00.000Z", "2026-11-01T06:30:00.000Z"],
     });
     expect(ledgerSourceTime("2026-11-01T01:30:00.123", "America/New_York", book.timeZone, "later")).toMatchObject({
-      state: "ready", occurredAt: "2026-11-01T06:30:00.123Z",
+      state: "ready",
+      occurredAt: "2026-11-01T06:30:00.123Z",
     });
     expect(() => ledgerSourceTime("2026-02-30T00:00", "UTC", book.timeZone)).toThrow();
     expect(() => ledgerSourceTime("2026-11-25T00:00", "+08:00", book.timeZone)).toThrow();
@@ -53,13 +89,16 @@ describe("ledger domain fixtures", () => {
 
   it("represents local business dates as half-open instant intervals", () => {
     expect(ledgerBusinessDayRange("2026-03-08", "America/New_York")).toEqual({
-      from: "2026-03-08T05:00:00.000Z", until: "2026-03-09T04:00:00.000Z",
+      from: "2026-03-08T05:00:00.000Z",
+      until: "2026-03-09T04:00:00.000Z",
     });
     expect(ledgerBusinessDayRange("2026-11-01", "America/New_York")).toEqual({
-      from: "2026-11-01T04:00:00.000Z", until: "2026-11-02T05:00:00.000Z",
+      from: "2026-11-01T04:00:00.000Z",
+      until: "2026-11-02T05:00:00.000Z",
     });
     expect(ledgerBusinessDayRange("2011-12-30", "Pacific/Apia")).toEqual({
-      from: "2011-12-30T10:00:00.000Z", until: "2011-12-30T10:00:00.000Z",
+      from: "2011-12-30T10:00:00.000Z",
+      until: "2011-12-30T10:00:00.000Z",
     });
   });
 

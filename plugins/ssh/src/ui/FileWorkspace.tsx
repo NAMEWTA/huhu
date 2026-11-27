@@ -244,35 +244,37 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
   return (
     <div className="ssh-file-view" hidden={!active}>
       <div className="hu-module-layout hu-execution-module" data-testid="ssh-file-workspace">
-        {onBack && <aside className="hu-resource-pane" aria-label="独立文件会话">
-          <div className="hu-resource-head">
-            <Button variant="ghost" onClick={onBack}>
-              返回 SSH
-            </Button>
-            {localPicker() && (
-              <Button variant="ghost" aria-pressed={transfers} onClick={() => showTransfers(true)}>
-                传输中心
+        {onBack && (
+          <aside className="hu-resource-pane" aria-label="独立文件会话">
+            <div className="hu-resource-head">
+              <Button variant="ghost" onClick={onBack}>
+                返回 SSH
               </Button>
-            )}
-          </div>
-          <div className="hu-resource-list">
-            {sessions.data?.map((session) => (
-              <button
-                key={session.fileSessionId}
-                className="ssh-resource-row"
-                type="button"
-                aria-current={!transfers && session.fileSessionId === selectedId}
-                onClick={() => {
-                  select(session.fileSessionId);
-                  showTransfers(false);
-                }}
-              >
-                <strong>{session.name}</strong>
-                <span>{session.source === "external" ? "外部工具会话" : session.state === "ready" ? "原连接在线" : "原连接已断开"}</span>
-              </button>
-            ))}
-          </div>
-        </aside>}
+              {localPicker() && (
+                <Button variant="ghost" aria-pressed={transfers} onClick={() => showTransfers(true)}>
+                  传输中心
+                </Button>
+              )}
+            </div>
+            <div className="hu-resource-list">
+              {sessions.data?.map((session) => (
+                <button
+                  key={session.fileSessionId}
+                  className="ssh-resource-row"
+                  type="button"
+                  aria-current={!transfers && session.fileSessionId === selectedId}
+                  onClick={() => {
+                    select(session.fileSessionId);
+                    showTransfers(false);
+                  }}
+                >
+                  <strong>{session.name}</strong>
+                  <span>{session.source === "external" ? "外部工具会话" : session.state === "ready" ? "原连接在线" : "原连接已断开"}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+        )}
         <main className="hu-view-content">
           <PageHead title="独立文件会话" />
           <div className="hu-scroll ssh-pad">
@@ -329,13 +331,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
                     )}
                     <Button onClick={() => void close(session.fileSessionId)}>关闭独立文件视图</Button>
                   </div>
-                  {localPicker() ? (
-                    <FileBatchProvider session={session}>
-                      {panes}
-                    </FileBatchProvider>
-                  ) : (
-                    <div className="ssh-file-columns">{panes}</div>
-                  )}
+                  {localPicker() ? <FileBatchProvider session={session}>{panes}</FileBatchProvider> : <div className="ssh-file-columns">{panes}</div>}
                 </section>
               );
             })}

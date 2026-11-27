@@ -266,20 +266,34 @@ test("L11 账本默认关闭，选择开放后读取和恢复使用实时策略�
   const dir = mkdtempSync(path.join(tmpdir(), "huhu-ledger-access-"));
   let engine: RunningEngine | undefined;
   try {
-    const e = engine = await boot({ vaultPath: dir, create: true });
+    const e = (engine = await boot({ vaultPath: dir, create: true }));
     const desktop = (capability: string, input = {}) => call(e, capability, input, e.rendererToken, randomUUID());
     const describe = async () => (await directory(e)).filter(({ plugin }) => plugin === "ledger");
     const active = await describe();
     expect(active.length).toBeGreaterThan(0);
     expect(active.every(({ exposable, exposed, availability }) => exposable && !exposed && availability === "active")).toBe(true);
-    const { id: bookId, revision } = z.object({ id: z.string(), revision: z.string() }).parse(await data(desktop("ledger.books.create", {
-      name: "网关账本", defaultCurrency: "CNY", timeZone: "Asia/Taipei", firstAccount: { name: "钱包" },
-    })));
+    const { id: bookId, revision } = z.object({ id: z.string(), revision: z.string() }).parse(
+      await data(
+        desktop("ledger.books.create", {
+          name: "网关账本",
+          defaultCurrency: "CNY",
+          timeZone: "Asia/Taipei",
+          firstAccount: { name: "钱包" },
+        }),
+      ),
+    );
     const note = z.object({ path: z.string() }).parse(await data(desktop("notes.create", { name: "账本说明" })));
     const owner = { kind: "book" };
-    const linked = z.object({ id: z.string() }).parse(await data(desktop("ledger.references.link", {
-      bookId, expectedRevision: revision, owner, resource: { kind: "note", path: note.path },
-    })));
+    const linked = z.object({ id: z.string() }).parse(
+      await data(
+        desktop("ledger.references.link", {
+          bookId,
+          expectedRevision: revision,
+          owner,
+          resource: { kind: "note", path: note.path },
+        }),
+      ),
+    );
     const selected = (capability: string, exposed = true) => data(desktop("gateway.update", { capability, exposed }));
     const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
     const external = await issueMcpCredential(e);
@@ -314,7 +328,10 @@ test("L11 账本默认关闭，选择开放后读取和恢复使用实时策略�
     expect((await describe()).map(({ availability }) => availability)).toEqual(active.map(() => "plugin-disabled"));
     expect(await call(e, "ledger.backups.status", { previewId }, external)).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
   } finally {
-    try { await engine?.shutdown(); }
-    finally { rmSync(dir, { recursive: true, force: true }); }
+    try {
+      await engine?.shutdown();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });

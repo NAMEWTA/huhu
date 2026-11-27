@@ -68,7 +68,9 @@ export class Transfers {
       if (!terminal.has(job.state)) {
         const unknown = job.state === "committing" || job.state === "uncertain";
         Object.assign(job, {
-          state: "failed", errorCode: "VERSION_CONFLICT", bytesPerSecond: 0,
+          state: "failed",
+          errorCode: "VERSION_CONFLICT",
+          bytesPerSecond: 0,
           message: unknown ? "引擎异常退出，提交结果未知。请核对原目标后重新发起。" : "引擎异常退出，传输已中断。请从新会话重新发起。",
         });
         delete job.conflictRevision;

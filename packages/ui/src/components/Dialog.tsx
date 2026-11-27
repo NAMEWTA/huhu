@@ -34,8 +34,7 @@ export function Dialog({ open, title, ariaLabel, description, onClose, children,
     const invoker = returnFocusRef?.current ?? previousFocus;
     if (open && !d.open) {
       d.showModal();
-      const initial = initialFocusRef?.current ??
-        d.querySelector<HTMLElement>(".hu-modal-body input:not([type=hidden]), .hu-modal-body textarea, .hu-modal-body select");
+      const initial = initialFocusRef?.current ?? d.querySelector<HTMLElement>(".hu-modal-body input:not([type=hidden]), .hu-modal-body textarea, .hu-modal-body select");
       initial?.focus();
     }
     if (!open && d.open) d.close();
@@ -46,8 +45,7 @@ export function Dialog({ open, title, ariaLabel, description, onClose, children,
       // Native focus return can miss a dialog removed in this commit or an async invoker that lost focus before showModal().
       queueMicrotask(() => {
         const active = d.ownerDocument.activeElement;
-        if (!d.open && invoker instanceof HTMLElement && invoker.isConnected
-          && active !== invoker && (active === d.ownerDocument.body || active === previousFocus || d.contains(active))) {
+        if (!d.open && invoker instanceof HTMLElement && invoker.isConnected && active !== invoker && (active === d.ownerDocument.body || active === previousFocus || d.contains(active))) {
           invoker.focus();
         }
       });
@@ -69,11 +67,15 @@ export function Dialog({ open, title, ariaLabel, description, onClose, children,
       onKeyDown={(event) => {
         if (event.key === "Escape" && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault();
       }}
-      onPointerDown={dismissOnBackdrop ? (event) => {
-        if (event.target !== event.currentTarget) return;
-        const { left, right, top, bottom } = event.currentTarget.getBoundingClientRect();
-        if (event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom) onClose();
-      } : undefined}
+      onPointerDown={
+        dismissOnBackdrop
+          ? (event) => {
+              if (event.target !== event.currentTarget) return;
+              const { left, right, top, bottom } = event.currentTarget.getBoundingClientRect();
+              if (event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom) onClose();
+            }
+          : undefined
+      }
     >
       <div className="hu-modal-head">
         <div>

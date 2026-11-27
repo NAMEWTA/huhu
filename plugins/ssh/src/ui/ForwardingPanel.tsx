@@ -245,7 +245,8 @@ export function ForwardingPanel({ hosts, onBack, onReview }: { hosts: Host[]; on
             <li key={rule.id} data-testid="ssh-forward-rule">
               <strong>{rule.name}</strong>
               <p>
-                {hosts.find(({ id }) => id === rule.hostId)?.name ?? rule.hostId} · {forwardLabels[rule.mode]}{rule.relay === "shell" ? " · ViaShell" : ""}
+                {hosts.find(({ id }) => id === rule.hostId)?.name ?? rule.hostId} · {forwardLabels[rule.mode]}
+                {rule.relay === "shell" ? " · ViaShell" : ""}
               </p>
               <p>
                 {rule.mode === "remote" ? "远端申请监听" : "本机监听"}{" "}

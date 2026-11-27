@@ -112,9 +112,11 @@ export class Dispatcher {
   }
 
   private cancelled(operationId?: string): CapabilityResult<never> {
-    return this.fail(new HuhuError("INVALID_INPUT", "调用在执行前已取消", {
-      details: { outcome: "not-accepted", ...(operationId && { operationId }) },
-    }));
+    return this.fail(
+      new HuhuError("INVALID_INPUT", "调用在执行前已取消", {
+        details: { outcome: "not-accepted", ...(operationId && { operationId }) },
+      }),
+    );
   }
 
   private operationOwner(caller: Caller, subject: string): string {
@@ -132,13 +134,7 @@ export class Dispatcher {
     const { operationId, capability } = entry;
     const stored = entry.phase === "accepted" ? undefined : entry.result;
     const result = stored?.ok ? this.projectOutput(def, stored, operationId) : stored;
-    const state = this.activeOperation.has(operationId)
-      ? "accepted"
-      : entry.phase === "accepted"
-        ? "unknown"
-        : stored?.ok && !result?.ok
-          ? "invalid-output"
-          : entry.phase;
+    const state = this.activeOperation.has(operationId) ? "accepted" : entry.phase === "accepted" ? "unknown" : stored?.ok && !result?.ok ? "invalid-output" : entry.phase;
     return { ok: true, opId: operationId, data: { operationId, capability, state, ...(result && { result }) } };
   }
 

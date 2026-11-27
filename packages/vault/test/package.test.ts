@@ -44,9 +44,9 @@ test("bounded ZIP inspection rejects non-canonical paths, case collisions and ex
   const byte = new Uint8Array([1]);
   const limits = { archiveBytes: 4096, entryBytes: 10, totalBytes: 12, entries: 5 };
   expect(() => readBoundedZip(zipSync({ "../outside.txt": byte }), limits)).toThrow();
-  expect(() => readBoundedZip(zipSync({ "Foo": byte, "foo": byte }), limits)).toThrow(/重复/);
-  expect(() => readBoundedZip(zipSync({ "first": new Uint8Array(7), "second": new Uint8Array(6) }), limits)).toThrow(/超出上限/);
-  expect(() => readBoundedZip(zipSync({ "large": new Uint8Array(11) }), limits)).toThrow(/超出上限/);
+  expect(() => readBoundedZip(zipSync({ Foo: byte, foo: byte }), limits)).toThrow(/重复/);
+  expect(() => readBoundedZip(zipSync({ first: new Uint8Array(7), second: new Uint8Array(6) }), limits)).toThrow(/超出上限/);
+  expect(() => readBoundedZip(zipSync({ large: new Uint8Array(11) }), limits)).toThrow(/超出上限/);
   expect(readBoundedZip(zipSync({ "data/info.txt": byte }), limits).get("data/info.txt")).toEqual(byte);
 });
 

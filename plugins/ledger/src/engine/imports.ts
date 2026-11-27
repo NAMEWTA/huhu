@@ -2,10 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { errors, LedgerCurrency, ledgerBusinessDate, ledgerDecimalToMinor, ledgerSourceTime, type LedgerRecord } from "@huhu/contracts";
 import { canonicalJson, type CapabilityContext } from "@huhu/kernel";
 import { ZodError, type z } from "zod";
-import {
-  maxStatementBytes, type ConfirmImport, type ImportFile, type ImportMapping, type ImportPreview, type ImportReference,
-  type ImportResult, type Resolutions, type SaveMapping,
-} from "../shared/imports.js";
+import { maxStatementBytes, type ConfirmImport, type ImportFile, type ImportMapping, type ImportPreview, type ImportReference, type ImportResult, type Resolutions, type SaveMapping } from "../shared/imports.js";
 import type { CreateRecord } from "../shared/entries.js";
 import { requireActiveBook } from "./accounts.js";
 import { parseStatement, type StatementRow } from "./import-parsers.js";
@@ -30,10 +27,11 @@ const hash = (value: string | Buffer) => createHash("sha256").update(value).dige
 const normalize = (value: string) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 const brief = (value: string, size = 180) => value.slice(0, size);
 const owner = (context: CapabilityContext) => hash(canonicalJson([context.caller, context.subject ?? null, context.delegatedBy ?? null]));
-const sourceKey = (line: StatementRow, source: Source, digest: string) => hash(canonicalJson(line.number ?
-  [source, line.number, line.kind, line.date] : [source, digest, line.line]));
+const sourceKey = (line: StatementRow, source: Source, digest: string) => hash(canonicalJson(line.number ? [source, line.number, line.kind, line.date] : [source, digest, line.line]));
 
-function optionalText(value: string) { return value ? brief(value, 500) : null; }
+function optionalText(value: string) {
+  return value ? brief(value, 500) : null;
+}
 
 function dateFor(raw: string, sourceZone: string, bookZone: string, disambiguation?: "earlier" | "later") {
   if (/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?(?:Z|[+-]\d\d:\d\d)$/.test(raw)) {
@@ -55,7 +53,10 @@ function dateFor(raw: string, sourceZone: string, bookZone: string, disambiguati
 }
 
 function parsedAmount(raw: string, currency: string) {
-  const text = raw.normalize("NFKC").trim().replace(/^[¥￥]\s*/, "");
+  const text = raw
+    .normalize("NFKC")
+    .trim()
+    .replace(/^[¥￥]\s*/, "");
   const decimal = /^(?:-?\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(text) ? text.replaceAll(",", "") : text;
   const units = BigInt(ledgerDecimalToMinor(decimal, currency));
   if (units === 0n) throw errors.invalidInput("交易金额为零");
@@ -63,14 +64,21 @@ function parsedAmount(raw: string, currency: string) {
 }
 
 function matchesRule(rule: ImportMapping, source: Source, kind: ImportMapping["kind"], original: string, row: StatementRow, rowKind: Line["kind"]) {
-  return rule.source === source && rule.kind === kind && normalize(rule.original) === normalize(original) &&
+  return (
+    rule.source === source &&
+    rule.kind === kind &&
+    normalize(rule.original) === normalize(original) &&
     (!rule.recordType || rule.recordType === rowKind) &&
     (!rule.payeeContains || normalize(row.payee).includes(rule.payeeContains)) &&
-    (!rule.descriptionContains || normalize(row.title + " " + row.memo).includes(rule.descriptionContains));
+    (!rule.descriptionContains || normalize(row.title + " " + row.memo).includes(rule.descriptionContains))
+  );
 }
 const specificity = (rule: ImportMapping) => Number(!!rule.recordType) + Number(!!rule.payeeContains) + Number(!!rule.descriptionContains);
 function mapped(state: BookState, source: Source, kind: ImportMapping["kind"], original: string, row: StatementRow, rowKind: Line["kind"]) {
-  return state.mappings.slice().reverse().filter((rule) => matchesRule(rule, source, kind, original, row, rowKind))
+  return state.mappings
+    .slice()
+    .reverse()
+    .filter((rule) => matchesRule(rule, source, kind, original, row, rowKind))
     .sort((a, b) => specificity(b) - specificity(a))[0]?.targetId;
 }
 
@@ -90,9 +98,7 @@ function inferAccount(state: BookState, source: Source, label: string, row: Stat
 }
 
 function apparentKey(record: RecordInput | LedgerRecord, businessDay: string) {
-  return canonicalJson(record.type === "transfer"
-    ? [record.type, record.fromAccountId, record.toAccountId, record.fromAmountMinor, record.toAmountMinor, businessDay]
-    : [record.type, record.accountId, record.amountMinor, businessDay]);
+  return canonicalJson(record.type === "transfer" ? [record.type, record.fromAccountId, record.toAccountId, record.fromAmountMinor, record.toAmountMinor, businessDay] : [record.type, record.accountId, record.amountMinor, businessDay]);
 }
 
 function analyze(state: BookState, plan: Plan): ResolvedLine[] {
@@ -105,23 +111,40 @@ function analyze(state: BookState, plan: Plan): ResolvedLine[] {
     const kind = edit?.kind ?? raw.kind;
     const selectedAccount = inferAccount(state, source, raw.account, raw, kind, edit?.accountId);
     const destination = kind === "transfer" ? inferAccount(state, source, raw.toAccount, raw, kind, edit?.toAccountId) : undefined;
-    const mappedCategory = edit?.categoryId === undefined ? mapped(state, source, "category", raw.category, raw, kind) ??
-      state.dictionary.find((entry) => entry.kind === "category" && entry.status === "active" && normalize(entry.name) === normalize(raw.category))?.id : edit.categoryId;
+    const mappedCategory =
+      edit?.categoryId === undefined
+        ? (mapped(state, source, "category", raw.category, raw, kind) ?? state.dictionary.find((entry) => entry.kind === "category" && entry.status === "active" && normalize(entry.name) === normalize(raw.category))?.id)
+        : edit.categoryId;
     const category = state.dictionary.find((entry) => entry.id === mappedCategory && entry.kind === "category" && entry.status === "active");
     const info: Line = {
-      rowId: id, line: raw.line, originalNumber: raw.number ? brief(raw.number) : null, title: brief(raw.title || raw.payee || "账单流水", 150),
-      sourceDate: brief(raw.date, 100), businessDate: null, amount: brief(raw.amount), toAmount: brief(edit?.toAmount ?? raw.toAmount), sourceCurrency: brief(raw.currency),
-      sourceAccount: brief(raw.account), sourceDestination: brief(raw.toAccount), sourceCategory: brief(raw.category),
-      accountId: selectedAccount?.id ?? null, toAccountId: destination?.id ?? null, categoryId: category?.id ?? null,
-      kind, state: "pending", diagnostic: null,
+      rowId: id,
+      line: raw.line,
+      originalNumber: raw.number ? brief(raw.number) : null,
+      title: brief(raw.title || raw.payee || "账单流水", 150),
+      sourceDate: brief(raw.date, 100),
+      businessDate: null,
+      amount: brief(raw.amount),
+      toAmount: brief(edit?.toAmount ?? raw.toAmount),
+      sourceCurrency: brief(raw.currency),
+      sourceAccount: brief(raw.account),
+      sourceDestination: brief(raw.toAccount),
+      sourceCategory: brief(raw.category),
+      accountId: selectedAccount?.id ?? null,
+      toAccountId: destination?.id ?? null,
+      categoryId: category?.id ?? null,
+      kind,
+      state: "pending",
+      diagnostic: null,
     };
-    const result = (status: Line["state"], diagnostic?: string, draft?: RecordInput): ResolvedLine =>
-      ({ info: { ...info, state: status, diagnostic: diagnostic ?? null }, key, ...(draft && { draft }) });
+    const result = (status: Line["state"], diagnostic?: string, draft?: RecordInput): ResolvedLine => ({ info: { ...info, state: status, diagnostic: diagnostic ?? null }, key, ...(draft && { draft }) });
     if (Object.hasOwn(state.importRows, key)) return result("imported", "该来源行已入账");
     if (edit?.skip || raw.skip) return result("skipped", raw.skip ?? "已选择跳过");
     let date;
-    try { date = dateFor(raw.date, plan.timeZone, state.book.timeZone, edit?.disambiguation); }
-    catch (error) { return result("invalid", error instanceof ZodError ? "日期格式不合法" : (error instanceof Error ? error.message : "无效日期")); }
+    try {
+      date = dateFor(raw.date, plan.timeZone, state.book.timeZone, edit?.disambiguation);
+    } catch (error) {
+      return result("invalid", error instanceof ZodError ? "日期格式不合法" : error instanceof Error ? error.message : "无效日期");
+    }
     if (!date) return result("pending", "来源时区的时钟重复，请选择较早或较晚的时刻");
     info.businessDate = date.businessDate;
     if (!kind || !selectedAccount) return result("pending", !kind ? "请选择收支类型" : "请选择资金账户");
@@ -132,10 +155,18 @@ function analyze(state: BookState, plan: Plan): ResolvedLine[] {
       return result("pending", "来源币种与资金账户币种不符，请调整账户");
     }
     let amount;
-    try { amount = parsedAmount(raw.amount, currency); }
-    catch { return result("invalid", "金额无法按账户币种精确入账"); }
+    try {
+      amount = parsedAmount(raw.amount, currency);
+    } catch {
+      return result("invalid", "金额无法按账户币种精确入账");
+    }
     const fields = {
-      occurredAt: date.date, payee: optionalText(raw.payee), memo: optionalText(raw.memo), categoryId: info.categoryId, attachmentIds: [], tagIds: [],
+      occurredAt: date.date,
+      payee: optionalText(raw.payee),
+      memo: optionalText(raw.memo),
+      categoryId: info.categoryId,
+      attachmentIds: [],
+      tagIds: [],
     };
     let draft: RecordInput;
     if (kind === "transfer") {
@@ -143,11 +174,13 @@ function analyze(state: BookState, plan: Plan): ResolvedLine[] {
       const toAmount = edit?.toAmount ?? raw.toAmount;
       if (!toAmount && destination.currency !== currency) return result("pending", "跨币种转账需填写转入实际金额");
       let units;
-      try { units = toAmount ? parsedAmount(toAmount, destination.currency) : amount; }
-      catch { return result("pending", "请填写可精确入账的转入金额"); }
+      try {
+        units = toAmount ? parsedAmount(toAmount, destination.currency) : amount;
+      } catch {
+        return result("pending", "请填写可精确入账的转入金额");
+      }
       if (destination.currency === currency && units !== amount) return result("pending", "同币种转账两端金额须相同");
-      draft = { ...fields, type: kind, fromAccountId: selectedAccount.id, fromCurrency: currency, fromAmountMinor: amount,
-        toAccountId: destination.id, toCurrency: destination.currency, toAmountMinor: units };
+      draft = { ...fields, type: kind, fromAccountId: selectedAccount.id, fromCurrency: currency, fromAmountMinor: amount, toAccountId: destination.id, toCurrency: destination.currency, toAmountMinor: units };
     } else draft = { ...fields, type: kind, accountId: selectedAccount.id, currency, amountMinor: amount };
     const apparent = apparentKey(draft, date.businessDate);
     const duplicate = seen.has(apparent);
@@ -161,7 +194,9 @@ export class LedgerImports {
   private readonly inFlight = new Map<string, Promise<ImportResult>>();
   constructor(private readonly store: LedgerStore) {}
 
-  dispose() { this.plans.clear(); }
+  dispose() {
+    this.plans.clear();
+  }
 
   private sweep() {
     for (const [id, plan] of this.plans) if (plan.expires <= Date.now()) this.plans.delete(id);
@@ -197,11 +232,20 @@ export class LedgerImports {
     const result = parseStatement(bytes, input.source, input.columns);
     const plan: Plan = {
       preview: {
-        bookId: input.bookId, previewId: randomUUID(), expectedRevision: state.book.revision, mappingRevision: state.mappingRevision,
-        source: input.source, encoding: result.encoding, inputDigest: hash(bytes),
+        bookId: input.bookId,
+        previewId: randomUUID(),
+        expectedRevision: state.book.revision,
+        mappingRevision: state.mappingRevision,
+        source: input.source,
+        encoding: result.encoding,
+        inputDigest: hash(bytes),
       },
-      timeZone: input.sourceTimeZone, owner: owner(context), expires: Date.now() + lifetimeMs,
-      parsed: result.rows, overrides: new Map(), lines: [],
+      timeZone: input.sourceTimeZone,
+      owner: owner(context),
+      expires: Date.now() + lifetimeMs,
+      parsed: result.rows,
+      overrides: new Map(),
+      lines: [],
     };
     plan.lines = analyze(state, plan);
     this.sweep();
@@ -240,8 +284,7 @@ export class LedgerImports {
 
   async confirm(context: CapabilityContext, input: z.infer<typeof ConfirmImport>): Promise<ImportResult> {
     const subject = owner(context);
-    const key = hash(canonicalJson([subject, input.previewId, input.bookId, input.expectedRevision, input.inputDigest,
-      input.mappingRevision, [...input.selectedRowIds].sort(), input.intentKey]));
+    const key = hash(canonicalJson([subject, input.previewId, input.bookId, input.expectedRevision, input.inputDigest, input.mappingRevision, [...input.selectedRowIds].sort(), input.intentKey]));
     const pending = this.inFlight.get(key);
     if (pending) return pending;
     await this.store.idle();
@@ -253,8 +296,7 @@ export class LedgerImports {
     if (repeated) return repeated;
     const plan = this.get(context, input);
     this.verifyVersion(state, plan);
-    if (plan.preview.inputDigest !== input.inputDigest || plan.preview.expectedRevision !== input.expectedRevision ||
-        plan.preview.mappingRevision !== input.mappingRevision) throw errors.invalidInput("导入文件或映射已变化，请重新预览");
+    if (plan.preview.inputDigest !== input.inputDigest || plan.preview.expectedRevision !== input.expectedRevision || plan.preview.mappingRevision !== input.mappingRevision) throw errors.invalidInput("导入文件或映射已变化，请重新预览");
     const selected = new Set(input.selectedRowIds);
     const candidates = plan.lines.filter((row) => selected.has(row.info.rowId));
     if (candidates.length !== selected.size || candidates.some((row) => !row.draft)) throw errors.invalidInput("所选账单行包含未解决、已导入或已跳过的条目");
@@ -276,7 +318,9 @@ export class LedgerImports {
       const result = await action;
       this.plans.delete(input.previewId);
       return result;
-    } finally { this.inFlight.delete(key); }
+    } finally {
+      this.inFlight.delete(key);
+    }
   }
 
   async status(context: CapabilityContext, input: z.infer<typeof ImportReference>) {
@@ -290,8 +334,8 @@ export class LedgerImports {
       requireActiveBook(state);
       const rules = new Map(state.mappings.map((rule) => [mappingKey(rule), rule]));
       for (const rule of input.rules) {
-        const valid = rule.kind === "account" ? state.accounts.some((row) => row.id === rule.targetId && row.status === "active")
-          : state.dictionary.some((row) => row.id === rule.targetId && row.kind === "category" && row.status === "active");
+        const valid =
+          rule.kind === "account" ? state.accounts.some((row) => row.id === rule.targetId && row.status === "active") : state.dictionary.some((row) => row.id === rule.targetId && row.kind === "category" && row.status === "active");
         if (!valid) throw errors.invalidInput("映射目标必须属于当前账本且可用");
         const normalized = { ...rule, payeeContains: normalize(rule.payeeContains), descriptionContains: normalize(rule.descriptionContains) };
         rules.set(mappingKey(normalized), normalized);

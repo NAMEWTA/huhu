@@ -258,8 +258,7 @@ export class FollowUps {
   listHistory() {
     return [...this.records()].flatMap(({ value }) => {
       const current = this.occurrence(value);
-      return [...(current && current.state !== "scheduled" ? [current] : []), ...(value.history ?? [])]
-        .map((occurrence) => ({ occurrence, title: "任务跟进", source: "tasks" }));
+      return [...(current && current.state !== "scheduled" ? [current] : []), ...(value.history ?? [])].map((occurrence) => ({ occurrence, title: "任务跟进", source: "tasks" }));
     });
   }
 
@@ -335,9 +334,8 @@ export class FollowUps {
       createdAt,
       updatedAt,
       nextAt: data.state === "scheduled" && intent === "enabled" && availability.state === "ready" ? data.scheduledFor : null,
-      lastOccurrence: data.state === "accepted"
-        ? { occurrenceId: data.followUpId, state: "accepted", at: acceptance?.at ?? data.scheduledFor }
-        : last?.acceptedAt ? { occurrenceId: last.occurrenceId, state: last.state, at: last.acceptedAt } : null,
+      lastOccurrence:
+        data.state === "accepted" ? { occurrenceId: data.followUpId, state: "accepted", at: acceptance?.at ?? data.scheduledFor } : last?.acceptedAt ? { occurrenceId: last.occurrenceId, state: last.state, at: last.acceptedAt } : null,
       actions,
     };
   }
@@ -390,7 +388,10 @@ export class FollowUps {
 
   private paths(): string[] {
     try {
-      return readdirSync(this.files.abs(directory)).filter((name) => /^[a-f0-9]{64}\.json$/.test(name)).sort().map((name) => `${directory}/${name}`);
+      return readdirSync(this.files.abs(directory))
+        .filter((name) => /^[a-f0-9]{64}\.json$/.test(name))
+        .sort()
+        .map((name) => `${directory}/${name}`);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
@@ -427,8 +428,16 @@ export class FollowUps {
   allowsDispatch(taskId: string, followUpId: string, scheduledFor: string): boolean {
     if (this.lifetime.signal.aborted) return false;
     const data = this.load(this.pathname(taskId))?.value;
-    return Boolean(this.allowsSchedule(scheduledFor) && data && this.isLocal(data) && data.followUpId === followUpId && data.scheduledFor === scheduledFor
-      && (data.state === "scheduled" || data.state === "accepted") && data.plan.intent === "enabled" && !data.plan.blockedDispatch);
+    return Boolean(
+      this.allowsSchedule(scheduledFor) &&
+      data &&
+      this.isLocal(data) &&
+      data.followUpId === followUpId &&
+      data.scheduledFor === scheduledFor &&
+      (data.state === "scheduled" || data.state === "accepted") &&
+      data.plan.intent === "enabled" &&
+      !data.plan.blockedDispatch,
+    );
   }
 
   private async advance(path: string): Promise<void> {

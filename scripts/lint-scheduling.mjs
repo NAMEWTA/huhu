@@ -13,8 +13,7 @@ function queuesItself(node) {
   if (callback?.type !== "Identifier") return false;
   for (let parent = node.parent; parent; parent = parent.parent) {
     if (parent.type === "FunctionDeclaration" && parent.id?.name === callback.name) return true;
-    if (parent.type === "VariableDeclarator" && parent.id.name === callback.name &&
-        ["ArrowFunctionExpression", "FunctionExpression"].includes(parent.init?.type)) return true;
+    if (parent.type === "VariableDeclarator" && parent.id.name === callback.name && ["ArrowFunctionExpression", "FunctionExpression"].includes(parent.init?.type)) return true;
   }
   return false;
 }
@@ -30,8 +29,7 @@ export default {
         const report = (node) => context.report({ node, message: "业务周期调度使用 Automations 计划端口，技术定时需注明用途。" });
         return {
           CallExpression(node) {
-            if ((node.callee.type === "Identifier" && node.callee.name === "setInterval") ||
-                (callableName(node.callee) === "setTimeout" && queuesItself(node))) report(node);
+            if ((node.callee.type === "Identifier" && node.callee.name === "setInterval") || (callableName(node.callee) === "setTimeout" && queuesItself(node))) report(node);
           },
           MemberExpression(node) {
             if (memberName(node) === "setInterval") report(node);
@@ -54,10 +52,13 @@ export default {
             const target = node.arguments[0]?.value;
             const notification = node.arguments[0];
             const hasTitle = notification?.type === "ObjectExpression" && notification.properties.some(({ key }) => (key?.name ?? key?.value) === "title");
-            if ((name === "notify" && (sink || hasTitle)) || name === "notifyHistoryFailure" ||
-                ((name === "send" || name === "create") && (sink?.name === "notifications" || memberName(sink) === "notifications")) ||
-                (target === notificationCapability && ["call", "dispatch", "invoke"].includes(name)) ||
-                (target === "notification.created" && ["publish", "emit"].includes(name))) {
+            if (
+              (name === "notify" && (sink || hasTitle)) ||
+              name === "notifyHistoryFailure" ||
+              ((name === "send" || name === "create") && (sink?.name === "notifications" || memberName(sink) === "notifications")) ||
+              (target === notificationCapability && ["call", "dispatch", "invoke"].includes(name)) ||
+              (target === "notification.created" && ["publish", "emit"].includes(name))
+            ) {
               context.report({ node, message: "计划通知通过 Automations 的递送端口与原发生检查点发送。" });
             }
           },

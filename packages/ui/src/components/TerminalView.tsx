@@ -57,7 +57,30 @@ function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily
 }
 
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
-export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl, handoffId, focusOnHandoff = true, attachWhenHidden = false, onTerminalHandoff, onHandoffControl, onTerminalKey, copyOnSelect, highlightRules, onCompletionRequest, onBell }: TerminalViewProps) {
+export function TerminalView({
+  baseUrl,
+  token,
+  sessionId,
+  observe = false,
+  ariaLabel,
+  displayOptions,
+  scrollbackSearch = false,
+  onOpenLink,
+  linkActivation = true,
+  onExit,
+  onTerminalInput,
+  onTerminalControl,
+  handoffId,
+  focusOnHandoff = true,
+  attachWhenHidden = false,
+  onTerminalHandoff,
+  onHandoffControl,
+  onTerminalKey,
+  copyOnSelect,
+  highlightRules,
+  onCompletionRequest,
+  onBell,
+}: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
   const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
@@ -130,19 +153,23 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     });
     const highlights = supportsHighlight ? observeTerminalHighlights(term, el, () => rules.current ?? []) : undefined;
     refreshHighlights.current = highlights?.update;
-    const links = hasLinkHandler ? term.registerLinkProvider({
-      provideLinks(row, callback) {
-        if (!linksEnabled.current) return callback(undefined);
-        const result = terminalLinks(term.buffer.active, term.cols, row - 1);
-        callback(result.map(({ range, text }) => ({
-          range: { start: { x: range.start.x + 1, y: range.start.y + 1 }, end: { x: range.end.x, y: range.end.y + 1 } },
-          text,
-          activate: linkHandler.activate,
-          hover: linkHandler.hover,
-          leave: linkHandler.leave,
-        })));
-      },
-    }) : undefined;
+    const links = hasLinkHandler
+      ? term.registerLinkProvider({
+          provideLinks(row, callback) {
+            if (!linksEnabled.current) return callback(undefined);
+            const result = terminalLinks(term.buffer.active, term.cols, row - 1);
+            callback(
+              result.map(({ range, text }) => ({
+                range: { start: { x: range.start.x + 1, y: range.start.y + 1 }, end: { x: range.end.x, y: range.end.y + 1 } },
+                text,
+                activate: linkHandler.activate,
+                hover: linkHandler.hover,
+                leave: linkHandler.leave,
+              })),
+            );
+          },
+        })
+      : undefined;
     if (scrollbackSearch) {
       let previous = "";
       search.current = {
@@ -204,11 +231,14 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       if (!canSend() || prepared) return Promise.resolve(false);
       return new Promise((resolve) => {
         const timeout = setTimeout(() => prepared?.resolve(false), 3000);
-        prepared = { id, resolve: (ready) => {
-          clearTimeout(timeout);
-          prepared = undefined;
-          resolve(ready);
-        } };
+        prepared = {
+          id,
+          resolve: (ready) => {
+            clearTimeout(timeout);
+            prepared = undefined;
+            resolve(ready);
+          },
+        };
         ws!.send(JSON.stringify({ type: "prepare-handoff", id, members }));
       });
     };
@@ -377,7 +407,9 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
 
   useEffect(() => applyDisplay.current?.(displayOptions), [displayOptions]);
   useEffect(() => refreshHighlights.current?.(), [highlightRules]);
-  useEffect(() => { if (searching) searchInput.current?.focus(); }, [searching]);
+  useEffect(() => {
+    if (searching) searchInput.current?.focus();
+  }, [searching]);
 
   function find(direction: "next" | "previous") {
     if (searchText) setSearchResult(search.current?.find(searchText, direction) ? "已定位匹配内容" : "当前终端回滚中无匹配");
@@ -394,26 +426,52 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       {scrollbackSearch && (
         <div className="hu-terminal-search">
           {searching ? (
-            <form role="search" aria-label="终端回滚搜索" onSubmit={(event) => { event.preventDefault(); find("next"); }}>
+            <form
+              role="search"
+              aria-label="终端回滚搜索"
+              onSubmit={(event) => {
+                event.preventDefault();
+                find("next");
+              }}
+            >
               <input
                 ref={searchInput}
                 type="search"
                 aria-label="查找终端回滚"
                 value={searchText}
                 maxLength={256}
-                onChange={(event) => { setSearchText(event.currentTarget.value); setSearchResult(""); }}
+                onChange={(event) => {
+                  setSearchText(event.currentTarget.value);
+                  setSearchResult("");
+                }}
                 onKeyDown={(event) => {
                   if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-                  if (event.key === "Escape") { event.preventDefault(); closeSearch(); }
-                  if (event.key === "Enter" && event.shiftKey) { event.preventDefault(); find("previous"); }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeSearch();
+                  }
+                  if (event.key === "Enter" && event.shiftKey) {
+                    event.preventDefault();
+                    find("previous");
+                  }
                 }}
               />
-              <button type="button" disabled={!searchText} onClick={() => find("previous")}>上一处</button>
-              <button type="submit" disabled={!searchText}>下一处</button>
-              <button type="button" onClick={closeSearch}>关闭搜索</button>
+              <button type="button" disabled={!searchText} onClick={() => find("previous")}>
+                上一处
+              </button>
+              <button type="submit" disabled={!searchText}>
+                下一处
+              </button>
+              <button type="button" onClick={closeSearch}>
+                关闭搜索
+              </button>
               {searchResult && <p role="status">{searchResult}</p>}
             </form>
-          ) : <button type="button" onClick={() => setSearching(true)}>查找终端回滚</button>}
+          ) : (
+            <button type="button" onClick={() => setSearching(true)}>
+              查找终端回滚
+            </button>
+          )}
         </div>
       )}
       {observe || demoted ? (

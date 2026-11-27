@@ -34,8 +34,7 @@ export class Scheduler {
     const enabled = new Map(rules.filter((rule) => rule.enabled).map((rule) => [rule.id, rule]));
     for (const [id, job] of this.jobs) {
       const rule = enabled.get(id);
-      if (rule && rule.cron === job.rule.cron && rule.zone === job.rule.zone && rule.version === job.rule.version &&
-          rule.updatedAt === job.rule.updatedAt && rule.missedRunGraceMinutes === job.rule.missedRunGraceMinutes) {
+      if (rule && rule.cron === job.rule.cron && rule.zone === job.rule.zone && rule.version === job.rule.version && rule.updatedAt === job.rule.updatedAt && rule.missedRunGraceMinutes === job.rule.missedRunGraceMinutes) {
         enabled.delete(id);
         continue;
       }

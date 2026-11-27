@@ -71,7 +71,11 @@ export function SshHostGrants({ policy, writable }: { policy: ToolAccessSnapshot
     >
       <fieldset className="hu-gateway-grants" disabled={editingBlocked}>
         <legend id={title}>允许外部工具访问的 SSH 主机</legend>
-        {policy?.state === "ready" ? <p>已授权 {saved.length} 台{draft ? ` · 选中 ${selected.size} 台` : ""}</p> : null}
+        {policy?.state === "ready" ? (
+          <p>
+            已授权 {saved.length} 台{draft ? ` · 选中 ${selected.size} 台` : ""}
+          </p>
+        ) : null}
         {sshDisabled ? <p role="status">SSH 模块已停用。</p> : hosts.isError ? <p role="alert">无法读取已保存的 SSH 主机。</p> : null}
         {rows.size === 0 && !hosts.isError ? <p>{hosts.isPending ? "正在读取 SSH 主机…" : "没有已保存的 SSH 主机。"}</p> : null}
         {[...rows].map(([id, label]) => (

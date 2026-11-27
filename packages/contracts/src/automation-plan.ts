@@ -23,7 +23,9 @@ const owner = z.discriminatedUnion("scope", [
 ]);
 
 export const CalendarPlanTriggerSchema = z.strictObject({
-  kind: z.literal("calendar"), frequency: z.enum(["daily", "weekly", "monthly"]), startOn: LedgerBusinessDate,
+  kind: z.literal("calendar"),
+  frequency: z.enum(["daily", "weekly", "monthly"]),
+  startOn: LedgerBusinessDate,
 });
 export type CalendarPlanTrigger = z.infer<typeof CalendarPlanTriggerSchema>;
 
@@ -38,14 +40,14 @@ export const PlanTriggerSchema = z.discriminatedUnion("kind", [
 export type PlanTrigger = z.infer<typeof PlanTriggerSchema>;
 
 const intervalBounds = z.strictObject({
-  min: z.int().positive(), max: z.int().positive(), step: z.int().positive(), allowed: z.array(z.int().positive()).min(1).optional(),
+  min: z.int().positive(),
+  max: z.int().positive(),
+  step: z.int().positive(),
+  allowed: z.array(z.int().positive()).min(1).optional(),
 });
 
 const blockedReason = z.enum(["plugin-disabled", "read-only", "foreign-owner", "credentials-unavailable", "connection-unavailable", "domain-conflict", "target-unavailable"]);
-const availability = z.discriminatedUnion("state", [
-  z.strictObject({ state: z.literal("ready") }),
-  z.strictObject({ state: z.literal("blocked"), reason: blockedReason, detail: z.string().optional() }),
-]);
+const availability = z.discriminatedUnion("state", [z.strictObject({ state: z.literal("ready") }), z.strictObject({ state: z.literal("blocked"), reason: blockedReason, detail: z.string().optional() })]);
 const action = z.strictObject({ capability: id, object: domainObject, summary: z.string() });
 const allowedAction = z.enum(["reschedule", "pause", "resume", "delete", "run-now"]);
 const intent = z.enum(["enabled", "paused", "deleted"]);
@@ -122,10 +124,7 @@ export const TaskActivitySchema = z.strictObject({
   inputHash: id,
   status: TaskStatusSchema,
   observedAt: instant,
-  execution: z.discriminatedUnion("state", [
-    z.strictObject({ state: z.literal("none") }),
-    z.strictObject({ state: z.enum(["running", "waiting-input", "completed", "failed", "unknown"]), identity: PlanExecutionRefSchema }),
-  ]),
+  execution: z.discriminatedUnion("state", [z.strictObject({ state: z.literal("none") }), z.strictObject({ state: z.enum(["running", "waiting-input", "completed", "failed", "unknown"]), identity: PlanExecutionRefSchema })]),
 });
 export type TaskActivity = z.infer<typeof TaskActivitySchema>;
 

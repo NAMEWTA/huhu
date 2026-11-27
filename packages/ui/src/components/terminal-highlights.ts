@@ -66,7 +66,7 @@ export function observeTerminalHighlights(term: Terminal, element: HTMLElement, 
         }
         return;
       }
-      const safe = patterns.map((rule) => rule.mode === "regex" ? { ...rule, enabled: false } : rule);
+      const safe = patterns.map((rule) => (rule.mode === "regex" ? { ...rule, enabled: false } : rule));
       cached = { rules: patterns, row, cols, text: viewport.text, matches: matchTerminalHighlights(viewport.text, safe) };
     }
     clearDecorations();
@@ -78,18 +78,19 @@ export function observeTerminalHighlights(term: Terminal, element: HTMLElement, 
       if (buffer.type === "alternate") {
         const cell = document.createElement("span");
         cell.dataset.terminalHighlight = String(ruleIndex);
-        cell.style.left = `${start.x / cols * 100}%`;
-        cell.style.top = `${(start.y - row) / term.rows * 100}%`;
-        cell.style.width = `${(end.x - start.x) / cols * 100}%`;
+        cell.style.left = `${(start.x / cols) * 100}%`;
+        cell.style.top = `${((start.y - row) / term.rows) * 100}%`;
+        cell.style.width = `${((end.x - start.x) / cols) * 100}%`;
         cell.style.height = `${100 / term.rows}%`;
         alternate.append(cell);
         continue;
       }
       const marker = term.registerMarker(start.y - cursorRow);
       if (!marker) continue;
-      const decoration = term.registerDecoration({ marker, x: start.x, width: end.x - start.x,
-        ...(backgroundColor && { backgroundColor }), ...(foregroundColor && { foregroundColor }) });
-      decoration?.onRender((node) => { node.dataset.terminalHighlight = String(ruleIndex); });
+      const decoration = term.registerDecoration({ marker, x: start.x, width: end.x - start.x, ...(backgroundColor && { backgroundColor }), ...(foregroundColor && { foregroundColor }) });
+      decoration?.onRender((node) => {
+        node.dataset.terminalHighlight = String(ruleIndex);
+      });
       decorations.push(marker);
     }
     if (alternate.childElementCount) screen?.append(alternate);

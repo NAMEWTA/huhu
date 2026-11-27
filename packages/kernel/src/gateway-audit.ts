@@ -3,13 +3,26 @@ import path from "node:path";
 import { z } from "zod";
 
 export const auditRecordSchema = z.object({
-  at: z.string(), entry: z.string(), capability: z.string(), code: z.string(), ms: z.number(),
-  mcp: z.object({
-    operation: z.string(), requestId: z.string(), subject: z.string(), session: z.string(), result: z.string().optional(),
-    sourceId: z.string().optional(), sourceName: z.string().optional(),
-    upstreamEntry: z.string().optional(), publicEntry: z.string().optional(),
-    catalogRevision: z.number().optional(), configRevision: z.number().optional(),
-  }).optional(),
+  at: z.string(),
+  entry: z.string(),
+  capability: z.string(),
+  code: z.string(),
+  ms: z.number(),
+  mcp: z
+    .object({
+      operation: z.string(),
+      requestId: z.string(),
+      subject: z.string(),
+      session: z.string(),
+      result: z.string().optional(),
+      sourceId: z.string().optional(),
+      sourceName: z.string().optional(),
+      upstreamEntry: z.string().optional(),
+      publicEntry: z.string().optional(),
+      catalogRevision: z.number().optional(),
+      configRevision: z.number().optional(),
+    })
+    .optional(),
 });
 export type AuditRecord = z.infer<typeof auditRecordSchema>;
 

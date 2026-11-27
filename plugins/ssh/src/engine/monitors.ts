@@ -2,7 +2,20 @@ import { randomUUID } from "node:crypto";
 import { errors, HuhuError, type PeriodicRunContext, type PeriodicRunOutcome, type PlanSummary } from "@huhu/contracts";
 import type { Client } from "ssh2";
 import type { z } from "zod";
-import type { MonitorHost, MonitorPanel, MonitorPanelChange, MonitorPanelRevision, MonitorPanelRun, MonitorPanelSudo, MonitorPoint, MonitorSession, MonitorSessionChange, MonitorSessionOpen, SaveMonitorPanel, SessionInterval } from "../shared/monitoring.js";
+import type {
+  MonitorHost,
+  MonitorPanel,
+  MonitorPanelChange,
+  MonitorPanelRevision,
+  MonitorPanelRun,
+  MonitorPanelSudo,
+  MonitorPoint,
+  MonitorSession,
+  MonitorSessionChange,
+  MonitorSessionOpen,
+  SaveMonitorPanel,
+  SessionInterval,
+} from "../shared/monitoring.js";
 import type { MonitorConnection, SshManager } from "./manager.js";
 import type { MonitorPanels, MonitorPanelScope } from "./monitor-panels.js";
 import type { MonitorPlans } from "./monitor-plans.js";
@@ -157,14 +170,16 @@ export class Monitors {
   async sampleDashboard(id: string, context: PeriodicRunContext): Promise<PeriodicRunOutcome | void> {
     const run = this.dashboards.get(id);
     if (run?.state !== "running" || !context.isCurrent()) return "skipped";
-    const sources = new Set(run.bindings.flatMap(({ source }) => source && !source.failure ? [source] : []));
-    const samples = await Promise.allSettled([...sources].map(async (source) => {
-      const period = this.period(source);
-      if (!period || source.request || (source.requestedAt !== undefined && Date.now() - source.requestedAt + 100 < period * 1_000)) return false;
-      await this.sample(source);
-      if (source.failure) throw source.failure;
-      return true;
-    }));
+    const sources = new Set(run.bindings.flatMap(({ source }) => (source && !source.failure ? [source] : [])));
+    const samples = await Promise.allSettled(
+      [...sources].map(async (source) => {
+        const period = this.period(source);
+        if (!period || source.request || (source.requestedAt !== undefined && Date.now() - source.requestedAt + 100 < period * 1_000)) return false;
+        await this.sample(source);
+        if (source.failure) throw source.failure;
+        return true;
+      }),
+    );
     for (const sample of samples) if (sample.status === "rejected") throw sample.reason;
     if (!samples.some((sample) => sample.status === "fulfilled" && sample.value)) return "skipped";
   }
@@ -378,7 +393,7 @@ export class Monitors {
     this.sources.set(key, source);
     source.users.add(binding);
     binding.source = source;
-    Object.assign(host, { connectionId: source.id, state: binding.enabled ? source.failure?.phase ?? "sampling" : "paused", message: source.failure?.message, prompt: undefined, platform: source.platform });
+    Object.assign(host, { connectionId: source.id, state: binding.enabled ? (source.failure?.phase ?? "sampling") : "paused", message: source.failure?.message, prompt: undefined, platform: source.platform });
     this.schedule(source);
     if (binding.panelId) this.plans?.wake(binding.panelId);
   }

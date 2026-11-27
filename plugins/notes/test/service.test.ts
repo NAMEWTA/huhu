@@ -57,9 +57,11 @@ describe("F04 回收站操作", () => {
     const noteId = await svc.ensureId("tree/note.md");
     const run = ops.run.bind(ops);
     vi.spyOn(ops, "run").mockImplementationOnce((id, kind, steps) =>
-      run(id, kind, steps, { afterPublish: (index) => {
-        if (index === failAfter) throw new Error("injected publication failure");
-      } }),
+      run(id, kind, steps, {
+        afterPublish: (index) => {
+          if (index === failAfter) throw new Error("injected publication failure");
+        },
+      }),
     );
     await expect(svc.trash("tree")).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
     expect(trash.list()).toEqual([]);
@@ -72,7 +74,11 @@ describe("F04 回收站操作", () => {
   test("换名恢复原批注、星标和空目录，永久删除只清理原身份", async () => {
     const { svc, root, vf, ops, trash } = await setup({ "tree/note.md": "original" });
     const comments = new CommentsService({
-      repo: new SemanticRepository(vf, ops), files: vf, ensureId: (rel) => svc.ensureId(rel), noteId: (rel) => svc.noteId(rel), publish: () => undefined,
+      repo: new SemanticRepository(vf, ops),
+      files: vf,
+      ensureId: (rel) => svc.ensureId(rel),
+      noteId: (rel) => svc.noteId(rel),
+      publish: () => undefined,
       now: () => new Date("2026-11-10T12:00:00Z"),
     });
     const create = (file: string, text: string) => comments.create({ path: file, target: "file", text, author: "fixture" });
@@ -86,9 +92,11 @@ describe("F04 回收站操作", () => {
     const project = (documents: ReadonlyMap<string, string>) => comments.trashProjection(documents, "restore");
     const run = ops.run.bind(ops);
     vi.spyOn(ops, "run").mockImplementationOnce((id, kind, steps) =>
-      run(id, kind, steps, { afterPublish: (index) => {
-        if (index === steps.length - 2) throw new Error("restore interrupted after payload move");
-      } }),
+      run(id, kind, steps, {
+        afterPublish: (index) => {
+          if (index === steps.length - 2) throw new Error("restore interrupted after payload move");
+        },
+      }),
     );
     await expect(svc.restore(trashId, "recovered", undefined, project)).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
     expect(trash.list()).toMatchObject([{ trashId }]);

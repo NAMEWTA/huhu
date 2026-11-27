@@ -30,18 +30,21 @@ async function withWorkbench(run: (desktop: Page, web: Page, vault: string) => P
 }
 
 function invoke<T>(page: Page, capability: string, input: unknown): Promise<CapabilityResult<T>> {
-  return page.evaluate(async ({ capability, input }) => {
-    const host = typeof window.huhuHost === "undefined" ? undefined : await window.huhuHost.engine();
-    const headers = new Headers({ "content-type": "application/json" });
-    if (host) headers.set("authorization", `Bearer ${host.token}`);
-    const requestId = crypto.randomUUID();
-    const result = await fetch(`${host?.baseUrl ?? location.origin}/api/v1/call`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ capability, input, requestId, idempotencyKey: requestId }),
-    });
-    return result.json();
-  }, { capability, input });
+  return page.evaluate(
+    async ({ capability, input }) => {
+      const host = typeof window.huhuHost === "undefined" ? undefined : await window.huhuHost.engine();
+      const headers = new Headers({ "content-type": "application/json" });
+      if (host) headers.set("authorization", `Bearer ${host.token}`);
+      const requestId = crypto.randomUUID();
+      const result = await fetch(`${host?.baseUrl ?? location.origin}/api/v1/call`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ capability, input, requestId, idempotencyKey: requestId }),
+      });
+      return result.json();
+    },
+    { capability, input },
+  );
 }
 
 const versionOf = (text: Buffer) => createHash("sha256").update(text).digest("hex").slice(0, 16);

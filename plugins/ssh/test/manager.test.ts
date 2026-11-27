@@ -309,16 +309,25 @@ describe("连接与主机密钥", () => {
     const first = add(jump.port);
     const last = add(target.port, { jumpHostIds: [first.id] });
     const script = path.join(root, "proxy.cjs");
-    writeFileSync(script, `
+    writeFileSync(
+      script,
+      `
       const [host, port, user] = process.argv.slice(2);
       if (host !== "127.0.0.1" || port !== "${jump.port}" || user !== "u") process.exit(1);
       const peer = require("node:net").connect(Number(port), host);
       peer.on("error", () => process.exit(1));
       process.stdin.pipe(peer).pipe(process.stdout);
       peer.once("close", () => process.exit(0));
-    `);
+    `,
+    );
     const approval = commands!.approve([first, last], null, { executable: process.execPath, arguments: [script, "%h", "%p", "%r"] });
-    const external = mgr.openExternalConnection([first, last], new AbortController().signal, () => undefined, () => undefined, () => undefined);
+    const external = mgr.openExternalConnection(
+      [first, last],
+      new AbortController().signal,
+      () => undefined,
+      () => undefined,
+      () => undefined,
+    );
     await expect(external.ready).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     expect(jump.conns).toHaveLength(0);
     const pending = mgr.connect(last.id);

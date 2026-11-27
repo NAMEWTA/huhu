@@ -101,7 +101,10 @@ test("AW7 AU18 桌面和获邀 Web 全部关闭后，同一常驻 Engine 按原�
     const { planId, revision } = plan;
     const planInput = { planId };
     expect(await call<PlanSummary>(web, "automations.plans.read", planInput)).toMatchObject({
-      planId, revision, nextAt: scheduledFor, lastOccurrence: null,
+      planId,
+      revision,
+      nextAt: scheduledFor,
+      lastOccurrence: null,
     });
 
     await browser!.close();
@@ -118,12 +121,15 @@ test("AW7 AU18 桌面和获邀 Web 全部关闭后，同一常驻 Engine 按原�
         headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
         body: JSON.stringify({ requestId: randomUUID(), capability: "automations.plans.read", input: planInput }),
       });
-      const reply = await result.json() as { ok: true; data: PlanSummary } | { ok: false; error: { code: string } };
+      const reply = (await result.json()) as { ok: true; data: PlanSummary } | { ok: false; error: { code: string } };
       if (!reply.ok) throw new Error(`automations.plans.read: ${reply.error.code}`);
       return reply.data;
     };
     await expect.poll(readPlan, { timeout: 30_000 }).toMatchObject({
-      planId, revision, nextAt: null, lastOccurrence: { state: "completed", occurrenceId: expect.any(String) },
+      planId,
+      revision,
+      nextAt: null,
+      lastOccurrence: { state: "completed", occurrenceId: expect.any(String) },
     });
     const { occurrenceId, at } = (await readPlan()).lastOccurrence!;
     expect(Date.parse(at)).toBeGreaterThan(clientsClosedAt);
@@ -136,7 +142,9 @@ test("AW7 AU18 桌面和获邀 Web 全部关闭后，同一常驻 Engine 按原�
       await page.getByTestId("plan-directory").locator(`[data-plan-id="${planId}"]`).getByTestId("rule-row").click();
       await expect(page.getByTestId("rule-detail").getByRole("heading", { name: `任务提醒：${title}` })).toBeVisible();
       expect(await call<PlanSummary>(page, "automations.plans.read", planInput)).toMatchObject({
-        planId, revision, lastOccurrence: { occurrenceId, at, state: "completed" },
+        planId,
+        revision,
+        lastOccurrence: { occurrenceId, at, state: "completed" },
       });
     }
     const notifications = await call<{ id: string; title: string }[]>(reopened, "notifications.list", {});
@@ -144,10 +152,18 @@ test("AW7 AU18 桌面和获邀 Web 全部关闭后，同一常驻 Engine 按原�
     expect(delivered).toHaveLength(1);
     const occurrence = await call<PlanOccurrence>(reopened, "automations.plans.readOccurrence", { occurrenceId });
     expect(occurrence).toMatchObject({
-      occurrenceId, plan: { planId, revision }, state: "completed", timing: { trigger: "scheduled", scheduledFor },
-      effects: expect.arrayContaining([expect.objectContaining({
-        effectId: delivered[0]!.id, kind: "notification", state: "completed", receiptId: delivered[0]!.id,
-      })]),
+      occurrenceId,
+      plan: { planId, revision },
+      state: "completed",
+      timing: { trigger: "scheduled", scheduledFor },
+      effects: expect.arrayContaining([
+        expect.objectContaining({
+          effectId: delivered[0]!.id,
+          kind: "notification",
+          state: "completed",
+          receiptId: delivered[0]!.id,
+        }),
+      ]),
     });
   } finally {
     try {

@@ -17,21 +17,46 @@ const instant = z.iso.datetime({ offset: true });
 const decimal = z.string().max(65);
 const bookSchema = z.object({ id, name: z.string().trim().min(1), createdAt: instant.optional() });
 const accountSchema = z.object({
-  id, accountBookId: id, name: z.string().trim().min(1), type: z.string(), currency: LedgerCurrency.default("CNY"),
-  initialBalance: decimal.default("0"), status: z.string().optional(), createdAt: instant.optional(), deletedAt: instant.nullish(),
+  id,
+  accountBookId: id,
+  name: z.string().trim().min(1),
+  type: z.string(),
+  currency: LedgerCurrency.default("CNY"),
+  initialBalance: decimal.default("0"),
+  status: z.string().optional(),
+  createdAt: instant.optional(),
+  deletedAt: instant.nullish(),
 });
 const recordSchema = z.object({
-  id, accountBookId: id, type: z.enum(["INCOME", "EXPENSE", "TRANSFER"]), amount: decimal, date: instant,
-  accountId: id, fromAccountId: id.nullish(), toAccountId: id.nullish(), categoryCode: id.nullish(),
-  remark: z.string().nullish(), payer: z.string().nullish(), tags: z.string().max(20_000).optional(), offsetAt: instant.nullish(),
+  id,
+  accountBookId: id,
+  type: z.enum(["INCOME", "EXPENSE", "TRANSFER"]),
+  amount: decimal,
+  date: instant,
+  accountId: id,
+  fromAccountId: id.nullish(),
+  toAccountId: id.nullish(),
+  categoryCode: id.nullish(),
+  remark: z.string().nullish(),
+  payer: z.string().nullish(),
+  tags: z.string().max(20_000).optional(),
+  offsetAt: instant.nullish(),
 });
 const adjustmentSchema = z.object({ id, accountId: id, date: instant, balanceAfter: decimal });
 const dictionarySchema = z.object({ code: id, group: id, label: z.string().trim().min(1) });
 const attachmentSchema = z.object({ id, path: z.string().max(512), originalFilename: z.string(), recordIds: z.array(id).max(10_000) });
 const budgetSchema = z.object({
-  id, accountBookId: id, name: z.string().trim().min(1), type: z.enum(["FIXED", "FREE"]),
-  year: z.int().min(1).max(9999), month: z.int().min(0).max(12), amount: decimal,
-  categoryCode: id.nullish(), tags: z.string().max(20_000).optional(), startDate: instant.nullish(), endDate: instant.nullish(),
+  id,
+  accountBookId: id,
+  name: z.string().trim().min(1),
+  type: z.enum(["FIXED", "FREE"]),
+  year: z.int().min(1).max(9999),
+  month: z.int().min(0).max(12),
+  amount: decimal,
+  categoryCode: id.nullish(),
+  tags: z.string().max(20_000).optional(),
+  startDate: instant.nullish(),
+  endDate: instant.nullish(),
 });
 const numericFields = new Set(["amount", "initialBalance", "balanceAfter", "loanTotalAmount", "loanInterestRate", "totalPayment", "principal", "interest", "remainingPrincipal"]);
 const kinds = { cash: "cash", bank: "bank", credit: "credit", wallet: "wallet", investment: "investment", credit_card: "credit" } as const;
@@ -40,7 +65,10 @@ const summaryText = (value: string | null | undefined) => value?.trim().slice(0,
 function rows(files: ReadonlyMap<string, Uint8Array>, name: string, required = false): Record<string, unknown>[] {
   const relative = "data/" + name + ".json";
   if (!required && !files.has(relative)) return [];
-  const result = z.array(z.record(z.string(), z.unknown())).max(10_000).safeParse(archiveJson(files, relative, numericFields));
+  const result = z
+    .array(z.record(z.string(), z.unknown()))
+    .max(10_000)
+    .safeParse(archiveJson(files, relative, numericFields));
   if (!result.success) throw errors.invalidInput("HomiBook 表缺失、损坏或超出行数上限：" + name);
   return result.data;
 }
@@ -61,14 +89,17 @@ export function inspectHomibook(files: ReadonlyMap<string, Uint8Array>, rawManif
   const attachmentsIncluded = recordsIncluded && sourceModules.includes("attachments");
   const cyclesIncluded = recordsIncluded && sourceModules.includes("recurring");
   const mappingsIncluded = sourceModules.includes("importMapping");
-  const sourceBooks = z.array(bookSchema).min(1).max(200).parse(rows(files, "accountBook", true));
+  const sourceBooks = z
+    .array(bookSchema)
+    .min(1)
+    .max(200)
+    .parse(rows(files, "accountBook", true));
   const selected = input.sourceBookId ? sourceBooks.find(({ id }) => id === input.sourceBookId) : sourceBooks[0];
   if (!selected) throw errors.notFound("数据包中没有所选 HomiBook 账本");
   const timeZone = input.timeZone;
   if (!timeZone) throw errors.invalidInput("请选择 HomiBook 账本的业务时区");
   const bookId = randomUUID();
-  const state = stateSchema.parse({ book: { id: bookId, name: selected.name.slice(0, 100), status: "active", schemaVersion: 1,
-    revision: randomUUID(), defaultCurrency: "CNY", timeZone }, accounts: [], bases: [], records: [] });
+  const state = stateSchema.parse({ book: { id: bookId, name: selected.name.slice(0, 100), status: "active", schemaVersion: 1, revision: randomUUID(), defaultCurrency: "CNY", timeZone }, accounts: [], bases: [], records: [] });
   const issues: BackupIssue[] = [];
   const flags = new Map<string, string>();
   const accountBySource = new Map<string, BookState["accounts"][number]>();
@@ -110,8 +141,14 @@ export function inspectHomibook(files: ReadonlyMap<string, Uint8Array>, rawManif
       const row = parsed.data;
       if (accountBySource.has(row.id)) throw errors.invalidInput("重复账户 ID");
       const type = row.type.toLowerCase() as keyof typeof kinds;
-      const account = { id: randomUUID(), bookId, name: row.name.slice(0, 150), type: Object.hasOwn(kinds, type) ? kinds[type] : "other" as const,
-        currency: row.currency, status: row.deletedAt || (row.status && row.status !== "ACTIVE") ? "archived" as const : "active" as const };
+      const account = {
+        id: randomUUID(),
+        bookId,
+        name: row.name.slice(0, 150),
+        type: Object.hasOwn(kinds, type) ? kinds[type] : ("other" as const),
+        currency: row.currency,
+        status: row.deletedAt || (row.status && row.status !== "ACTIVE") ? ("archived" as const) : ("active" as const),
+      };
       const openingMinor = ledgerDecimalToMinor(row.initialBalance, row.currency);
       const date = row.createdAt || selected.createdAt ? ledgerBusinessDate(row.createdAt ?? selected.createdAt!, timeZone) : "0001-01-01";
       state.accounts.push(account);
@@ -138,7 +175,7 @@ export function inspectHomibook(files: ReadonlyMap<string, Uint8Array>, rawManif
     try {
       const row = recordSchema.parse(raw);
       if (recordsBySource.has(row.id)) throw errors.invalidInput("流水 ID 重复");
-      const account = accountBySource.get(row.type === "TRANSFER" ? row.fromAccountId ?? "" : row.accountId);
+      const account = accountBySource.get(row.type === "TRANSFER" ? (row.fromAccountId ?? "") : row.accountId);
       const target = row.type === "TRANSFER" ? accountBySource.get(row.toAccountId ?? "") : undefined;
       if (!account || (row.type === "TRANSFER" && !target)) throw errors.invalidInput("流水所需的账户不存在或无法迁入");
       if (target && target.currency !== account.currency) throw errors.invalidInput("跨币种转账缺少另一端金额");
@@ -147,14 +184,21 @@ export function inspectHomibook(files: ReadonlyMap<string, Uint8Array>, rawManif
       const category = row.categoryCode ? categories.get(row.categoryCode) : null;
       const occurredAt = new Date(row.date).toISOString();
       const fields = {
-        id: randomUUID(), bookId, occurredAt, revision: randomUUID(),
+        id: randomUUID(),
+        bookId,
+        occurredAt,
+        revision: randomUUID(),
         categoryId: category && row.categoryCode ? addDictionary("category", row.categoryCode, category.label) : null,
-        tagIds: idsForTags(row.tags), memo: summaryText(row.remark), payee: summaryText(row.payer), attachmentIds: [],
+        tagIds: idsForTags(row.tags),
+        memo: summaryText(row.remark),
+        payee: summaryText(row.payer),
+        attachmentIds: [],
       };
-      const record = LedgerRecord.parse(row.type === "TRANSFER" && target
-        ? { ...fields, type: "transfer", fromAccountId: account.id, toAccountId: target.id, fromCurrency: account.currency,
-          toCurrency: target.currency, fromAmountMinor: amountMinor, toAmountMinor: amountMinor }
-        : { ...fields, type: row.type === "INCOME" ? "income" : "expense", accountId: account.id, currency: account.currency, amountMinor });
+      const record = LedgerRecord.parse(
+        row.type === "TRANSFER" && target
+          ? { ...fields, type: "transfer", fromAccountId: account.id, toAccountId: target.id, fromCurrency: account.currency, toCurrency: target.currency, fromAmountMinor: amountMinor, toAmountMinor: amountMinor }
+          : { ...fields, type: row.type === "INCOME" ? "income" : "expense", accountId: account.id, currency: account.currency, amountMinor },
+      );
       state.records.push(record);
       recordsBySource.set(row.id, record);
       state.recordTitles[record.id] = (fields.memo ?? fields.payee ?? "迁入流水").slice(0, 150);
@@ -179,7 +223,7 @@ export function inspectHomibook(files: ReadonlyMap<string, Uint8Array>, rawManif
       const at = new Date(row.date).toISOString();
       const day = ledgerBusinessDate(at, timeZone);
       const after = BigInt(ledgerDecimalToMinor(row.balanceAfter, account.currency));
-      const applied = (movements.get(account.id + ":" + day) ?? []).reduce((sum, item) => item.at <= at ? sum + item.delta : sum, 0n);
+      const applied = (movements.get(account.id + ":" + day) ?? []).reduce((sum, item) => (item.at <= at ? sum + item.delta : sum), 0n);
       state.bases.push({ bookId, accountId: account.id, effectiveBusinessDate: day, balanceMinor: LedgerMinorUnits.parse((after - applied).toString()), revision: randomUUID() });
     } catch (error) {
       issue("accounts", String(raw.id ?? "余额校准"), error instanceof Error ? error.message : "校准金额无法精确换算");
@@ -195,11 +239,9 @@ export function inspectHomibook(files: ReadonlyMap<string, Uint8Array>, rawManif
       if (row.type === "FIXED") {
         const category = row.categoryCode ? categories.get(row.categoryCode) : undefined;
         if (!category || !row.categoryCode) throw errors.invalidInput("固定预算缺少可确认的分类及方向");
-        definition = { ...base, type: "fixed", month: String(row.year).padStart(4, "0") + "-" + String(row.month).padStart(2, "0"),
-          direction: category.direction, categoryIds: [addDictionary("category", row.categoryCode, category.label)] };
+        definition = { ...base, type: "fixed", month: String(row.year).padStart(4, "0") + "-" + String(row.month).padStart(2, "0"), direction: category.direction, categoryIds: [addDictionary("category", row.categoryCode, category.label)] };
       } else {
-        definition = { ...base, type: "free", tagIds: idsForTags(row.tags),
-          ...(row.startDate && { from: ledgerBusinessDate(row.startDate, timeZone) }), ...(row.endDate && { to: ledgerBusinessDate(row.endDate, timeZone) }) };
+        definition = { ...base, type: "free", tagIds: idsForTags(row.tags), ...(row.startDate && { from: ledgerBusinessDate(row.startDate, timeZone) }), ...(row.endDate && { to: ledgerBusinessDate(row.endDate, timeZone) }) };
       }
       state.budgets.push(Budget.parse({ id: randomUUID(), bookId, revision: randomUUID(), definition }));
     } catch (error) {
@@ -210,9 +252,10 @@ export function inspectHomibook(files: ReadonlyMap<string, Uint8Array>, rawManif
   for (const raw of attachmentsIncluded ? rows(files, "recordAttachment", true) : []) {
     const parsed = attachmentSchema.safeParse(raw);
     if (!parsed.success) {
-      if (Array.isArray(raw.recordIds)) for (const id of raw.recordIds) {
-        if (typeof id === "string" && recordsBySource.has(id)) issue("attachments", id, "原凭证元数据损坏", ["drop-link"]);
-      }
+      if (Array.isArray(raw.recordIds))
+        for (const id of raw.recordIds) {
+          if (typeof id === "string" && recordsBySource.has(id)) issue("attachments", id, "原凭证元数据损坏", ["drop-link"]);
+        }
       continue;
     }
     const row = parsed.data;
@@ -223,9 +266,16 @@ export function inspectHomibook(files: ReadonlyMap<string, Uint8Array>, rawManif
     if (!linked.length) continue;
     const name = row.path.split("/").at(-1);
     const data = name ? files.get("attachments/" + name) : undefined;
-    const candidate = data?.length && data.length <= maxAttachmentBytes ? Attachment.safeParse({
-      id: randomUUID(), fileName: row.originalFilename, size: data.length, sha256: digest(data), mediaType: "application/octet-stream",
-    }) : null;
+    const candidate =
+      data?.length && data.length <= maxAttachmentBytes
+        ? Attachment.safeParse({
+            id: randomUUID(),
+            fileName: row.originalFilename,
+            size: data.length,
+            sha256: digest(data),
+            mediaType: "application/octet-stream",
+          })
+        : null;
     if (!data || !candidate?.success) {
       for (const { sourceId } of linked) issue("attachments", sourceId, "缺少或无法迁入凭证 " + row.originalFilename, ["drop-link"]);
       continue;
@@ -244,23 +294,36 @@ export function inspectHomibook(files: ReadonlyMap<string, Uint8Array>, rawManif
     }
   }
 
-  if (cyclesIncluded) restoreHomibookCycles(state,
-    rows(files, "recurringTransaction", true).filter((row) => row.accountBookId === selected.id),
-    rows(files, "repaymentPlan", true), accountBySource, recordsBySource, issue);
+  if (cyclesIncluded)
+    restoreHomibookCycles(
+      state,
+      rows(files, "recurringTransaction", true).filter((row) => row.accountBookId === selected.id),
+      rows(files, "repaymentPlan", true),
+      accountBySource,
+      recordsBySource,
+      issue,
+    );
   if (mappingsIncluded) {
-    const normalize = (text: unknown) => typeof text === "string" ? text.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase() : "";
-    for (const [kind, table] of [["account", "importAccountMapping"], ["category", "importCategoryMapping"]] as const) {
+    const normalize = (text: unknown) => (typeof text === "string" ? text.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase() : "");
+    for (const [kind, table] of [
+      ["account", "importAccountMapping"],
+      ["category", "importCategoryMapping"],
+    ] as const) {
       for (const row of rows(files, table, true)) {
         const original = kind === "account" ? row.sourceAccountName : row.sourceCategory;
         const reference = kind === "account" ? row.targetAccountName : row.targetCategoryCode;
         const target = typeof reference === "string" && kind === "category" ? categories.get(reference) : undefined;
-        const accounts = kind === "account" && typeof reference === "string" ?
-          state.accounts.filter(({ name, status }) => name === reference && status === "active") : [];
-        const targetId = target && typeof reference === "string" ? addDictionary("category", reference, target.label) :
-          accounts.length === 1 ? accounts[0]!.id : undefined;
-        const result = ImportMapping.safeParse({ source: row.source, kind, original, targetId,
-          payeeContains: normalize(row.payerContains), descriptionContains: normalize(row.descriptionContains),
-          recordType: normalize(row.recordType) || null });
+        const accounts = kind === "account" && typeof reference === "string" ? state.accounts.filter(({ name, status }) => name === reference && status === "active") : [];
+        const targetId = target && typeof reference === "string" ? addDictionary("category", reference, target.label) : accounts.length === 1 ? accounts[0]!.id : undefined;
+        const result = ImportMapping.safeParse({
+          source: row.source,
+          kind,
+          original,
+          targetId,
+          payeeContains: normalize(row.payerContains),
+          descriptionContains: normalize(row.descriptionContains),
+          recordType: normalize(row.recordType) || null,
+        });
         if (result.success) state.mappings.push(result.data);
         else issue("mappings", String(original ?? row.id ?? "映射"), "目标在当前账本中缺失、不唯一或无法转换");
       }
@@ -277,10 +340,14 @@ export function inspectHomibook(files: ReadonlyMap<string, Uint8Array>, rawManif
   if (state.recurring.length) warnings.push("固定收支恢复后可在账本页按需启用。");
   validateBookRelations(state);
   return {
-    state, attachments: attachmentBytes, issues, warnings, modules,
+    state,
+    attachments: attachmentBytes,
+    issues,
+    warnings,
+    modules,
     sourceBooks: sourceBooks.map(({ id, name }) => ({ id, name })),
     resolve(decisions) {
-      return { ...state, legacyOffsetRecordIds: [...flags].flatMap(([issueId, recordId]) => decisions[issueId] === "retain-offset" ? [recordId] : []) };
+      return { ...state, legacyOffsetRecordIds: [...flags].flatMap(([issueId, recordId]) => (decisions[issueId] === "retain-offset" ? [recordId] : [])) };
     },
   };
 }

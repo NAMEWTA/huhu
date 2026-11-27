@@ -40,7 +40,9 @@ export interface HomeDeps {
 const MAX_HABITS = 20;
 const MAX_TITLE = 60;
 const Deadline = PlanRefSchema.extend({
-  scheduledFor: z.iso.datetime(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
+  scheduledFor: z.iso.datetime(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
   state: z.enum(["enabled", "paused", "completed", "deleted", "skipped"]),
 });
 export type FocusDeadline = z.infer<typeof Deadline>;
@@ -55,7 +57,8 @@ export interface FocusDeadlinePort {
 
 const FocusStateWithRevision = FocusStateSchema.extend({
   remainingSec: z.int().nonnegative().catch(FOCUS_SECONDS),
-  revision: z.string().optional(), deadline: Deadline.optional(),
+  revision: z.string().optional(),
+  deadline: Deadline.optional(),
   settledDeadline: z.object({ plan: Deadline, occurrenceId: z.string() }).optional(),
 });
 const HabitsStateWithRevision = HabitsStateSchema.extend({ revision: z.string().optional() });
@@ -115,16 +118,16 @@ export class HomeStore {
   }
 
   private remaining(state: z.infer<typeof FocusStateWithRevision>): number {
-    return state.running && state.deadline
-      ? Math.max(0, Math.ceil((Date.parse(state.deadline.scheduledFor) - this.d.now().getTime()) / 1_000))
-      : state.remainingSec;
+    return state.running && state.deadline ? Math.max(0, Math.ceil((Date.parse(state.deadline.scheduledFor) - this.d.now().getTime()) / 1_000)) : state.remainingSec;
   }
 
   private view(state: z.infer<typeof FocusStateWithRevision>): FocusView {
     const plan = state.deadline && state.deadline.state !== "deleted" ? { planId: state.deadline.planId, revision: state.deadline.revision } : undefined;
     return {
-      remainingSec: this.remaining(state), running: state.running,
-      endsAt: state.running ? state.deadline?.scheduledFor ?? null : null, completedToday: state.completedToday,
+      remainingSec: this.remaining(state),
+      running: state.running,
+      endsAt: state.running ? (state.deadline?.scheduledFor ?? null) : null,
+      completedToday: state.completedToday,
       ...(plan && { plan }),
     };
   }
@@ -153,14 +156,20 @@ export class HomeStore {
       const previous = state.deadline?.state === "paused" ? state.deadline : undefined;
       const remainingSec = state.remainingSec || FOCUS_SECONDS;
       const deadline: FocusDeadline = {
-        planId: previous?.planId ?? `focus-deadline-${randomUUID()}`, revision: randomUUID(), state: "enabled",
-        createdAt: previous?.createdAt ?? stamp, updatedAt: stamp,
+        planId: previous?.planId ?? `focus-deadline-${randomUUID()}`,
+        revision: randomUUID(),
+        state: "enabled",
+        createdAt: previous?.createdAt ?? stamp,
+        updatedAt: stamp,
         scheduledFor: new Date(now.getTime() + remainingSec * 1_000).toISOString(),
       };
       state = { ...state, running: true, startedAt: stamp, remainingSec, deadline };
     } else if (action === "pause" && state.running && state.deadline) {
       state = {
-        ...state, running: false, startedAt: null, remainingSec: this.remaining(state),
+        ...state,
+        running: false,
+        startedAt: null,
+        remainingSec: this.remaining(state),
         deadline: { ...state.deadline, state: "paused", revision: randomUUID(), updatedAt: stamp },
       };
     } else if (action === "reset") {
@@ -180,11 +189,13 @@ export class HomeStore {
       skip: (plan) => {
         const state = this.loadFocus();
         const deadline = state.deadline;
-        if (deadline?.state !== "enabled" || deadline.planId !== plan.planId || deadline.revision !== plan.revision
-          || deadline.scheduledFor !== plan.scheduledFor || this.remaining(state) > 0) return;
+        if (deadline?.state !== "enabled" || deadline.planId !== plan.planId || deadline.revision !== plan.revision || deadline.scheduledFor !== plan.scheduledFor || this.remaining(state) > 0) return;
         this.saveFocus({
-          ...state, deadline: { ...deadline, state: "skipped", revision: randomUUID(), updatedAt: this.d.now().toISOString() },
-          running: false, startedAt: null, remainingSec: FOCUS_SECONDS,
+          ...state,
+          deadline: { ...deadline, state: "skipped", revision: randomUUID(), updatedAt: this.d.now().toISOString() },
+          running: false,
+          startedAt: null,
+          remainingSec: FOCUS_SECONDS,
         });
       },
     };
@@ -204,7 +215,7 @@ export class HomeStore {
       const scheduledFor = new Date(write.trigger.scheduledFor).toISOString();
       const remainingSec = Math.max(0, Math.ceil((Date.parse(scheduledFor) - Date.parse(stamp)) / 1_000));
       if (remainingSec <= 0) throw errors.invalidInput("专注截止时间需要晚于当前时间");
-      const deadline = { ...plan, revision: randomUUID(), updatedAt: stamp, scheduledFor, state: plan.state === "skipped" ? "enabled" as const : plan.state };
+      const deadline = { ...plan, revision: randomUUID(), updatedAt: stamp, scheduledFor, state: plan.state === "skipped" ? ("enabled" as const) : plan.state };
       const running = deadline.state === "enabled";
       this.saveFocus({ ...state, deadline, running, remainingSec, startedAt: running ? stamp : null });
       return deadline;
@@ -224,8 +235,13 @@ export class HomeStore {
     if (!state.deadline || !matches(state.deadline) || state.deadline.state !== "enabled" || this.remaining(state) > 0) return false;
     const deadline = { ...state.deadline, updatedAt: this.d.now().toISOString(), state: "completed" as const };
     this.saveFocus({
-      ...state, deadline, settledDeadline: { plan: deadline, occurrenceId }, completedToday: state.completedToday + 1,
-      remainingSec: FOCUS_SECONDS, running: false, startedAt: null,
+      ...state,
+      deadline,
+      settledDeadline: { plan: deadline, occurrenceId },
+      completedToday: state.completedToday + 1,
+      remainingSec: FOCUS_SECONDS,
+      running: false,
+      startedAt: null,
     });
     return true;
   }

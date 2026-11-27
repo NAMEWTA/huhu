@@ -113,7 +113,12 @@ test("H4.3 原生窗口接管同一 SSH 终端并回放，启动失败保留原�
   test.setTimeout(65_000);
   const password = randomUUID();
   let keys = "";
-  const server = await startFakeSsh({ password, onShellInput: (text) => { keys += text; } });
+  const server = await startFakeSsh({
+    password,
+    onShellInput: (text) => {
+      keys += text;
+    },
+  });
   try {
     const fixture = await openApp();
     const { app, page } = fixture;
@@ -148,7 +153,10 @@ test("H4.3 原生窗口接管同一 SSH 终端并回放，启动失败保留原�
       await destination.close();
       await expect(terminal.getByTestId("terminal-observer")).toHaveCount(0);
 
-      await page.context().routeWebSocket((url) => url.pathname.endsWith(`/${shellId}`) && url.searchParams.get("mode") === "observe", (socket) => socket.close());
+      await page.context().routeWebSocket(
+        (url) => url.pathname.endsWith(`/${shellId}`) && url.searchParams.get("mode") === "observe",
+        (socket) => socket.close(),
+      );
       await move.click();
       await expect(pane.getByRole("alert")).toContainText("原窗口仍可使用", { timeout: 18_000 });
       await terminal.locator(".xterm-helper-textarea").focus();
@@ -214,7 +222,9 @@ test("H4.3 整工作区换窗和移回保留布局、全部分栏与焦点，目
       const a = await saveHost(page, "迁移左栏", left.port, password);
       const b = await saveHost(page, "迁移右栏", right.port, password);
       const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
-        name: "整组迁移", layout: { kind: "two" }, panes: [{ hostId: a.hostId }, { hostId: b.hostId }],
+        name: "整组迁移",
+        layout: { kind: "two" },
+        panes: [{ hostId: a.hostId }, { hostId: b.hostId }],
       });
       await approve(page, a.hostId);
       await approve(page, b.hostId);
@@ -251,7 +261,10 @@ test("H4.3 整工作区换窗和移回保留布局、全部分栏与焦点，目
       await expect.poll(() => keys.map((chunks) => chunks.join(""))).toEqual(["left-historymoved-leftrestored-left", "right-historymoved-right"]);
 
       const failedShell = original.panes[1]!.sessionId!;
-      await page.context().routeWebSocket((url) => url.pathname.endsWith(`/${failedShell}`) && url.searchParams.get("mode") === "observe", (socket) => socket.close());
+      await page.context().routeWebSocket(
+        (url) => url.pathname.endsWith(`/${failedShell}`) && url.searchParams.get("mode") === "observe",
+        (socket) => socket.close(),
+      );
       await move.click();
       await expect(source.getByRole("alert")).toContainText("原窗口仍可使用", { timeout: 18_000 });
       await sourcePanes.last().locator(".xterm-helper-textarea").focus();
@@ -747,7 +760,9 @@ test("A06 独立 Web 通过键盘切换 SSH 标签，保留桌面原分栏会话
     const left = await saveHost(page, "键盘左栏", first.port, password);
     const right = await saveHost(page, "键盘右栏", second.port, password);
     const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
-      name: "浏览器键盘工作区", layout: { kind: "tabs" }, panes: [left, right].map(({ hostId }) => ({ hostId })),
+      name: "浏览器键盘工作区",
+      layout: { kind: "tabs" },
+      panes: [left, right].map(({ hostId }) => ({ hostId })),
     });
     await approve(page, left.hostId);
     await approve(page, right.hostId);
@@ -795,7 +810,12 @@ test("A06 中文输入法组合期间不向远端发送拼音，确认后只发�
   test.skip(process.platform !== "linux", "需要 Linux 桌面");
   const password = randomUUID();
   let keys = "";
-  const server = await startFakeSsh({ password, onShellInput: (text) => { keys += text; } });
+  const server = await startFakeSsh({
+    password,
+    onShellInput: (text) => {
+      keys += text;
+    },
+  });
   const fixture = await openApp();
   try {
     const { page } = fixture;

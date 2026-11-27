@@ -16,8 +16,14 @@ export interface NativeZipEntry {
 
 type ZipRunner = (action: "probe" | "create" | "read", stage: string, signal?: AbortSignal) => Promise<string>;
 
-export const nativeZip: { label: string; run: ZipRunner } = process.platform === "linux"
-  ? { label: "本机 Linux ZIP 后端（系统 Python 3）", run: linuxZip }
-  : process.platform === "win32"
-    ? { label: "本机 Windows .NET ZIP 后端", run: windowsZip }
-    : { label: "本机 ZIP 后端", run: async () => { throw errors.invalidInput("当前平台没有本机 ZIP 后端"); } };
+export const nativeZip: { label: string; run: ZipRunner } =
+  process.platform === "linux"
+    ? { label: "本机 Linux ZIP 后端（系统 Python 3）", run: linuxZip }
+    : process.platform === "win32"
+      ? { label: "本机 Windows .NET ZIP 后端", run: windowsZip }
+      : {
+          label: "本机 ZIP 后端",
+          run: async () => {
+            throw errors.invalidInput("当前平台没有本机 ZIP 后端");
+          },
+        };

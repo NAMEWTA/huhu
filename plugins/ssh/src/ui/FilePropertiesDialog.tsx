@@ -92,7 +92,21 @@ function FilePropertiesForm({ value, submit, busy }: { value: FileProperties; bu
   );
 }
 
-export function FilePropertiesDialog({ session, path, onClose, onSaved, sudoSignal, sudoSessionId }: { session: FileSession; path: string; sudoSignal?: AbortSignal; sudoSessionId?: string | undefined; onClose: () => void; onSaved: () => void }) {
+export function FilePropertiesDialog({
+  session,
+  path,
+  onClose,
+  onSaved,
+  sudoSignal,
+  sudoSessionId,
+}: {
+  session: FileSession;
+  path: string;
+  sudoSignal?: AbortSignal;
+  sudoSessionId?: string | undefined;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const engine = useEngine();
   const { fileSessionId } = session;
   const capability = sudoSignal ? "ssh.fileSessions.sudo" : "ssh.fileSessions";

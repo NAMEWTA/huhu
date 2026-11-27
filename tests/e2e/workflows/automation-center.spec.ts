@@ -18,12 +18,23 @@ import { withFixtureCleanup } from "../helpers/candidate-desktop.js";
 
 const listPlans = (page: Page) => call<{ plans: PlanSummary[] }>(page, "automations.plans.list", {});
 const readPlan = (page: Page, planId: string) => call<PlanSummary | null>(page, "automations.plans.read", { planId });
-const changePlan = (page: Page, plan: Pick<PlanSummary, "planId" | "revision">, change: Omit<Extract<PlanWrite, { change: "reschedule" }>, "planId" | "expectedRevision" | "intentId">
-  | { change: "set-intent"; intent: "paused" | "enabled" } | { change: "delete" }) => {
+const changePlan = (
+  page: Page,
+  plan: Pick<PlanSummary, "planId" | "revision">,
+  change: Omit<Extract<PlanWrite, { change: "reschedule" }>, "planId" | "expectedRevision" | "intentId"> | { change: "set-intent"; intent: "paused" | "enabled" } | { change: "delete" },
+) => {
   const intentId = randomUUID();
-  return call<{ outcome: string; plan?: PlanSummary; error?: { code: string } }>(page, "automations.plans.submit", {
-    planId: plan.planId, expectedRevision: plan.revision, ...change, intentId,
-  }, intentId);
+  return call<{ outcome: string; plan?: PlanSummary; error?: { code: string } }>(
+    page,
+    "automations.plans.submit",
+    {
+      planId: plan.planId,
+      expectedRevision: plan.revision,
+      ...change,
+      intentId,
+    },
+    intentId,
+  );
 };
 
 async function openPlanDirectory(page: Page) {
@@ -43,11 +54,23 @@ async function invitePlans(desktop: Page, browser: Browser) {
   return invited;
 }
 
-async function openDomainPlans(use: (fixture: {
-  page: Page; vault: string; sandbox: string; mail: PlanSummary; git: PlanSummary; gitPull: PlanSummary; ssh: PlanSummary;
-  samples: () => { mail: number; git: number; ssh: number }; saveMail(label: string): Promise<{ accountId: string }>;
-  configureGit(remote: string): Promise<void>; alternateRemote: string; deliverMail(): number; mailAccountId: string;
-}) => Promise<void>) {
+async function openDomainPlans(
+  use: (fixture: {
+    page: Page;
+    vault: string;
+    sandbox: string;
+    mail: PlanSummary;
+    git: PlanSummary;
+    gitPull: PlanSummary;
+    ssh: PlanSummary;
+    samples: () => { mail: number; git: number; ssh: number };
+    saveMail(label: string): Promise<{ accountId: string }>;
+    configureGit(remote: string): Promise<void>;
+    alternateRemote: string;
+    deliverMail(): number;
+    mailAccountId: string;
+  }) => Promise<void>,
+) {
   const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-plan-domains-"));
   let imap: Awaited<ReturnType<typeof openImapFixture>> | undefined;
   let ssh: Awaited<ReturnType<typeof startFakeSsh>> | undefined;
@@ -62,14 +85,16 @@ async function openDomainPlans(use: (fixture: {
       return uid;
     };
     deliverMail();
-    const imapFixture = imap = await openImapFixture({ allowIdle: false, windows: { INBOX: mailbox } });
-    const sshFixture = ssh = await startFakeSsh({ onExec(command) {
-      if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
-      if (command === LINUX_SAMPLE) {
-        counters.ssh++;
-        return { stdout: "memory 8192 4096\nuptime 3600\n" };
-      }
-    } });
+    const imapFixture = (imap = await openImapFixture({ allowIdle: false, windows: { INBOX: mailbox } }));
+    const sshFixture = (ssh = await startFakeSsh({
+      onExec(command) {
+        if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
+        if (command === LINUX_SAMPLE) {
+          counters.ssh++;
+          return { stdout: "memory 8192 4096\nuptime 3600\n" };
+        }
+      },
+    }));
     const trace = path.join(sandbox, "git-trace.log");
     const git = (directory: string, ...args: string[]) => execFileSync("git", ["-C", directory, ...args], { timeout: 10_000, stdio: "pipe" });
     const source = path.join(sandbox, "git-seed");
@@ -101,11 +126,20 @@ async function openDomainPlans(use: (fixture: {
     const { plan: mail } = await call<{ plan: PlanSummary }>(page, "mail.sync.settings", {});
 
     const { hostId } = await call<{ hostId: string }>(page, "ssh.hosts.configure", {
-      name: "原监控主机", host: "127.0.0.1", port: sshFixture.port, user: "fixture", authKind: "password", expectedRevision: null,
+      name: "原监控主机",
+      host: "127.0.0.1",
+      port: sshFixture.port,
+      user: "fixture",
+      authKind: "password",
+      expectedRevision: null,
       credentials: [{ purpose: "password", action: "replace", value: "pw" }],
     });
     const panel = await call<MonitorPanel>(page, "ssh.monitor.panels.save", {
-      name: "原监控面板", hostIds: [hostId], note: "", interval: 2, retention: 15,
+      name: "原监控面板",
+      hostIds: [hostId],
+      note: "",
+      interval: 2,
+      retention: 15,
     });
     const readPanel = () => call<MonitorPanelRun>(page, "ssh.monitor.panels.run", { id: panel.id });
     expect(await readPanel()).toBeNull();
@@ -115,12 +149,17 @@ async function openDomainPlans(use: (fixture: {
     await call(page, "ssh.hostKey.decide", { attemptId: prompt.attemptId, hop: prompt.hop, promptId: prompt.promptId, accept: true, remember: true });
     const samples = () => ({
       mail: imapFixture.commands.filter((command) => command === "EXAMINE" || command === "SELECT").length,
-      git: existsSync(trace) ? readFileSync(trace, "utf8").split("\n").filter((line) => /run_command:.*git-upload-pack .*origin\.git/.test(line)).length : 0,
+      git: existsSync(trace)
+        ? readFileSync(trace, "utf8")
+            .split("\n")
+            .filter((line) => /run_command:.*git-upload-pack .*origin\.git/.test(line)).length
+        : 0,
       ssh: counters.ssh,
     });
-    const { periodics: { sync: gitSync, pull: gitPull } } = await getGit();
-    await use({ page, vault, sandbox, mail, git: gitSync, gitPull, ssh: (await readPanel()).plan!, samples,
-      saveMail, configureGit, deliverMail, mailAccountId, alternateRemote: remote("alternate.git") });
+    const {
+      periodics: { sync: gitSync, pull: gitPull },
+    } = await getGit();
+    await use({ page, vault, sandbox, mail, git: gitSync, gitPull, ssh: (await readPanel()).plan!, samples, saveMail, configureGit, deliverMail, mailAccountId, alternateRemote: remote("alternate.git") });
   }, [
     ["关闭桌面", () => desktop?.close()],
     ["关闭 IMAP", () => imap?.close()],
@@ -156,11 +195,14 @@ test("AU13 重试原建任务效果，保留通知和任务身份", async ({ bro
   try {
     await engineReady(page);
     const rule = await call<{ id: string; version: string }>(page, "automations.create", {
-      title, trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+      title,
+      trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
       action: { kind: "reminder", mode: "both", text: title },
     });
     const { activationId, summary } = await call<{ activationId: string; summary: { taskId: string } }>(page, "automations.runNow", {
-      id: rule.id, expectedVersion: rule.version, intentId: randomUUID(),
+      id: rule.id,
+      expectedVersion: rule.version,
+      intentId: randomUUID(),
     });
     const filename = path.join(vault, ".huhu", "automations", "reminder-deliveries", `${activationId}.json`);
     const record = JSON.parse(readFileSync(filename, "utf8")) as object;
@@ -198,10 +240,14 @@ test("AU18 桌面和获邀 Web 同步显示同一次通知和发生", async ({ b
       await expect(client.getByTestId("notice-item")).toHaveCount(0);
     }
     const rule = await call<{ id: string; version: string }>(page, "automations.create", {
-      title, trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" }, action: { kind: "reminder", mode: "notification", text: title },
+      title,
+      trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+      action: { kind: "reminder", mode: "notification", text: title },
     });
     const { activationId } = await call<{ activationId: string }>(page, "automations.runNow", {
-      id: rule.id, expectedVersion: rule.version, intentId: randomUUID(),
+      id: rule.id,
+      expectedVersion: rule.version,
+      intentId: randomUUID(),
     });
     for (const client of [page, web]) {
       const notice = client.getByTestId("notice-item").filter({ hasText: title });
@@ -229,13 +275,17 @@ test("AW2：模板只填草稿，目录组合筛选并保留原计划身份", as
     const rows = center.getByTestId("rule-row");
     await expect(center).toContainText("尚无计划");
     const templates = center.getByRole("button", { name: "从模板新建" });
-    await expect.poll(() => templates.evaluate((control) => {
-      const host = control.closest(".automations-center-host")!;
-      const surface = host.parentElement!;
-      const box = control.getBoundingClientRect();
-      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-      return { fillsSurface: host.clientWidth === surface.clientWidth && host.clientWidth > 0, clickable: control.contains(hit) };
-    })).toEqual({ fillsSurface: true, clickable: true });
+    await expect
+      .poll(() =>
+        templates.evaluate((control) => {
+          const host = control.closest(".automations-center-host")!;
+          const surface = host.parentElement!;
+          const box = control.getBoundingClientRect();
+          const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+          return { fillsSurface: host.clientWidth === surface.clientWidth && host.clientWidth > 0, clickable: control.contains(hit) };
+        }),
+      )
+      .toEqual({ fillsSurface: true, clickable: true });
     await templates.click();
     await page.getByRole("button", { name: "使用模板 · 周期提醒" }).click();
     await expect(page.getByLabel("规则名称")).toHaveValue("周期提醒");
@@ -271,8 +321,7 @@ test("AW2：模板只填草稿，目录组合筛选并保留原计划身份", as
 
 test("AW3：扫描草稿预览无写入，关闭保护草稿并保留并发冲突输入", async () => {
   const { page, close } = await openApp();
-  const engineCall = <T,>(capability: string, input: object) =>
-    test.step(`Engine ${capability}`, () => call<T>(page, capability, input, undefined, 8_000), { timeout: 10_000 });
+  const engineCall = <T>(capability: string, input: object) => test.step(`Engine ${capability}`, () => call<T>(page, capability, input, undefined, 8_000), { timeout: 10_000 });
   try {
     await test.step("等待桌面 Engine 就绪", () => engineReady(page), { timeout: 23_000 });
     await engineCall("tasks.create", { title: "人工任务 · 仅供预览" });
@@ -311,7 +360,9 @@ test("AW3：扫描草稿预览无写入，关闭保护草稿并保留并发冲�
     await expect(dialog).toBeHidden();
     await expect(center.getByTestId("rule-detail").getByRole("heading", { name: "另一个客户端已更新" })).toBeVisible();
     expect(await engineCall("automations.read", { id: rule!.id })).toMatchObject({
-      id: rule!.id, body: "并发时保留这份输入", data: { title: "另一个客户端已更新" },
+      id: rule!.id,
+      body: "并发时保留这份输入",
+      data: { title: "另一个客户端已更新" },
     });
   } finally {
     await test.step("关闭桌面夹具", close, { timeout: 15_000 });
@@ -404,7 +455,9 @@ test("AW5：筛选原发生和逐项效果，重新读取不会再次发送通�
       action: { kind: "reminder", mode: "notification", text: "只发送一次的通知" },
     });
     const occurrence = await call<{ activationId: string }>(page, "automations.runNow", {
-      id: rule.id, expectedVersion: rule.version, intentId: randomUUID(),
+      id: rule.id,
+      expectedVersion: rule.version,
+      intentId: randomUUID(),
     });
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
     await page.getByRole("button", { name: "激活记录", exact: true }).click();
@@ -465,9 +518,17 @@ test("AW6 AU16 AU17 获邀 Web 在任务来源管理原提醒，停用来源时�
     const task = await call<{ id: string }>(desktop, "tasks.create", { title: "核对采购付款", type: "human" });
     const intentId = randomUUID();
     const scheduledFor = new Date(Date.now() + 86_400_000).toISOString();
-    const reminder = await call<PlanSummary>(desktop, "automations.plans.createTaskReminder", {
-      taskId: task.id, scheduledFor, intentId, startPaused: true,
-    }, intentId);
+    const reminder = await call<PlanSummary>(
+      desktop,
+      "automations.plans.createTaskReminder",
+      {
+        taskId: task.id,
+        scheduledFor,
+        intentId,
+        startPaused: true,
+      },
+      intentId,
+    );
     const { planId } = reminder;
     const read = () => call<PlanSummary>(desktop, "automations.plans.read", { planId });
 
@@ -519,7 +580,9 @@ test("同一 Vault 的双端目录列出每个来源并同步修订", async () =
   await openDomainPlans(async ({ page, mail, git, gitPull, ssh }) => {
     const [space] = await call<{ id: string }[]>(page, "agent.spaces.list", {});
     const task = await call<TaskDto>(page, "tasks.create", {
-      title: "双端原任务", type: "agent", execution: { spaceId: space!.id, provider: "codex" },
+      title: "双端原任务",
+      type: "agent",
+      execution: { spaceId: space!.id, provider: "codex" },
     });
     const scheduledFor = new Date(Date.now() + 86_400_000).toISOString();
     const remind = randomUUID();
@@ -527,44 +590,83 @@ test("同一 Vault 的双端目录列出每个来源并同步修订", async () =
     const followUp = await call<{ planId: string }>(page, "automations.followUps.schedule", { taskId: task.id, scheduledFor, expectedRevision: null });
     const [spaceVersion] = await call<{ id: string; revision: number }[]>(page, "agent.spaces.list", {});
     const session = await call<{ id: string }>(page, "agent.sessions.launch", {
-      provider: "shell", spaceId: spaceVersion!.id, spaceRevision: spaceVersion!.revision, command: "sleep 90", requestId: randomUUID(),
+      provider: "shell",
+      spaceId: spaceVersion!.id,
+      spaceRevision: spaceVersion!.revision,
+      command: "sleep 90",
+      requestId: randomUUID(),
     });
     const observations = [];
-    for (const [title, target] of [["任务观察", { kind: "task", id: task.id }], ["会话观察", { kind: "agent-session", id: session.id }]] as const) {
+    for (const [title, target] of [
+      ["任务观察", { kind: "task", id: task.id }],
+      ["会话观察", { kind: "agent-session", id: session.id }],
+    ] as const) {
       const intentId = randomUUID();
-      observations.push(await call<PlanSummary>(page, "automations.plans.createObservation", {
-        title, target, everySeconds: 60, condition: { kind: "change" }, intentId,
-      }, intentId));
+      observations.push(
+        await call<PlanSummary>(
+          page,
+          "automations.plans.createObservation",
+          {
+            title,
+            target,
+            everySeconds: 60,
+            condition: { kind: "change" },
+            intentId,
+          },
+          intentId,
+        ),
+      );
     }
     const { plan: focus } = await call<{ plan: Pick<PlanSummary, "planId" | "revision"> }>(page, "home.focus.update", { action: "start" });
     const cron = await call<{ id: string }>(page, "automations.create", {
-      title: "规则提醒", trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" }, action: { kind: "reminder", mode: "notification", text: "规则提醒" },
+      title: "规则提醒",
+      trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+      action: { kind: "reminder", mode: "notification", text: "规则提醒" },
     });
     const book = await call<{ id: string; revision: string }>(page, "ledger.books.create", {
-      name: "双端账本", defaultCurrency: "TWD", timeZone: "Asia/Taipei", firstAccount: { name: "银行", type: "bank" },
+      name: "双端账本",
+      defaultCurrency: "TWD",
+      timeZone: "Asia/Taipei",
+      firstAccount: { name: "银行", type: "bank" },
     });
     const { accounts, businessDate } = await call<{ accounts: { id: string }[]; businessDate: string }>(page, "ledger.accounts.list", { bookId: book.id });
     const { plan: ledger } = await call<{ plan: PlanSummary }>(page, "ledger.recurring.create", {
-      bookId: book.id, expectedRevision: book.revision,
-      rule: { id: randomUUID(), title: "双端账本计划", type: "expense", accountId: accounts[0]!.id,
-        currency: "TWD", amountMinor: "7500", startOn: new Date(Date.parse(businessDate) + 86_400_000).toISOString().slice(0, 10), frequency: "monthly", memo: null },
+      bookId: book.id,
+      expectedRevision: book.revision,
+      rule: {
+        id: randomUUID(),
+        title: "双端账本计划",
+        type: "expense",
+        accountId: accounts[0]!.id,
+        currency: "TWD",
+        amountMinor: "7500",
+        startOn: new Date(Date.parse(businessDate) + 86_400_000).toISOString().slice(0, 10),
+        frequency: "monthly",
+        memo: null,
+      },
     });
 
     const browser = await chromium.launch();
     try {
       const web = await invitePlans(page, browser);
-      const known = [mail.planId, git.planId, gitPull.planId, ssh.planId, reminder.planId, followUp.planId,
-        ...observations.map(({ planId }) => planId), focus.planId, cron.id, ledger.planId];
+      const known = [mail.planId, git.planId, gitPull.planId, ssh.planId, reminder.planId, followUp.planId, ...observations.map(({ planId }) => planId), focus.planId, cron.id, ledger.planId];
       const [desktopDirectory, webDirectory] = await Promise.all([openPlanDirectory(page), openPlanDirectory(web)]);
-      const project = async (client: Page) => (await listPlans(client)).plans.filter(({ planId }) => known.includes(planId))
-        .map(({ planId, revision, source }) => ({ planId, revision, source })).sort((a, b) => a.planId.localeCompare(b.planId));
+      const project = async (client: Page) =>
+        (await listPlans(client)).plans
+          .filter(({ planId }) => known.includes(planId))
+          .map(({ planId, revision, source }) => ({ planId, revision, source }))
+          .sort((a, b) => a.planId.localeCompare(b.planId));
       expect((await project(page)).map(({ planId }) => planId)).toEqual([...known].sort((a, b) => a.localeCompare(b)));
       expect(await project(web)).toEqual(await project(page));
-      for (const center of [desktopDirectory, webDirectory]) for (const planId of known) {
-        await expect(center.locator(`[data-plan-id="${planId}"]`)).toBeVisible();
-      }
+      for (const center of [desktopDirectory, webDirectory])
+        for (const planId of known) {
+          await expect(center.locator(`[data-plan-id="${planId}"]`)).toBeVisible();
+        }
 
-      for (const [author, stale, observing] of [[page, web, webDirectory], [web, page, desktopDirectory]] as const) {
+      for (const [author, stale, observing] of [
+        [page, web, webDirectory],
+        [web, page, desktopDirectory],
+      ] as const) {
         const snapshot = (await readPlan(stale, reminder.planId))!;
         const newDate = new Date(Date.parse((snapshot.trigger as { scheduledFor: string }).scheduledFor) + 3_600_000).toISOString();
         const reschedule = { change: "reschedule", trigger: { kind: "once", scheduledFor: newDate } } as const;
@@ -599,10 +701,15 @@ test("停用、换实例和切库后受阻状态正确，删除的计划不复�
     const firstMail = (await read(mail))!.lastOccurrence!;
     const previousMailReads = samples().mail;
     const uid = deliverMail();
-    await expect.poll(async () => {
-      const current = (await read(mail))!.lastOccurrence;
-      return current?.occurrenceId === firstMail.occurrenceId ? null : current;
-    }, { timeout: 75_000, intervals: [1_000] }).toMatchObject({ state: "completed" });
+    await expect
+      .poll(
+        async () => {
+          const current = (await read(mail))!.lastOccurrence;
+          return current?.occurrenceId === firstMail.occurrenceId ? null : current;
+        },
+        { timeout: 75_000, intervals: [1_000] },
+      )
+      .toMatchObject({ state: "completed" });
     expect(samples().mail).toBeGreaterThan(previousMailReads);
     expect(await call(page, "mail.messages.latest", { accountId: mailAccountId, folder: "INBOX" })).toMatchObject({ message: { uid } });
     expect(samples().git).toBeGreaterThan(original.git);
@@ -619,7 +726,8 @@ test("停用、换实例和切库后受阻状态正确，删除的计划不复�
     for (const plan of deleted) expect(await changePlan(page, (await read(plan))!, { change: "delete" })).toMatchObject({ outcome: "completed" });
     await configureGit(alternateRemote);
     expect(await call<PlanOccurrence>(page, "automations.plans.readOccurrence", { occurrenceId: firstGit.occurrenceId })).toMatchObject({
-      occurrenceId: firstGit.occurrenceId, plan: { planId: git.planId, revision: git.revision },
+      occurrenceId: firstGit.occurrenceId,
+      plan: { planId: git.planId, revision: git.revision },
     });
     await saveMail("replacement");
     const afterSetup = samples();
@@ -668,10 +776,20 @@ test("旧提醒候选取消，评论效果中断后按原发生核实", async ()
     const oldOccurrence = planReminderOccurrenceId({ ...reminder, scheduledFor: oldSlot });
     expect(await changePlan(page, reminder, { change: "reschedule", trigger: { kind: "once", scheduledFor: new Date(Date.now() + 86_400_000).toISOString() } })).toMatchObject({ outcome: "completed" });
     const observe = randomUUID();
-    const plan = await call<PlanSummary>(page, "automations.plans.createObservation", {
-      title: "观察后的原评论", target: { kind: "task", id: task.id }, effect: "comment", everySeconds: 1,
-      condition: { kind: "threshold", status: "not_started", seconds: 1 }, repeat: false, intentId: observe,
-    }, observe);
+    const plan = await call<PlanSummary>(
+      page,
+      "automations.plans.createObservation",
+      {
+        title: "观察后的原评论",
+        target: { kind: "task", id: task.id },
+        effect: "comment",
+        everySeconds: 1,
+        condition: { kind: "threshold", status: "not_started", seconds: 1 },
+        repeat: false,
+        intentId: observe,
+      },
+      observe,
+    );
     const comments = async () => (await call<TaskDto>(page, "tasks.read", { id: task.id })).comments.filter(({ event }) => event === "observation");
     await expect.poll(comments, { timeout: 20_000 }).toHaveLength(1);
     await expect.poll(async () => (await readPlan(page, plan.planId))?.lastOccurrence?.state).toBe("completed");
@@ -704,7 +822,10 @@ test("旧提醒候选取消，评论效果中断后按原发生核实", async ()
     expect(await call(page, "automations.plans.readOccurrence", { occurrenceId: oldOccurrence })).toBeNull();
     expect((await call<{ title: string }[]>(page, "notifications.list", {})).map(({ title }) => title)).not.toContain("任务提醒：提醒与评论的原任务");
   } finally {
-    try { await browser?.close(); }
-    finally { await close(); }
+    try {
+      await browser?.close();
+    } finally {
+      await close();
+    }
   }
 });

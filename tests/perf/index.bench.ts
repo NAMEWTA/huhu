@@ -33,13 +33,19 @@ function percentile(sorted: number[], p: number): number {
 }
 
 function summarize(stage: Stage) {
-  const values = samples.filter((sample) => sample.stage === stage).map(({ ms }) => ms).sort((a, b) => a - b);
+  const values = samples
+    .filter((sample) => sample.stage === stage)
+    .map(({ ms }) => ms)
+    .sort((a, b) => a - b);
   if (values.length === 0) return null;
   const median = percentile(values, 0.5);
   const p95 = percentile(values, 0.95);
   const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
   const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
-  const mad = percentile(values.map((value) => Math.abs(value - median)).sort((a, b) => a - b), 0.5);
+  const mad = percentile(
+    values.map((value) => Math.abs(value - median)).sort((a, b) => a - b),
+    0.5,
+  );
   return { count: values.length, median, p95, variance, mad, peakSampleRssBytes: Math.max(...samples.filter((sample) => sample.stage === stage).map(({ rssBytes }) => rssBytes)) };
 }
 
@@ -97,16 +103,17 @@ afterAll(() => {
     if (baselineFile) {
       const baseline = JSON.parse(readFileSync(baselineFile, "utf8")) as { identity: typeof identity; correct: boolean; positiveControl: boolean; summary: typeof summary };
       if (JSON.stringify(baseline.identity) !== JSON.stringify(identity) || !baseline.correct || baseline.positiveControl) violations.push("基线的机器、运行方式、工作负载或正确性不可比");
-      else for (const stage of ["rebuild", "search"] as const) {
-        const base = baseline.summary[stage];
-        const candidate = summary[stage];
-        if (!base || !candidate) continue;
-        // Leave room for measured baseline variation and a minimum relative guard band.
-        const tolerance = Math.max(0.15, (base.p95 - base.median) / base.median, (3 * base.mad) / base.median);
-        const limit = base.median * (1 + tolerance);
-        comparison[stage] = { baselineMedianMs: base.median, candidateMedianMs: candidate.median, tolerance, limitMs: limit };
-        if (candidate.median > limit) violations.push(`${stage} median ${candidate.median.toFixed(3)} ms > ${limit.toFixed(3)} ms`);
-      }
+      else
+        for (const stage of ["rebuild", "search"] as const) {
+          const base = baseline.summary[stage];
+          const candidate = summary[stage];
+          if (!base || !candidate) continue;
+          // Leave room for measured baseline variation and a minimum relative guard band.
+          const tolerance = Math.max(0.15, (base.p95 - base.median) / base.median, (3 * base.mad) / base.median);
+          const limit = base.median * (1 + tolerance);
+          comparison[stage] = { baselineMedianMs: base.median, candidateMedianMs: candidate.median, tolerance, limitMs: limit };
+          if (candidate.median > limit) violations.push(`${stage} median ${candidate.median.toFixed(3)} ms > ${limit.toFixed(3)} ms`);
+        }
     }
     const report = { commit, identity, correct, positiveControl, samples, summary, comparison, violations };
     if (directory) {
@@ -123,19 +130,27 @@ afterAll(() => {
 
 describe("scale-vault", () => {
   const options = { iterations: sampleCount, time: 0, warmupIterations: 0, warmupTime: 0 };
-  bench("重建索引（固定数据）", async () => {
-    const started = performance.now();
-    const built = await index.build();
-    const elapsed = performance.now() - started;
-    record("rebuild", elapsed, built && index.counts().files === notes);
-  }, options);
-  bench("全文检索（固定命中和顺序）", () => {
-    const started = performance.now();
-    let correct = searchBatch();
-    if (positiveControl) {
-      // Duplicate real work while preserving exactly the same observable result.
-      for (let extra = 0; extra < 7; extra++) correct = searchBatch() && correct;
-    }
-    record("search", performance.now() - started, correct);
-  }, options);
+  bench(
+    "重建索引（固定数据）",
+    async () => {
+      const started = performance.now();
+      const built = await index.build();
+      const elapsed = performance.now() - started;
+      record("rebuild", elapsed, built && index.counts().files === notes);
+    },
+    options,
+  );
+  bench(
+    "全文检索（固定命中和顺序）",
+    () => {
+      const started = performance.now();
+      let correct = searchBatch();
+      if (positiveControl) {
+        // Duplicate real work while preserving exactly the same observable result.
+        for (let extra = 0; extra < 7; extra++) correct = searchBatch() && correct;
+      }
+      record("search", performance.now() - started, correct);
+    },
+    options,
+  );
 });

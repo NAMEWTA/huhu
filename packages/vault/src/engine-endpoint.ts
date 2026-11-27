@@ -25,10 +25,7 @@ export function engineEndpointPath(root: string): string {
   return path.join(root, HUHU_DIR, "runtime", machineId(), "engine.json");
 }
 
-export function readEngineEndpoint(root: string, file = engineEndpointPath(root)):
-  | { state: "stopped" }
-  | { state: "conflict"; message: string }
-  | { state: "running"; endpoint: EngineEndpointRecord } {
+export function readEngineEndpoint(root: string, file = engineEndpointPath(root)): { state: "stopped" } | { state: "conflict"; message: string } | { state: "running"; endpoint: EngineEndpointRecord } {
   let raw: string;
   try {
     raw = readFileSync(file, "utf8");

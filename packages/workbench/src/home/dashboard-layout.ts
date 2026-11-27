@@ -38,7 +38,7 @@ export function movePlacement(layout: readonly Placement[], candidate: Placement
 export function resizePlacement(layout: readonly Placement[], candidate: Placement, { minSize, maxSize }: Pick<HomeWidgetDefinition, "minSize" | "maxSize">, narrow: boolean): Placement[] | undefined {
   if (candidate.w < minSize.w || candidate.w > maxSize.w || candidate.h < minSize.h || candidate.h > maxSize.h) return;
   if (!narrow) return movePlacement(layout, candidate);
-  return packPlacements(orderPlacements(layout).map((item) => item.instanceId === candidate.instanceId ? candidate : item));
+  return packPlacements(orderPlacements(layout).map((item) => (item.instanceId === candidate.instanceId ? candidate : item)));
 }
 
 export function appendPlacement(layout: readonly Placement[], item: Pick<Placement, "instanceId" | "w" | "h">): Placement {

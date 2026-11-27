@@ -69,7 +69,16 @@ export function taskRunLabel(row: TaskDispatchView, run: TaskRunSummary | null |
   return row.superseded ? "已失败" : ((run ? t.detail.runState[run.state] : undefined) ?? receiptState[row.state]);
 }
 
-export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAgent, onNavigate, destination }: {
+export function TaskDispatchPanel({
+  task,
+  zone,
+  runs,
+  rows,
+  readError,
+  onOpenAgent,
+  onNavigate,
+  destination,
+}: {
   destination?: TaskDestination | undefined;
   task: TaskDto;
   zone: string | undefined;
@@ -109,8 +118,7 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
     rows?.some(({ state, runId, stop, superseded }) => !superseded && (["pending", "claimed", "sending", "unknown"].includes(state) || (state === "running" && stop?.status !== "stopped" && !finishedRuns.has(runId)))) ?? false;
   const ready = task.type === "agent" && !task.readOnly && !busyTask && !retry && rows !== undefined && !readError && task.dispatchBlockers.length === 0;
   const canDispatch = ready && task.status === "not_started";
-  const hasEndedRound = rows?.some(({ superseded, state, reason, stop, runId }) =>
-    !superseded && state === "running" && reason !== "foreign_machine" && (stop?.status === "stopped" || finishedRuns.has(runId)));
+  const hasEndedRound = rows?.some(({ superseded, state, reason, stop, runId }) => !superseded && state === "running" && reason !== "foreign_machine" && (stop?.status === "stopped" || finishedRuns.has(runId)));
   const showNewRound = task.status === "in_progress" && !task.readOnly && (task.execution?.target?.mode ?? "new") === "new" && hasEndedRound === true;
   const canStartRound = showNewRound && ready && !request && !submitting;
   const early = !isTaskAvailable(task.availableAt, new Date());
@@ -176,7 +184,7 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
         <History size={14} aria-hidden /> Agent 派遣
       </h3>
       <TaskResources zone={zone} />
-      {(task.mcpAuthorization || (task.execution?.provider === "codex" && (task.execution.target?.mode ?? "new") === "new")) ? (
+      {task.mcpAuthorization || (task.execution?.provider === "codex" && (task.execution.target?.mode ?? "new") === "new") ? (
         <div className="row">
           <Button onClick={() => setMcpOpen(true)}>任务 MCP 授权</Button>
           <span>{task.mcpAuthorization ? `已授权 ${task.mcpAuthorization.tools.length} 项工具` : "未授权工具"}</span>
@@ -184,7 +192,9 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
       ) : null}
       {mcpOpen ? <TaskMcpAuthorization task={task} close={() => setMcpOpen(false)} refresh={refresh} /> : null}
       {request ? (
-        <Button loading={submitting} onClick={() => void submit(request)}>核对原请求</Button>
+        <Button loading={submitting} onClick={() => void submit(request)}>
+          核对原请求
+        </Button>
       ) : task.status === "not_started" ? (
         <div className="row">
           <Button variant="primary" disabled={!canDispatch || submitting} onClick={() => (early ? setEarlyDialog(true) : void submit(newRequest(false)))}>
@@ -193,7 +203,13 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
         </div>
       ) : null}
       {showNewRound ? (
-        <Button variant="primary" aria-disabled={!canStartRound} onClick={() => { if (canStartRound) setNewRoundOpen(true); }}>
+        <Button
+          variant="primary"
+          aria-disabled={!canStartRound}
+          onClick={() => {
+            if (canStartRound) setNewRoundOpen(true);
+          }}
+        >
           开始新一轮
         </Button>
       ) : null}
@@ -230,17 +246,7 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
               </Button>
             ) : null}
             {!row.superseded ? <CancelQueuedRun task={task} row={row} refresh={refresh} /> : null}
-            {expanded ? (
-              <TaskRunDetails
-                task={task}
-                questionFocus={destination?.runId === row.runId ? destination : undefined}
-                taskRefreshing={taskRefreshing}
-                row={row}
-                run={run}
-                onOpenAgent={onOpenAgent}
-                onNavigate={onNavigate}
-              />
-            ) : null}
+            {expanded ? <TaskRunDetails task={task} questionFocus={destination?.runId === row.runId ? destination : undefined} taskRefreshing={taskRefreshing} row={row} run={run} onOpenAgent={onOpenAgent} onNavigate={onNavigate} /> : null}
           </article>
         );
       })}
@@ -275,37 +281,72 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
   );
 }
 
-const capacityLabel = ({ limit, occupied }: DispatchResources["device"]["active"]) =>
-  limit === null ? "未配置上限" : `${occupied ?? "未知"} / ${limit}`;
+const capacityLabel = ({ limit, occupied }: DispatchResources["device"]["active"]) => (limit === null ? "未配置上限" : `${occupied ?? "未知"} / ${limit}`);
 
 function TaskResources({ zone }: { zone: string | undefined }) {
   const { data, error, isFetching, refetch } = useCapability<DispatchResources>("tasks.dispatch.resources");
   const { vault, device } = data ?? {};
-  const waitingSince = (at: string | null) => at
-    ? <time dateTime={at}>{new Date(at).toLocaleString(undefined, { timeZone: zone })}</time>
-    : "—";
+  const waitingSince = (at: string | null) => (at ? <time dateTime={at}>{new Date(at).toLocaleString(undefined, { timeZone: zone })}</time> : "—");
 
   return (
     <section className="tasks-resources" aria-label="本机派遣资源">
       <div className="row">
         <h4>本机派遣资源</h4>
-        <Button variant="ghost" aria-disabled={isFetching} onClick={() => { if (!isFetching) void refetch(); }}>刷新资源</Button>
+        <Button
+          variant="ghost"
+          aria-disabled={isFetching}
+          onClick={() => {
+            if (!isFetching) void refetch();
+          }}
+        >
+          刷新资源
+        </Button>
       </div>
       {error ? <p role="status">暂时无法读取派遣资源。</p> : null}
       {!data && !error ? <p role="status">正在读取派遣资源…</p> : null}
       {vault && device ? (
         <>
           <dl className="tasks-resource-counts">
-            <div><dt>本机活动名额</dt><dd>{capacityLabel(device.active)}</dd></div>
-            <div><dt>本机保留名额</dt><dd>{capacityLabel(device.retained)}</dd></div>
-            <div><dt>当前库活动运行</dt><dd>{vault.active}</dd></div>
-            <div><dt>当前库保留进程</dt><dd>{vault.retained ?? "不可用"}</dd></div>
-            <div><dt>排队积压</dt><dd>{vault.pending}</dd></div>
-            <div><dt>最早排队</dt><dd>{waitingSince(vault.oldestPendingAt)}</dd></div>
-            <div><dt>待核实积压</dt><dd>{vault.unknown}</dd></div>
-            <div><dt>最早待核实</dt><dd>{waitingSince(vault.oldestUnknownAt)}</dd></div>
-            <div><dt>等待原生回答</dt><dd>{vault.waitingNative}</dd></div>
-            <div><dt>最早等待原生回答</dt><dd>{waitingSince(vault.oldestNativeWaitAt)}</dd></div>
+            <div>
+              <dt>本机活动名额</dt>
+              <dd>{capacityLabel(device.active)}</dd>
+            </div>
+            <div>
+              <dt>本机保留名额</dt>
+              <dd>{capacityLabel(device.retained)}</dd>
+            </div>
+            <div>
+              <dt>当前库活动运行</dt>
+              <dd>{vault.active}</dd>
+            </div>
+            <div>
+              <dt>当前库保留进程</dt>
+              <dd>{vault.retained ?? "不可用"}</dd>
+            </div>
+            <div>
+              <dt>排队积压</dt>
+              <dd>{vault.pending}</dd>
+            </div>
+            <div>
+              <dt>最早排队</dt>
+              <dd>{waitingSince(vault.oldestPendingAt)}</dd>
+            </div>
+            <div>
+              <dt>待核实积压</dt>
+              <dd>{vault.unknown}</dd>
+            </div>
+            <div>
+              <dt>最早待核实</dt>
+              <dd>{waitingSince(vault.oldestUnknownAt)}</dd>
+            </div>
+            <div>
+              <dt>等待原生回答</dt>
+              <dd>{vault.waitingNative}</dd>
+            </div>
+            <div>
+              <dt>最早等待原生回答</dt>
+              <dd>{waitingSince(vault.oldestNativeWaitAt)}</dd>
+            </div>
           </dl>
           {vault.waitingNative > 0 ? <p>等待原生回答时释放活动名额，保留原会话以接收回答。</p> : null}
           {vault.unknown > 0 ? <p>执行结果待核实时继续保留相关活动占用。</p> : null}
@@ -408,11 +449,7 @@ export function TaskRunDetails({
       {session && task.status === "in_progress" && run?.state === "running" && !task.readOnly ? <RunSupplement task={task} row={row} refresh={refresh} /> : null}
       <div data-testid={run?.finishedAt ? "managed-run-result" : undefined}>
         <div role="status">{deliveryNotice ? <p>{deliveryNotice}</p> : null}</div>
-        {run?.finishedAt
-          ? messages.map((message) => (
-            <TaskRunMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />
-          ))
-          : null}
+        {run?.finishedAt ? messages.map((message) => <TaskRunMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />) : null}
         {result?.kind === "result" && result.receiptId ? <TaskRunDeliveries key={result.receiptId} task={task} receiptId={result.receiptId} onNavigate={onNavigate} /> : null}
       </div>
     </>
@@ -435,9 +472,7 @@ function TaskRunDeliveries({ task, receiptId, onNavigate }: { task: TaskDto; rec
   const url = github.data?.comment?.url;
   const commentUrl = url?.startsWith("https://github.com/") ? url : undefined;
   const repository = github.data?.repository;
-  const issueUrl = repository && /^[\w-]+\/(?!\.{1,2}$)[\w.-]+$/u.test(repository)
-    ? `https://github.com/${repository}/issues/${github.data?.issueNumber}`
-    : undefined;
+  const issueUrl = repository && /^[\w-]+\/(?!\.{1,2}$)[\w.-]+$/u.test(repository) ? `https://github.com/${repository}/issues/${github.data?.issueNumber}` : undefined;
   const verification = github.data?.verification?.state;
   const mayVerify = !task.readOnly && !verifying && verification !== "pending";
   const githubReadError = github.error && !(github.error instanceof CapabilityError && github.error.code === "NOT_FOUND");
@@ -451,7 +486,12 @@ function TaskRunDeliveries({ task, receiptId, onNavigate }: { task: TaskDto; rec
     if (!open) return;
     event.preventDefault();
     setLinkError("");
-    void open(event.currentTarget.href).then((opened) => { if (!opened) setLinkError(failure); }, () => setLinkError(failure));
+    void open(event.currentTarget.href).then(
+      (opened) => {
+        if (!opened) setLinkError(failure);
+      },
+      () => setLinkError(failure),
+    );
   }
 
   async function verify() {
@@ -473,19 +513,30 @@ function TaskRunDeliveries({ task, receiptId, onNavigate }: { task: TaskDto; rec
     <>
       {github.data ? (
         <>
-          <p role="status">{github.data.state === "accepted" ? "GitHub 已接收评论"
-            : verification === "pending" ? "等待已绑定的 GitHub 连接器核实"
-            : verification === "unconfirmed" ? "未找到可确认的原评论，GitHub 投递仍待核实"
-            : "GitHub 投递待核实"}</p>
+          <p role="status">
+            {github.data.state === "accepted" ? "GitHub 已接收评论" : verification === "pending" ? "等待已绑定的 GitHub 连接器核实" : verification === "unconfirmed" ? "未找到可确认的原评论，GitHub 投递仍待核实" : "GitHub 投递待核实"}
+          </p>
           <div className="row tasks-github-delivery-actions">
-            {issueUrl ? <a ref={issueLink} href={issueUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => openExternal(event, "无法打开原 Issue。")}>查看原 Issue</a> : null}
-            {commentUrl ? <a href={commentUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => openExternal(event, "无法打开原评论。")}>查看原评论</a> : null}
+            {issueUrl ? (
+              <a ref={issueLink} href={issueUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => openExternal(event, "无法打开原 Issue。")}>
+                查看原 Issue
+              </a>
+            ) : null}
+            {commentUrl ? (
+              <a href={commentUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => openExternal(event, "无法打开原评论。")}>
+                查看原评论
+              </a>
+            ) : null}
             {github.data.state === "unknown" && !task.readOnly ? (
               <Button
                 aria-busy={verifying}
                 aria-disabled={!mayVerify}
-                onFocus={() => { verificationFocused.current = true; }}
-                onBlur={() => { verificationFocused.current = false; }}
+                onFocus={() => {
+                  verificationFocused.current = true;
+                }}
+                onBlur={() => {
+                  verificationFocused.current = false;
+                }}
                 onClick={() => void verify()}
               >
                 核实原投递
@@ -497,10 +548,15 @@ function TaskRunDeliveries({ task, receiptId, onNavigate }: { task: TaskDto; rec
       {githubReadError || mail.error ? <p role="status">暂时无法读取外部投递记录。</p> : null}
       {linkError || verifyError ? <p role="alert">{linkError || verifyError}</p> : null}
       {operationId && onNavigate ? (
-        <Button variant="ghost" onClick={() => {
-          requestOpenMailDelivery({ vaultId: engine.vaultId, operationId });
-          onNavigate("mail");
-        }}>查看原邮件投递</Button>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            requestOpenMailDelivery({ vaultId: engine.vaultId, operationId });
+            onNavigate("mail");
+          }}
+        >
+          查看原邮件投递
+        </Button>
       ) : null}
     </>
   );

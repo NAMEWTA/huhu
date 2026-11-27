@@ -230,10 +230,8 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const byHost = new Map(connections.data?.filter(({ source, purpose }) => source !== "external" && !purpose).map((entry) => [entry.hostId, entry]));
   const externalConnections = connections.data?.filter(({ source, hostId, state }) => source === "external" && hostId === host?.id && (state === "connected" || state === "connecting")) ?? [];
   const connection = host ? byHost.get(host.id) : undefined;
-  const openingSession = connections.data?.find((status) => status.hostId === host?.id && status.purpose === "shell"
-    && (status.state === "waiting" || status.state === "key-changed" || status.state === "auth-waiting"));
-  const openingFileSession = connections.data?.find((status) => status.hostId === host?.id && status.purpose === "files"
-    && (status.state === "waiting" || status.state === "key-changed" || status.state === "auth-waiting"));
+  const openingSession = connections.data?.find((status) => status.hostId === host?.id && status.purpose === "shell" && (status.state === "waiting" || status.state === "key-changed" || status.state === "auth-waiting"));
+  const openingFileSession = connections.data?.find((status) => status.hostId === host?.id && status.purpose === "files" && (status.state === "waiting" || status.state === "key-changed" || status.state === "auth-waiting"));
   const isConn = connection?.state === "connected";
   const waiting = connection?.state === "waiting";
   const authWaiting = connection?.state === "auth-waiting";
@@ -317,22 +315,32 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
         {content}
       </div>
       <FileWorkspace active={fileView} selectedId={selectedFile} seed={fileSeed} select={selectFile} onBack={() => showFileView(false)} />
-      {quickTarget !== undefined ? <QuickConnectionDialog initial={quickTarget} onClose={() => setQuickTarget(undefined)} onReview={(item) => {
-        setQuickTarget(undefined);
-        setShowDirectory(false);
-        openReview(item);
-      }} /> : null}
+      {quickTarget !== undefined ? (
+        <QuickConnectionDialog
+          initial={quickTarget}
+          onClose={() => setQuickTarget(undefined)}
+          onReview={(item) => {
+            setQuickTarget(undefined);
+            setShowDirectory(false);
+            openReview(item);
+          }}
+        />
+      ) : null}
     </>
   );
-  if (workspaces) return withFileWorkspace(
-    <WorkspaceLibrary
-      shown={active && !fileView}
-      connections={connections.data ?? []}
-      onHosts={() => { setWorkspaceSeed(undefined); setWorkspaces(false); }}
-      onFiles={openFiles}
-      seed={workspaceSeed}
-    />,
-  );
+  if (workspaces)
+    return withFileWorkspace(
+      <WorkspaceLibrary
+        shown={active && !fileView}
+        connections={connections.data ?? []}
+        onHosts={() => {
+          setWorkspaceSeed(undefined);
+          setWorkspaces(false);
+        }}
+        onFiles={openFiles}
+        seed={workspaceSeed}
+      />,
+    );
   if (keyLibrary)
     return (
       <KeyLibraryPanel
@@ -344,7 +352,19 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
     );
   if (recordings) return <TerminalRecordingsPanel onBack={() => setRecordings(false)} />;
   if (localTerminal) return <LocalShellPanel onBack={() => setLocalTerminal(false)} />;
-  if (routes) return <RoutePanel hosts={hosts.data ?? []} connections={connections.data ?? []} defaultTargets={routeTargets} onBack={() => { setRouteTargets(undefined); setRoutes(false); }} onChanged={refresh} />;
+  if (routes)
+    return (
+      <RoutePanel
+        hosts={hosts.data ?? []}
+        connections={connections.data ?? []}
+        defaultTargets={routeTargets}
+        onBack={() => {
+          setRouteTargets(undefined);
+          setRoutes(false);
+        }}
+        onChanged={refresh}
+      />
+    );
   if (shortcuts)
     return (
       <div className="hu-stack">
@@ -362,7 +382,10 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
         directory={directory.data}
         initialPanelId={monitorPanelId}
         onNavigate={onNavigate}
-        onBack={() => { setMonitoring(false); setMonitorPanelId(undefined); }}
+        onBack={() => {
+          setMonitoring(false);
+          setMonitorPanelId(undefined);
+        }}
         onReview={(prompt) => {
           setMonitoring(false);
           setMonitorPanelId(undefined);
@@ -396,14 +419,51 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
         statuses={byHost}
         onBack={() => setShowDirectory(false)}
         onOpen={openFromDirectory}
-        onConnect={(h) => { openFromDirectory(h); void connect(h); }}
-        onFiles={(h) => { openFromDirectory(h); void openHostFiles(h); }}
-        onWorkspace={(ids, temporary) => { setWorkspaceSeed({ ids, temporary }); setWorkspaces(true); }}
-        onRoute={desktop ? (ids) => { setRouteTargets(ids); setRoutes(true); } : undefined}
-        onCreate={desktop ? () => { setShowDirectory(false); setHostAction({ kind: "create" }); } : undefined}
-        onImport={desktop ? () => { setShowDirectory(false); setImportVault(engine.vaultId); } : undefined}
+        onConnect={(h) => {
+          openFromDirectory(h);
+          void connect(h);
+        }}
+        onFiles={(h) => {
+          openFromDirectory(h);
+          void openHostFiles(h);
+        }}
+        onWorkspace={(ids, temporary) => {
+          setWorkspaceSeed({ ids, temporary });
+          setWorkspaces(true);
+        }}
+        onRoute={
+          desktop
+            ? (ids) => {
+                setRouteTargets(ids);
+                setRoutes(true);
+              }
+            : undefined
+        }
+        onCreate={
+          desktop
+            ? () => {
+                setShowDirectory(false);
+                setHostAction({ kind: "create" });
+              }
+            : undefined
+        }
+        onImport={
+          desktop
+            ? () => {
+                setShowDirectory(false);
+                setImportVault(engine.vaultId);
+              }
+            : undefined
+        }
         onQuickConnect={desktop ? setQuickTarget : undefined}
-        onHostAction={desktop ? (kind, h) => { openFromDirectory(h); setHostAction({ kind, host: h }); } : undefined}
+        onHostAction={
+          desktop
+            ? (kind, h) => {
+                openFromDirectory(h);
+                setHostAction({ kind, host: h });
+              }
+            : undefined
+        }
         onChanged={refresh}
       />,
     );
@@ -412,28 +472,40 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
     <div className="hu-module-layout hu-execution-module" data-testid="ssh-module">
       <aside className="hu-resource-pane" aria-label={t.title}>
         <div className="hu-resource-head ssh-resource-head">
-          {!hiddenNavigation.includes("workspaces") && <Button variant="ghost" onClick={() => setWorkspaces(true)}>
-            工作区
-          </Button>}
-          {!hiddenNavigation.includes("files") && <Button variant="ghost" onClick={() => openFiles()}>
-            独立文件会话
-          </Button>}
+          {!hiddenNavigation.includes("workspaces") && (
+            <Button variant="ghost" onClick={() => setWorkspaces(true)}>
+              工作区
+            </Button>
+          )}
+          {!hiddenNavigation.includes("files") && (
+            <Button variant="ghost" onClick={() => openFiles()}>
+              独立文件会话
+            </Button>
+          )}
           {desktop && !hiddenNavigation.includes("forwarding") && (
             <Button variant="ghost" onClick={() => setForwarding(true)}>
               端口转发
             </Button>
           )}
-          {!hiddenNavigation.includes("monitoring") && <Button variant="ghost" onClick={() => setMonitoring(true)}>
-            监控
-          </Button>}
+          {!hiddenNavigation.includes("monitoring") && (
+            <Button variant="ghost" onClick={() => setMonitoring(true)}>
+              监控
+            </Button>
+          )}
           <div className="row">
             <span className="hu-flex-fill ssh-resource-title">{t.hosts}</span>
             <span className="ssh-count">{(hosts.data ?? []).length}</span>
             {desktop ? <IconButton icon={Plus} label="新增 SSH 主机" onClick={() => setHostAction({ kind: "create" })} /> : null}
           </div>
           <SearchBox value={query} onChange={setQuery} placeholder="搜索主机…" />
-          {desktop ? <Button variant="ghost" onClick={() => setQuickTarget(query)}>快速连接</Button> : null}
-          <Button variant="ghost" onClick={() => setShowDirectory(true)}>主机目录</Button>
+          {desktop ? (
+            <Button variant="ghost" onClick={() => setQuickTarget(query)}>
+              快速连接
+            </Button>
+          ) : null}
+          <Button variant="ghost" onClick={() => setShowDirectory(true)}>
+            主机目录
+          </Button>
         </div>
         <div className="hu-resource-list">
           <div className="ssh-list-label">连接配置</div>
@@ -493,17 +565,21 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
               会话日志
             </Button>
           )}
-          {!hiddenNavigation.includes("shortcuts") && <Button variant="ghost" icon={TextCursorInput} onClick={() => setShortcuts(true)}>
-            快捷命令
-          </Button>}
+          {!hiddenNavigation.includes("shortcuts") && (
+            <Button variant="ghost" icon={TextCursorInput} onClick={() => setShortcuts(true)}>
+              快捷命令
+            </Button>
+          )}
           {desktop && (
             <Button variant="ghost" icon={Terminal} onClick={() => setLocalTerminal(true)}>
               本地终端
             </Button>
           )}
-          {!hiddenNavigation.includes("audit") && <Button variant="ghost" icon={Activity} onClick={() => setTab("audit")}>
-            全部连接审计
-          </Button>}
+          {!hiddenNavigation.includes("audit") && (
+            <Button variant="ghost" icon={Activity} onClick={() => setTab("audit")}>
+              全部连接审计
+            </Button>
+          )}
         </div>
       </aside>
       <main className="hu-view-content">
@@ -517,14 +593,19 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                   {importStatus?.pending ? "补齐导入分组" : "导入主机"}
                 </Button>
               ) : null}
-              {host && tab === "overview" && isManagedHost(host) && (
-                openingFiles
-                  ? <>
+              {host &&
+                tab === "overview" &&
+                isManagedHost(host) &&
+                (openingFiles ? (
+                  <>
                     {openingFileSession && dismissed && <Button onClick={() => setDismissed(null)}>继续打开文件</Button>}
                     <Button onClick={() => openingFiles.abort()}>取消打开文件</Button>
                   </>
-                  : <Button icon={Folder} onClick={() => void openHostFiles(host)}>打开独立文件管理</Button>
-              )}
+                ) : (
+                  <Button icon={Folder} onClick={() => void openHostFiles(host)}>
+                    打开独立文件管理
+                  </Button>
+                ))}
               {host && tab !== "known" ? (
                 isConn ? (
                   <Button icon={Unplug} onClick={() => void disconnect(host)}>
@@ -566,8 +647,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                   </Button>
                 )
               ) : null}
-              {host && tab !== "known" && reconnect && (waiting || authWaiting) &&
-                <Button onClick={() => void disconnect(host)}>取消自动重连</Button>}
+              {host && tab !== "known" && reconnect && (waiting || authWaiting) && <Button onClick={() => void disconnect(host)}>取消自动重连</Button>}
             </>
           }
         />
@@ -957,13 +1037,27 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
         />
       ) : null}
       {tab === "overview" && openingFiles && (openingFileSession?.state === "waiting" || openingFileSession?.state === "key-changed") && dismissed !== openingFileSession.prompt.promptId && (
-        <HostKeyDialog key={openingFileSession.prompt.promptId} prompt={openingFileSession.prompt} changed={openingFileSession.state === "key-changed"} onClose={() => setDismissed(openingFileSession.prompt.promptId)} onReview={() => openReview(openingFileSession.prompt)} onRefresh={refetchConnections} />
+        <HostKeyDialog
+          key={openingFileSession.prompt.promptId}
+          prompt={openingFileSession.prompt}
+          changed={openingFileSession.state === "key-changed"}
+          onClose={() => setDismissed(openingFileSession.prompt.promptId)}
+          onReview={() => openReview(openingFileSession.prompt)}
+          onRefresh={refetchConnections}
+        />
       )}
       {tab === "overview" && openingFiles && openingFileSession?.state === "auth-waiting" && dismissed !== openingFileSession.authPrompt.promptId && (
         <AuthenticationDialog key={openingFileSession.authPrompt.promptId} prompt={openingFileSession.authPrompt} onClose={() => setDismissed(openingFileSession.authPrompt.promptId)} onAnswered={refetchConnections} />
       )}
       {tab === "terminal" && (openingSession?.state === "waiting" || openingSession?.state === "key-changed") && dismissed !== openingSession.prompt.promptId && (
-        <HostKeyDialog key={openingSession.prompt.promptId} prompt={openingSession.prompt} changed={openingSession.state === "key-changed"} onClose={() => setDismissed(openingSession.prompt.promptId)} onReview={() => openReview(openingSession.prompt)} onRefresh={refetchConnections} />
+        <HostKeyDialog
+          key={openingSession.prompt.promptId}
+          prompt={openingSession.prompt}
+          changed={openingSession.state === "key-changed"}
+          onClose={() => setDismissed(openingSession.prompt.promptId)}
+          onReview={() => openReview(openingSession.prompt)}
+          onRefresh={refetchConnections}
+        />
       )}
       {tab === "terminal" && openingSession?.state === "auth-waiting" && dismissed !== openingSession.authPrompt.promptId && (
         <AuthenticationDialog key={openingSession.authPrompt.promptId} prompt={openingSession.authPrompt} onClose={() => setDismissed(openingSession.authPrompt.promptId)} onAnswered={refetchConnections} />

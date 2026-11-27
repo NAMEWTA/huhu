@@ -57,10 +57,14 @@ test("A12 disabling connection sharing isolates same-host workspace shells", asy
     await openWorkspace(page);
     const { hostId } = await configureLoopback(page, "独立连接回环", server.port, password);
     const { data: preferences } = await sshCall<VaultPreferencesSnapshot>(page, "ssh.settings.get");
-    expect((await sshCall(page, "ssh.settings.update", {
-      expectedRevision: preferences.revision,
-      change: { section: "connection", values: { ...preferences.values.connection, shareConnections: false } },
-    })).ok).toBe(true);
+    expect(
+      (
+        await sshCall(page, "ssh.settings.update", {
+          expectedRevision: preferences.revision,
+          change: { section: "connection", values: { ...preferences.values.connection, shareConnections: false } },
+        })
+      ).ok,
+    ).toBe(true);
     const runs = [];
     for (const name of ["独立甲", "独立乙"]) {
       const run = await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name, layout: { kind: "one" }, panes: [{ hostId }] });
@@ -72,10 +76,12 @@ test("A12 disabling connection sharing isolates same-host workspace shells", asy
       await expect(pane).toHaveAttribute("data-phase", "ready");
     }
     const current = (await sshCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).data;
-    const files = await Promise.all(runs.map(({ id }) => {
-      const pane = current.find((run) => run.id === id)!.panes[0]!;
-      return sshCall<FileSession>(page, "ssh.fileSessions.open", { hostId, shellId: pane.sessionId });
-    }));
+    const files = await Promise.all(
+      runs.map(({ id }) => {
+        const pane = current.find((run) => run.id === id)!.panes[0]!;
+        return sshCall<FileSession>(page, "ssh.fileSessions.open", { hostId, shellId: pane.sessionId });
+      }),
+    );
     expect(files.every(({ ok }) => ok)).toBe(true);
     expect(files[0]!.data.connectionId).not.toBe(files[1]!.data.connectionId);
     expect(server.conns).toHaveLength(2);
@@ -122,11 +128,13 @@ test("A06 dragging and keyboard resizing a running workspace retain the original
     await page.mouse.move(x + 60, y, { steps: 7 });
     await expect(thumb).not.toHaveAttribute("aria-valuenow", "50");
     await page.mouse.up();
-    await expect.poll(async () => {
-      const rows = (await sshCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).data;
-      const layout = rows.find(({ id }) => id === started.data.id)?.layout;
-      return layout?.kind === "custom" && layout.tree.kind === "split" && layout.tree.firstPercent;
-    }).toBeGreaterThan(50);
+    await expect
+      .poll(async () => {
+        const rows = (await sshCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).data;
+        const layout = rows.find(({ id }) => id === started.data.id)?.layout;
+        return layout?.kind === "custom" && layout.tree.kind === "split" && layout.tree.firstPercent;
+      })
+      .toBeGreaterThan(50);
     await expect(thumb).toHaveAttribute("aria-disabled", "false");
     await thumb.press("Home");
     await expect(thumb).toHaveAttribute("aria-valuenow", "10");
@@ -149,7 +157,9 @@ test("A05 adding a split opens only the new host and keeps the original pane ses
     const a = await configureLoopback(page, "现有分栏", first.port, password);
     const b = await configureLoopback(page, "新增分栏", second.port, password);
     const started = await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
-      name: "动态分割回环", layout: { kind: "one" }, panes: [{ hostId: a.hostId }],
+      name: "动态分割回环",
+      layout: { kind: "one" },
+      panes: [{ hostId: a.hostId }],
     });
     expect(started.ok).toBe(true);
     await page.getByRole("button", { name: /动态分割回环.*代次 1/ }).click();
@@ -162,8 +172,7 @@ test("A05 adding a split opens only the new host and keeps the original pane ses
     await run.getByRole("button", { name: "上下分割活动分栏" }).click();
     const added = run.getByRole("article", { name: "新增分栏" });
     await expect(run.locator('[data-workspace-spot][data-active="true"]')).toContainText("新增分栏");
-    const confirm = page.waitForResponse((response) => response.url().endsWith("/api/v1/call")
-      && response.request().postDataJSON()?.capability === "ssh.hostKey.decide");
+    const confirm = page.waitForResponse((response) => response.url().endsWith("/api/v1/call") && response.request().postDataJSON()?.capability === "ssh.hostKey.decide");
     await added.getByRole("button", { name: "信任并连接" }).click();
     expect(await (await confirm).json()).toMatchObject({ ok: true, data: { applied: true } });
     await expect(added).toHaveAttribute("data-phase", "ready");
@@ -180,11 +189,14 @@ test("A06 live SSH scrollback search and terminal links use the same shell", asy
   const password = randomUUID();
   const plain = "https://example.invalid/plain";
   const osc = "https://example.invalid/osc8";
-  const server = await startFakeSsh({ password, onInteractiveShell: (channel) => {
-    channel.write("原终端回滚目标\r\n");
-    for (let i = 0; i < 90; i++) channel.write(`fixture row ${i}\r\n`);
-    channel.write(`${plain}\r\n\u001b]8;;${osc}\u0007OSC eight target\u001b]8;;\u0007\r\n`);
-  } });
+  const server = await startFakeSsh({
+    password,
+    onInteractiveShell: (channel) => {
+      channel.write("原终端回滚目标\r\n");
+      for (let i = 0; i < 90; i++) channel.write(`fixture row ${i}\r\n`);
+      channel.write(`${plain}\r\n\u001b]8;;${osc}\u0007OSC eight target\u001b]8;;\u0007\r\n`);
+    },
+  });
   const fixture = await openApp();
   try {
     const { app, page } = fixture;
@@ -216,7 +228,10 @@ test("A06 live SSH scrollback search and terminal links use the same shell", asy
     };
     await find("原终端回滚目标");
     await find(plain);
-    for (const [label, href] of [[plain, plain], ["OSC eight target", osc]]) {
+    for (const [label, href] of [
+      [plain, plain],
+      ["OSC eight target", osc],
+    ]) {
       const row = terminal.locator(".xterm-rows > div").filter({ hasText: label! });
       await row.scrollIntoViewIfNeeded();
       let x = 0;
@@ -231,8 +246,11 @@ test("A06 live SSH scrollback search and terminal links use the same shell", asy
         await expect(terminal.getByRole("application")).toHaveAttribute("title", new RegExp(href!), { timeout: 1_000 });
       }).toPass({ timeout: 10_000 });
       await page.keyboard.down("Control");
-      try { await page.mouse.click(x, y); }
-      finally { await page.keyboard.up("Control"); }
+      try {
+        await page.mouse.click(x, y);
+      } finally {
+        await page.keyboard.up("Control");
+      }
     }
     await expect.poll(() => app.evaluate(() => (globalThis as { sshLinksOpened?: string[] }).sshLinksOpened)).toEqual([plain, osc]);
     await expect(pane).toHaveAttribute("data-session-id", session!);
@@ -247,7 +265,16 @@ test("A06 workspace tab actions rename and close neighboring tabs without replac
   const password = randomUUID();
   const labels = ["标签甲", "标签乙", "标签丙"];
   const closed = [0, 0, 0];
-  const servers = await Promise.all(labels.map((_, index) => startFakeSsh({ password, onShellClose: () => { closed[index]!++; } })));
+  const servers = await Promise.all(
+    labels.map((_, index) =>
+      startFakeSsh({
+        password,
+        onShellClose: () => {
+          closed[index]!++;
+        },
+      }),
+    ),
+  );
   const fixture = await openApp();
   try {
     const { page } = fixture;
@@ -296,9 +323,7 @@ test("A06 workspace tab actions rename and close neighboring tabs without replac
 async function verifyDirectoryFollow(kind: "bash" | "zsh") {
   test.setTimeout(90_000);
   const windows = process.platform === "win32";
-  const shell = kind === "bash"
-    ? process.env.HUHU_TEST_BASH ?? (process.platform === "linux" ? "/bin/bash" : undefined)
-    : process.platform === "linux" ? process.env.HUHU_TEST_ZSH ?? "/usr/bin/zsh" : undefined;
+  const shell = kind === "bash" ? (process.env.HUHU_TEST_BASH ?? (process.platform === "linux" ? "/bin/bash" : undefined)) : process.platform === "linux" ? (process.env.HUHU_TEST_ZSH ?? "/usr/bin/zsh") : undefined;
   test.skip(!shell || !path.isAbsolute(shell) || !existsSync(shell), kind === "bash" ? "需要 Linux Bash 或配置的 Git Bash 绝对路径" : "需要 Linux Zsh，可通过 HUHU_TEST_ZSH 指定绝对路径");
   const fixture = await openApp();
   const { page, vault } = fixture;
@@ -311,7 +336,7 @@ async function verifyDirectoryFollow(kind: "bash" | "zsh") {
   const profileFile = path.join(home, kind === "bash" ? ".bash_profile" : ".zlogin");
   writeFileSync(profileFile, profile);
   writeFileSync(path.join(home, "manual", "source-marker.txt"), "real fixture source");
-  const toPosix = (dir: string) => windows ? dir.replace(/^([A-Z]):/i, (_, drive: string) => `/${drive.toLowerCase()}`).replaceAll("\\", "/") : dir;
+  const toPosix = (dir: string) => (windows ? dir.replace(/^([A-Z]):/i, (_, drive: string) => `/${drive.toLowerCase()}`).replaceAll("\\", "/") : dir);
   const shellEnv = {
     ...process.env,
     HOME: toPosix(home),
@@ -501,9 +526,14 @@ test("H4.1 工作区模板保存顺序与自定义布局，跨应用重开并删
     };
     const group = await createGroup("0", "夹具主组", null);
     const subgroup = await createGroup(group.version, "子组", group.id);
-    expect((await sshCall(page, "ssh.hosts.organize", {
-      expectedVersion: subgroup.version, operation: { type: "hosts.move", hostIds: [hosts[0]!.id], groupId: subgroup.id },
-    })).ok).toBe(true);
+    expect(
+      (
+        await sshCall(page, "ssh.hosts.organize", {
+          expectedVersion: subgroup.version,
+          operation: { type: "hosts.move", hostIds: [hosts[0]!.id], groupId: subgroup.id },
+        })
+      ).ok,
+    ).toBe(true);
     await openWorkspace(page);
     await page.getByRole("button", { name: "新建模板" }).click();
     const dialog = page.getByRole("dialog", { name: "新建工作区模板" });
@@ -1318,10 +1348,12 @@ test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保
     const cancelled = await sshCall<TransferJob>(page, "ssh.transfers.cancel", { transferId: idToCancel });
     expect(cancelled.ok, cancelled.error?.message).toBe(true);
     expect(["cancelling", "cancelled"]).toContain(cancelled.data.state);
-    await expect.poll(async () => {
-      const { data } = await sshCall<TransferQueue>(page, "ssh.transfers.list");
-      return { state: data.jobs.find(({ transferId }) => transferId === idToCancel)?.state, canQueue: data.canQueue };
-    }).toEqual({ state: "cancelled", canQueue: true });
+    await expect
+      .poll(async () => {
+        const { data } = await sshCall<TransferQueue>(page, "ssh.transfers.list");
+        return { state: data.jobs.find(({ transferId }) => transferId === idToCancel)?.state, canQueue: data.canQueue };
+      })
+      .toEqual({ state: "cancelled", canQueue: true });
     expect((await sshCall(page, "ssh.disconnect", { hostId: a.hostId })).ok).toBe(true);
     await expect
       .poll(async () => {
@@ -1361,9 +1393,14 @@ function observeBatchCalls(page: Page) {
     if (!call) return;
     const recorded: NonNullable<Exchange["response"]> = { at: Date.now(), status: response.status() };
     call.response = recorded;
-    responses.push(response.json().then(({ data }) => {
-      if (typeof data?.batchId === "string") recorded.batchId = data.batchId;
-    }).catch(() => {}));
+    responses.push(
+      response
+        .json()
+        .then(({ data }) => {
+          if (typeof data?.batchId === "string") recorded.batchId = data.batchId;
+        })
+        .catch(() => {}),
+    );
   };
   const onFailed = (request: Request) => {
     const call = calls.get(request);
@@ -1458,7 +1495,7 @@ async function dragFileBatch(page: Page, handle: Locator, evidence: { geometry?:
       const deltaX = points.end.x - points.start.x;
       const deltaY = points.end.y - points.start.y;
       const distance = Math.hypot(deltaX, deltaY);
-      await page.mouse.move(points.start.x + 8 * deltaX / distance, points.start.y + 8 * deltaY / distance);
+      await page.mouse.move(points.start.x + (8 * deltaX) / distance, points.start.y + (8 * deltaY) / distance);
       await page.mouse.move(points.end.x, points.end.y, { steps: 12 });
     } finally {
       await page.mouse.up();
@@ -1588,10 +1625,13 @@ test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃�
     let download: { ok: boolean; data: TransferBatch; error?: { message: string } };
     try {
       const [response] = await Promise.all([
-        page.waitForResponse((response) => {
-          const input = batchCallInput(response.request());
-          return input?.source.kind === "remote" && input.target.kind === "local";
-        }, { timeout: 10_000 }),
+        page.waitForResponse(
+          (response) => {
+            const input = batchCallInput(response.request());
+            return input?.source.kind === "remote" && input.target.kind === "local";
+          },
+          { timeout: 10_000 },
+        ),
         dragFileBatch(page, handle, pointer),
       ]);
       download = await response.json();
@@ -1602,9 +1642,10 @@ test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃�
     expect(download.data.source).toMatchObject({ kind: "remote", fileSessionId: sourceId, path: "/home/test" });
     expect(download.data.target).toMatchObject({ kind: "local", path: localRoot });
     const priorIds = new Set(before?.map(({ batchId }) => batchId));
-    expect(after?.filter(({ batchId }) => !priorIds.has(batchId)), "真实拖放恰好新增一个批次").toMatchObject([
-      { batchId: download.data.batchId, source: { kind: "remote", fileSessionId: sourceId, path: "/home/test" }, target: { kind: "local", path: localRoot } },
-    ]);
+    expect(
+      after?.filter(({ batchId }) => !priorIds.has(batchId)),
+      "真实拖放恰好新增一个批次",
+    ).toMatchObject([{ batchId: download.data.batchId, source: { kind: "remote", fileSessionId: sourceId, path: "/home/test" }, target: { kind: "local", path: localRoot } }]);
     await center.click();
     const batchId = page.locator(`[data-batch-id="${download.data.batchId}"]`);
     const downloaded = page.getByTestId("ssh-transfer-batch").and(batchId);

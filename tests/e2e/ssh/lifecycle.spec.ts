@@ -24,7 +24,7 @@ async function bindLoopback(port = 0) {
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Loopback listener must use TCP");
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   return address.port;
 }
 
@@ -42,14 +42,18 @@ test("H12.1 Engine 异常退出释放转发并留下唯一传输终态，原工�
   test.skip(process.platform !== "linux", "需要 Linux SIGKILL");
   test.setTimeout(70_000);
   let releaseWrite!: () => void;
-  const holdWrite = new Promise<void>((resolve) => { releaseWrite = resolve; });
+  const holdWrite = new Promise<void>((resolve) => {
+    releaseWrite = resolve;
+  });
   const target = "/home/test/crash-target.bin";
   let writes = 0;
-  const server = await startFakeSsh({ waitWriteFile(file) {
-    if (!file.endsWith(".part")) return;
-    writes++;
-    return holdWrite;
-  } });
+  const server = await startFakeSsh({
+    waitWriteFile(file) {
+      if (!file.endsWith(".part")) return;
+      writes++;
+      return holdWrite;
+    },
+  });
   try {
     const app = await openApp();
     const { page, vault } = app;
@@ -57,7 +61,12 @@ test("H12.1 Engine 异常退出释放转发并留下唯一传输终态，原工�
     try {
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
       const { hostId } = await call<{ hostId: string }>("ssh.hosts.configure", {
-        name: "异常退出主机", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+        name: "异常退出主机",
+        host: "127.0.0.1",
+        port: server.port,
+        user: "fixture",
+        authKind: "password",
+        expectedRevision: null,
         credentials: [{ purpose: "password", action: "replace", value: "pw" }],
       });
       const status = await trust(page, hostId, true);
@@ -136,8 +145,14 @@ test("H12.1 新格式备份恢复主机和跳板路由，重配设备凭据后�
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
       const configure = (name: string, port: number, jumpHostIds: string[], current?: { id: string; revision: string }) =>
         call<{ hostId: string }>("ssh.hosts.configure", {
-          name, host: "127.0.0.1", port, user: "fixture", authKind: "password", jumpHostIds,
-          ...(current && { hostId: current.id }), expectedRevision: current?.revision ?? null,
+          name,
+          host: "127.0.0.1",
+          port,
+          user: "fixture",
+          authKind: "password",
+          jumpHostIds,
+          ...(current && { hostId: current.id }),
+          expectedRevision: current?.revision ?? null,
           credentials: [{ purpose: "password", action: "replace", value: password, ...(current && { reconfigure: true }) }],
         });
       const { hostId: jumpId } = await configure("可恢复跳板", jump.port, []);
@@ -159,10 +174,12 @@ test("H12.1 新格式备份恢复主机和跳板路由，重配设备凭据后�
       await configure("可恢复跳板", jump.port, [], restoredJump!);
       await configure("可恢复目标", target.port, [jumpId], restoredTarget!);
       const status = await trust(page, hostId);
-      await expect.poll(async () => {
-        const pending = await status();
-        return pending?.state === "waiting" ? pending.prompt.fingerprint : undefined;
-      }).toBe(target.fingerprint);
+      await expect
+        .poll(async () => {
+          const pending = await status();
+          return pending?.state === "waiting" ? pending.prompt.fingerprint : undefined;
+        })
+        .toBe(target.fingerprint);
       const pending = await status();
       if (pending?.state !== "waiting") throw new Error("Missing restored target prompt");
       await call("ssh.hostKey.decide", { attemptId: pending.attemptId, hop: pending.prompt.hop, promptId: pending.prompt.promptId, accept: true });
@@ -182,7 +199,9 @@ for (const mode of ["停用插件", "切换 Vault"] as const) {
   test(`H12.1 ${mode}回收活跃 SSH 对象并拒绝旧代答复`, async () => {
     test.setTimeout(55_000);
     let releaseWrite!: () => void;
-    const blockedWrite = new Promise<void>((resolve) => { releaseWrite = resolve; });
+    const blockedWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
     const finalPath = "/home/test/lifecycle.bin";
     let staged = false;
     const server = await startFakeSsh({
@@ -202,10 +221,16 @@ for (const mode of ["停用插件", "切换 Vault"] as const) {
     try {
       const { page, vault } = app;
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-      const createHost = (name: string, port: number) => desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-        name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
-        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
-      });
+      const createHost = (name: string, port: number) =>
+        desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+          name,
+          host: "127.0.0.1",
+          port,
+          user: "fixture",
+          authKind: "password",
+          expectedRevision: null,
+          credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+        });
       const { hostId: liveId } = await createHost("生命周期活跃主机", server.port);
       const waiting = await createHost("生命周期等待主机", challenge.port);
       const activeStatus = await trust(page, liveId);
@@ -223,7 +248,8 @@ for (const mode of ["停用插件", "切换 Vault"] as const) {
       const source = path.join(vault, "lifecycle-source.bin");
       await writeFile(source, Buffer.alloc(96 * 1024, 17));
       const running = await desktopCall<TransferJob>(page, "ssh.transfers.start", {
-        source: { kind: "local", path: source }, target: { kind: "remote", path: finalPath, fileSessionId: files.fileSessionId },
+        source: { kind: "local", path: source },
+        target: { kind: "remote", path: finalPath, fileSessionId: files.fileSessionId },
       });
       await expect.poll(() => staged).toBe(true);
       expect((await desktopCall<TransferQueue>(page, "ssh.transfers.list")).jobs.find(({ transferId }) => transferId === running.transferId)?.state).toBe("running");
@@ -247,11 +273,23 @@ for (const mode of ["停用插件", "切换 Vault"] as const) {
       }
       await expect.poll(() => server.closed()).toBe(1);
       await expect.poll(() => challenge.closed()).toBe(1);
-      await expect.poll(() => bindLoopback(listenPort).then(() => true, () => false)).toBe(true);
+      await expect
+        .poll(() =>
+          bindLoopback(listenPort).then(
+            () => true,
+            () => false,
+          ),
+        )
+        .toBe(true);
       releaseWrite();
-      expect(await desktopCall(page, "ssh.authentication.answer", {
-        attemptId: old.attemptId, hop: old.authPrompt.hop, promptId: old.authPrompt.promptId, answers: ["a discarded fixture answer"],
-      })).toEqual({ applied: false });
+      expect(
+        await desktopCall(page, "ssh.authentication.answer", {
+          attemptId: old.attemptId,
+          hop: old.authPrompt.hop,
+          promptId: old.authPrompt.promptId,
+          answers: ["a discarded fixture answer"],
+        }),
+      ).toEqual({ applied: false });
       expect(await desktopCall(page, "ssh.connections.status")).toEqual([]);
       expect(await desktopCall(page, "ssh.shells.list")).toEqual([]);
       expect(await desktopCall(page, "ssh.fileSessions.list")).toEqual([]);

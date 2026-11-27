@@ -45,7 +45,11 @@ const blockedHttpPorts = new Set([
 ]);
 
 export const isBlockedHttpPort = (port: number): boolean => blockedHttpPorts.has(port);
-export const McpLocalPortSchema = z.int().min(1).max(65_535).refine((port) => !isBlockedHttpPort(port), "此端口被浏览器禁止用于 HTTP");
+export const McpLocalPortSchema = z
+  .int()
+  .min(1)
+  .max(65_535)
+  .refine((port) => !isBlockedHttpPort(port), "此端口被浏览器禁止用于 HTTP");
 export const GatewayMcpStatusSchema = z.strictObject({
   enabled: z.boolean(),
   url: z.url().nullable(),

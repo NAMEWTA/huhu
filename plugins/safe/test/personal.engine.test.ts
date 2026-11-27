@@ -87,10 +87,7 @@ test("向已有条目新增账号按会话和修订写入一次，摘要不含�
   const scope = await session(client);
   const initial = await client.call<Receipt>("safe.entries.create", { session: scope, expectedRevision: 0, name: data.name, accounts: data.accounts.slice(0, 1) });
   const request = { session: scope, entryId: initial.entryId, expectedRevision: initial.revision, ...data.accounts[2]! };
-  const writes = await Promise.allSettled([
-    client.call<UpdatedAccount>("safe.accounts.create", request),
-    client.call<UpdatedAccount>("safe.accounts.create", request),
-  ]);
+  const writes = await Promise.allSettled([client.call<UpdatedAccount>("safe.accounts.create", request), client.call<UpdatedAccount>("safe.accounts.create", request)]);
   const saved = writes.find((write) => write.status === "fulfilled");
   const rejected = writes.find((write) => write.status === "rejected");
   expect(saved?.value).toMatchObject({ entryId: initial.entryId, accountId: expect.any(String), hasPassword: true });

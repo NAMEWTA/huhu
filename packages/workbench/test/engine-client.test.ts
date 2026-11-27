@@ -135,7 +135,8 @@ describe("查询失效", () => {
         qc.setQueryData(references(vaultId), {});
       }
       await invalidateForEvent(qc, "vault-a", {
-        type: "entity.changed", payload: { kind: "periodic-plan", id: "plan", op: "updated", sourcePlugin: "ledger" },
+        type: "entity.changed",
+        payload: { kind: "periodic-plan", id: "plan", op: "updated", sourcePlugin: "ledger" },
       });
       expect(qc.getQueryState(overview("vault-a"))?.isInvalidated).toBe(true);
       expect(qc.getQueryState(references("vault-a"))?.isInvalidated).toBe(false);
@@ -529,7 +530,8 @@ describe("查询失效", () => {
     const keys = names.map((name) => queryKey("vault-a", name));
     for (const key of keys) qc.setQueryData(key, {});
     await invalidateForEvent(qc, "vault-a", {
-      type: "entity.changed", payload: { kind: "periodic-occurrence", id: "plan", sourcePlugin: "ssh", op: "updated" },
+      type: "entity.changed",
+      payload: { kind: "periodic-occurrence", id: "plan", sourcePlugin: "ssh", op: "updated" },
     });
     expect(keys.map((key) => qc.getQueryState(key)?.isInvalidated)).toEqual([true, true, false, false]);
     await invalidateForEvent(qc, "vault-a", { type: "plugin.stateChanged", payload: { id: "automations", state: "disabled" } });

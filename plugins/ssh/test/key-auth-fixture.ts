@@ -38,7 +38,13 @@ export function makePuttyKey(version: 2 | 3, passphrase?: string, format: "ed255
   const encrypted = passphrase !== undefined;
   const encryption = encrypted ? "aes256-cbc" : "none";
   const comment = "huhu fixture with trailing space ";
-  let macKey: Buffer = version === 2 ? createHash("sha1").update("putty-private-key-file-mac-key").update(passphrase ?? "").digest() : Buffer.alloc(0);
+  let macKey: Buffer =
+    version === 2
+      ? createHash("sha1")
+          .update("putty-private-key-file-mac-key")
+          .update(passphrase ?? "")
+          .digest()
+      : Buffer.alloc(0);
   const transferHeaders: string[] = [];
   let ciphertext = privateBlob;
   if (encrypted) {
@@ -49,8 +55,14 @@ export function makePuttyKey(version: 2 | 3, passphrase?: string, format: "ed255
       transferHeaders.push("Key-Derivation: Argon2id", "Argon2-Memory: 64", "Argon2-Passes: 2", "Argon2-Parallelism: 1", `Argon2-Salt: ${salt.toString("hex")}`);
       macKey = keyAndIv.subarray(48);
     } else {
-      const one = createHash("sha1").update(Buffer.from([0, 0, 0, 0])).update(passphrase).digest();
-      const two = createHash("sha1").update(Buffer.from([0, 0, 0, 1])).update(passphrase).digest();
+      const one = createHash("sha1")
+        .update(Buffer.from([0, 0, 0, 0]))
+        .update(passphrase)
+        .digest();
+      const two = createHash("sha1")
+        .update(Buffer.from([0, 0, 0, 1]))
+        .update(passphrase)
+        .digest();
       keyAndIv = Buffer.concat([one, two.subarray(0, 12), Buffer.alloc(16)]);
     }
     const pad = (16 - (privateBlob.length % 16)) % 16;
@@ -59,17 +71,18 @@ export function makePuttyKey(version: 2 | 3, passphrase?: string, format: "ed255
     cipher.setAutoPadding(false);
     ciphertext = Buffer.concat([cipher.update(privateBlob), cipher.final()]);
   }
-  const digest = createHmac(version === 3 ? "sha256" : "sha1", macKey).update(Buffer.concat([algorithm, encryption, comment, publicBlob, privateBlob].map(field))).digest("hex");
+  const digest = createHmac(version === 3 ? "sha256" : "sha1", macKey)
+    .update(Buffer.concat([algorithm, encryption, comment, publicBlob, privateBlob].map(field)))
+    .digest("hex");
   function lines(label: string, value: Buffer) {
     const encoded = value.toString("base64").match(/.{1,64}/gu)!;
     return [`${label}-Lines: ${encoded.length}`, ...encoded];
   }
   return {
     publicKey: `${algorithm} ${publicBlob.toString("base64")}`,
-    privateKey: [
-      `PuTTY-User-Key-File-${version}: ${algorithm}`, `Encryption: ${encryption}`, `Comment: ${comment}`,
-      ...lines("Public", publicBlob), ...transferHeaders, ...lines("Private", ciphertext), `Private-MAC: ${digest}`, "",
-    ].join("\n"),
+    privateKey: [`PuTTY-User-Key-File-${version}: ${algorithm}`, `Encryption: ${encryption}`, `Comment: ${comment}`, ...lines("Public", publicBlob), ...transferHeaders, ...lines("Private", ciphertext), `Private-MAC: ${digest}`, ""].join(
+      "\n",
+    ),
   };
 }
 

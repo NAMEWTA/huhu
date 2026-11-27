@@ -35,8 +35,13 @@ const RecordSchema = z.strictObject({
 type ReminderRecord = z.infer<typeof RecordSchema>;
 type Stored = { data: ReminderRecord; version: string };
 type PlanReminder = {
-  planId: string; revision: string; scheduledFor: string; source: NonNullable<ReminderRecord["source"]>;
-  title: string; taskId?: string; effect: "notification" | "task" | "both" | "comment";
+  planId: string;
+  revision: string;
+  scheduledFor: string;
+  source: NonNullable<ReminderRecord["source"]>;
+  title: string;
+  taskId?: string;
+  effect: "notification" | "task" | "both" | "comment";
 };
 type ReminderTrigger = {
   ruleId: string;
@@ -130,37 +135,59 @@ export class ReminderDeliveries {
     const effects: PlanOccurrence["effects"] = [];
     if (row.source === "focus-deadline") {
       effects.push({
-        effectId: `focus-${id}`, kind: "focus-settlement", target: { kind: "focus-session", id: row.ruleId }, operationId: null,
-        state: row.focusSettled ? "completed" : "not-accepted", receiptId: row.focusSettled ? id : null,
+        effectId: `focus-${id}`,
+        kind: "focus-settlement",
+        target: { kind: "focus-session", id: row.ruleId },
+        operationId: null,
+        state: row.focusSettled ? "completed" : "not-accepted",
+        receiptId: row.focusSettled ? id : null,
       });
     }
     if (row.notification !== "disabled") {
       const effectId = notificationId(id);
       const state = row.notification === "sent" ? "completed" : row.notification === "pending" ? "not-accepted" : "unknown";
-      effects.push({ effectId, kind: "notification", target: { kind: "notification", id: effectId }, operationId: null, state,
-        receiptId: state === "completed" ? effectId : null, ...(canRecover && state === "unknown" && { recovery: "verify" as const }) });
+      effects.push({
+        effectId,
+        kind: "notification",
+        target: { kind: "notification", id: effectId },
+        operationId: null,
+        state,
+        receiptId: state === "completed" ? effectId : null,
+        ...(canRecover && state === "unknown" && { recovery: "verify" as const }),
+      });
     }
     if (row.task !== "disabled") {
       const taskId = reminderTaskId(id);
       const state = row.task === "created" ? "completed" : row.task === "pending" ? "not-accepted" : "failed";
-      effects.push({ effectId: taskId, kind: "task-create", target: { kind: "task", id: taskId }, operationId: null, state,
-        receiptId: state === "completed" ? taskId : null, ...(canRetry && state === "failed" && this.tasks() && { recovery: "retry" as const }) });
+      effects.push({
+        effectId: taskId,
+        kind: "task-create",
+        target: { kind: "task", id: taskId },
+        operationId: null,
+        state,
+        receiptId: state === "completed" ? taskId : null,
+        ...(canRetry && state === "failed" && this.tasks() && { recovery: "retry" as const }),
+      });
     }
     if (row.comment && row.targetTask) {
       const effectId = commentId(id);
-      const state = row.comment === "written" ? "completed" : row.comment === "pending" ? "not-accepted"
-        : row.comment === "writing" ? "unknown" : "failed";
-      effects.push({ effectId, kind: "task-comment", target: { kind: "task", id: row.targetTask }, operationId: null, state,
+      const state = row.comment === "written" ? "completed" : row.comment === "pending" ? "not-accepted" : row.comment === "writing" ? "unknown" : "failed";
+      effects.push({
+        effectId,
+        kind: "task-comment",
+        target: { kind: "task", id: row.targetTask },
+        operationId: null,
+        state,
         receiptId: state === "completed" ? effectId : null,
         ...(canRecover && state === "unknown" && this.readComment && { recovery: "verify" as const }),
-        ...(canRetry && state === "failed" && this.writeComment && { recovery: "retry" as const }) });
+        ...(canRetry && state === "failed" && this.writeComment && { recovery: "retry" as const }),
+      });
     }
     return {
       occurrenceId: id,
       plan: { planId: row.ruleId, revision: row.ruleVersion },
       timing: row.scheduledFor ? { trigger: "scheduled", scheduledFor: row.scheduledFor } : { trigger: "manual" },
-      state: effects.some(({ state }) => state === "unknown") ? "unknown" : row.cancelled ? "cancelled"
-        : row.finishedAt ? (effects.some(({ state }) => state === "failed") ? "failed" : "completed") : "accepted",
+      state: effects.some(({ state }) => state === "unknown") ? "unknown" : row.cancelled ? "cancelled" : row.finishedAt ? (effects.some(({ state }) => state === "failed") ? "failed" : "completed") : "accepted",
       acceptedAt: row.startedAt,
       frozenInput: { revision: row.ruleVersion, digest: digest([row.text, row.taskBody, row.notificationModule, ...effects.map(({ effectId }) => effectId)]) },
       execution: null,
@@ -191,8 +218,9 @@ export class ReminderDeliveries {
         if (written === undefined) return occurrence;
         const canContinue = !written && this.current(data);
         updated = {
-          ...data, comment: written ? "written" : "pending",
-          finishedAt: canContinue ? null : data.finishedAt ?? this.now().toISOString(),
+          ...data,
+          comment: written ? "written" : "pending",
+          finishedAt: canContinue ? null : (data.finishedAt ?? this.now().toISOString()),
           ...(!written && !canContinue && { cancelled: true }),
         };
       } else if (effect.recovery === "retry") {
@@ -320,7 +348,10 @@ export class ReminderDeliveries {
       if (this.current(row.data)) {
         try {
           // oxlint-disable-next-line huhu-scheduling/no-direct-notification-fallback -- 计划递送端口在持久化副作用检查点后发送。
-          this.notifications.send({ id: stableNotification, title: row.data.text, module: row.data.notificationModule,
+          this.notifications.send({
+            id: stableNotification,
+            title: row.data.text,
+            module: row.data.notificationModule,
             occurrence: { planId: row.data.ruleId, occurrenceId: id },
             ...(row.data.source === "task-reminder" && { body: `提醒时间 ${row.data.scheduledFor}` }),
           });
@@ -380,15 +411,28 @@ export class ReminderDeliveries {
           const { revision, title, taskId, source, effect } = trigger.plan;
           const current = this.sourceCurrent(source, trigger.ruleId, revision, trigger.at, taskId);
           if (!this.owner || !current) return null;
-          return this.save({
-            format: 1, id, vaultId: this.vaultId, owner: this.owner, ruleId: trigger.ruleId, ruleVersion: revision,
-            scheduledFor: trigger.at, startedAt: this.now().toISOString(), finishedAt: null, text: title,
-            taskBody: taskId ? `${title}\n\n相关任务：[[${this.taskPath(taskId) ?? taskId}]]` : title,
-            notificationModule: source === "task-reminder" ? "tasks" : source === "focus-deadline" ? "home" : "automations",
-            notification: effect === "notification" || effect === "both" ? "pending" : "disabled",
-            task: effect === "task" || effect === "both" ? "pending" : "disabled",
-            ...(effect === "comment" && { comment: "pending" }), source, ...(taskId && { targetTask: taskId }),
-          }, null);
+          return this.save(
+            {
+              format: 1,
+              id,
+              vaultId: this.vaultId,
+              owner: this.owner,
+              ruleId: trigger.ruleId,
+              ruleVersion: revision,
+              scheduledFor: trigger.at,
+              startedAt: this.now().toISOString(),
+              finishedAt: null,
+              text: title,
+              taskBody: taskId ? `${title}\n\n相关任务：[[${this.taskPath(taskId) ?? taskId}]]` : title,
+              notificationModule: source === "task-reminder" ? "tasks" : source === "focus-deadline" ? "home" : "automations",
+              notification: effect === "notification" || effect === "both" ? "pending" : "disabled",
+              task: effect === "task" || effect === "both" ? "pending" : "disabled",
+              ...(effect === "comment" && { comment: "pending" }),
+              source,
+              ...(taskId && { targetTask: taskId }),
+            },
+            null,
+          );
         }
         const rule = this.rules.rule(trigger.ruleId);
         const action = rule.data.action;
@@ -403,23 +447,26 @@ export class ReminderDeliveries {
         if (trigger.at && Date.parse(trigger.at) > this.now().getTime()) throw errors.invalidInput("提醒时间尚未到达");
         if (!this.owner) throw errors.invalidInput("无法确认本机的提醒归属");
         const reference = action.taskId ? `\n\n相关任务：[[${this.taskPath(action.taskId) ?? action.taskId}]]` : "";
-        return this.save({
-          format: 1,
-          id,
-          vaultId: this.vaultId,
-          owner: this.owner,
-          ruleId: rule.id,
-          ruleVersion: rule.version,
-          scheduledFor: trigger.at,
-          startedAt: this.now().toISOString(),
-          finishedAt: null,
-          text: action.text,
-          taskBody: `${action.text}${reference}\n\n（由自动化「${rule.data.title}」创建）`,
-          notificationModule: action.taskId ? "tasks" : "automations",
-          notification: action.mode === "task" ? "disabled" : "pending",
-          task: action.mode === "notification" ? "disabled" : "pending",
-          ...(action.taskId && { targetTask: action.taskId }),
-        }, null);
+        return this.save(
+          {
+            format: 1,
+            id,
+            vaultId: this.vaultId,
+            owner: this.owner,
+            ruleId: rule.id,
+            ruleVersion: rule.version,
+            scheduledFor: trigger.at,
+            startedAt: this.now().toISOString(),
+            finishedAt: null,
+            text: action.text,
+            taskBody: `${action.text}${reference}\n\n（由自动化「${rule.data.title}」创建）`,
+            notificationModule: action.taskId ? "tasks" : "automations",
+            notification: action.mode === "task" ? "disabled" : "pending",
+            task: action.mode === "notification" ? "disabled" : "pending",
+            ...(action.taskId && { targetTask: action.taskId }),
+          },
+          null,
+        );
       });
       if (!row) return null;
       this.onChanged(this.view(row.data));
@@ -431,8 +478,7 @@ export class ReminderDeliveries {
 
   private view(data: ReminderRecord): ActivationRecord {
     const { id, ruleId, startedAt, finishedAt, scheduledFor, task, notification } = data;
-    const state = data.comment === "writing" ? "unknown" : !finishedAt ? "pending" : notification === "unknown" ? "unknown"
-      : data.cancelled ? "cancelled" : task === "unavailable" || data.comment === "unavailable" ? "failed" : "succeeded";
+    const state = data.comment === "writing" ? "unknown" : !finishedAt ? "pending" : notification === "unknown" ? "unknown" : data.cancelled ? "cancelled" : task === "unavailable" || data.comment === "unavailable" ? "failed" : "succeeded";
     const summary = { state, notification, task, ...(notification === "sent" && { notificationId: notificationId(id) }), ...(task === "created" && { taskId: reminderTaskId(id) }) };
     return {
       activationId: id,

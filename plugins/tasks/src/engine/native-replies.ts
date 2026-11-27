@@ -133,7 +133,9 @@ export class TaskNativeReplies {
 
   readReply(input: Lookup, bound: (execution: ExecutionBinding) => boolean, readerOwner?: string): View {
     this.tasks.read(input.taskId);
-    const entry = this.read(this.file(input.taskId)).entries.find(({ input: prior, execution, actor }) => prior.replyId === input.replyId && sameQuestion(prior, input) && bound(execution) && (!readerOwner || !actor || actor.owner === readerOwner));
+    const entry = this.read(this.file(input.taskId)).entries.find(
+      ({ input: prior, execution, actor }) => prior.replyId === input.replyId && sameQuestion(prior, input) && bound(execution) && (!readerOwner || !actor || actor.owner === readerOwner),
+    );
     if (!entry) throw errors.notFound("没有这条任务回答记录");
     return view(entry);
   }
@@ -249,7 +251,11 @@ export class TaskNativeReplies {
   }
 
   private pendingStatus(entry: Entry, bound: (execution: ExecutionBinding) => boolean, availability: (execution: ExecutionBinding) => ReplyAvailability): "pending" | "expired" | "ready" {
-    const { input: { taskId, runId, requestId, requestVersion }, execution, nativeRequestId } = entry;
+    const {
+      input: { taskId, runId, requestId, requestVersion },
+      execution,
+      nativeRequestId,
+    } = entry;
     const route = availability(execution);
     if (route === "stopping") return "pending";
     if (route === "closed") return "expired";
@@ -260,8 +266,14 @@ export class TaskNativeReplies {
       throw error;
     }
     const question = this.inbox.question(taskId, runId, requestId, bound);
-    if (question?.view.status !== "awaiting" || question.view.requestVersion !== requestVersion || question.receipt.payload.mode !== "native_deferred" ||
-      question.receipt.payload.nativeRequestId !== nativeRequestId || fingerprint(question.receipt.execution) !== fingerprint(execution)) return "expired";
+    if (
+      question?.view.status !== "awaiting" ||
+      question.view.requestVersion !== requestVersion ||
+      question.receipt.payload.mode !== "native_deferred" ||
+      question.receipt.payload.nativeRequestId !== nativeRequestId ||
+      fingerprint(question.receipt.execution) !== fingerprint(execution)
+    )
+      return "expired";
     return "ready";
   }
 

@@ -510,7 +510,10 @@ describe.each(["cli", "mcp"] as const)("%s domain exposure", (entry) => {
     const entries = z.array(catalog).parse(await f.callDesktop("capabilities.list"));
     const shared = entries.filter(({ plugin }) => ["notes", "inbox", "agent-guide"].includes(plugin));
     expect(shared).toHaveLength(57);
-    const commentNames = shared.map(({ name }) => name).filter((name) => name.startsWith("comments.")).sort();
+    const commentNames = shared
+      .map(({ name }) => name)
+      .filter((name) => name.startsWith("comments."))
+      .sort();
     expect(commentNames).toEqual(["comments.create", "comments.delete", "comments.list", "comments.relocate", "comments.update"]);
     for (const registered of shared) {
       expect(registered).toMatchObject({ availability: "active", exposable: true, selected: false });
@@ -648,11 +651,7 @@ describe.each(["cli", "mcp"] as const)("%s domain exposure", (entry) => {
       ["Converted Note Empty", noteBody, "", ""],
     ] as const) {
       const capture = IdVersion.parse(await f.callDesktop("inbox.capture", { title: name, body: original }));
-      const result = await f.invoke(
-        "inbox.convert",
-        { id: capture.id, expectedVersion: capture.version, target: "note", fields: { name, ...(override !== undefined && { body: override }) } },
-        randomUUID(),
-      );
+      const result = await f.invoke("inbox.convert", { id: capture.id, expectedVersion: capture.version, target: "note", fields: { name, ...(override !== undefined && { body: override }) } }, randomUUID());
       expect(result).toMatchObject({ ok: true, data: { result: { kind: "note", id: expect.any(String) } } });
       if (!result?.ok) throw new Error("Fixture could not convert to a note");
       const converted = z.object({ result: z.object({ id: z.string() }) }).parse(result.data).result;
@@ -661,9 +660,17 @@ describe.each(["cli", "mcp"] as const)("%s domain exposure", (entry) => {
       expect(await f.callDesktop("inbox.list")).toEqual(expect.arrayContaining([expect.objectContaining({ id: capture.id, body: original, status: "processed", result: { kind: "note", id: converted.id } })]));
     }
     const backlinks = (await f.callDesktop("notes.backlinks", { path: "Conversion Reference.md" })) as { path: string }[];
-    expect(backlinks.filter(({ path: file }) => file.startsWith("Converted Note")).map(({ path: file }) => file).sort()).toEqual(["Converted Note Default.md", "Converted Note Edited.md"]);
+    expect(
+      backlinks
+        .filter(({ path: file }) => file.startsWith("Converted Note"))
+        .map(({ path: file }) => file)
+        .sort(),
+    ).toEqual(["Converted Note Default.md", "Converted Note Edited.md"]);
     for (const name of ["invocation-intents.ndjson", "idempotency.ndjson"]) {
-      const ledger = readFileSync(path.join(f.engine().vault.runtimeDir, name), "utf8").split("\n").filter((line) => !line.startsWith('{"k":"desktop|inbox.capture|')).join("\n");
+      const ledger = readFileSync(path.join(f.engine().vault.runtimeDir, name), "utf8")
+        .split("\n")
+        .filter((line) => !line.startsWith('{"k":"desktop|inbox.capture|'))
+        .join("\n");
       for (const secret of [taskBody, archiveBody, archiveField, noteBody.split("\n")[0]!, editedBody.split("\n")[0]!]) expect(ledger).not.toContain(secret);
     }
 

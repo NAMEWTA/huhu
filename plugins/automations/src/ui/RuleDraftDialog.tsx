@@ -11,20 +11,20 @@ type SaveRequest = { key: string; capability: string; input: unknown };
 function unchangedAction(draft: RuleDraft["action"], saved: EditableRule["data"]["action"]): boolean {
   if (draft.kind === "agent" && draft.input.source === "tasks" && saved.kind === "agent" && saved.input.source === "tasks") {
     const { window, includeOverdue, includeUnscheduled, ...input } = saved.input;
-    return JSON.stringify(draft.input) === JSON.stringify({
-      ...input, window: window ?? null, includeOverdue: includeOverdue ?? false, includeUnscheduled: includeUnscheduled ?? !window,
-    });
+    return (
+      JSON.stringify(draft.input) ===
+      JSON.stringify({
+        ...input,
+        window: window ?? null,
+        includeOverdue: includeOverdue ?? false,
+        includeUnscheduled: includeUnscheduled ?? !window,
+      })
+    );
   }
   return JSON.stringify(draft) === JSON.stringify(saved);
 }
 
-export function RuleDraftDialog({ rule, template, onClose, onSaved, registerLeaveGuard }: {
-  rule?: EditableRule;
-  template?: RuleTemplate;
-  onClose(): void;
-  onSaved(id: string): void;
-  registerLeaveGuard: ModuleProps["registerLeaveGuard"];
-}) {
+export function RuleDraftDialog({ rule, template, onClose, onSaved, registerLeaveGuard }: { rule?: EditableRule; template?: RuleTemplate; onClose(): void; onSaved(id: string): void; registerLeaveGuard: ModuleProps["registerLeaveGuard"] }) {
   const engine = useEngine();
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -42,16 +42,19 @@ export function RuleDraftDialog({ rule, template, onClose, onSaved, registerLeav
     setBusy(true);
     setError("");
     const original = rule?.data;
-    const patch = original ? {
-      ...(fields.title !== original.title && { title: fields.title }),
-      ...((fields.trigger.cron !== original.trigger.cron || fields.trigger.zone !== original.trigger.zone) && { trigger: fields.trigger }),
-      ...((original.legacyEnvironment || !unchangedAction(fields.action, original.action)) && { action: fields.action }),
-      ...(fields.missedRunGraceMinutes !== (original.missedRunGraceMinutes ?? 30) && { missedRunGraceMinutes: fields.missedRunGraceMinutes }),
-    } : {};
-    const request = pending ?? (rule
-      ? { key: planIntentId(), capability: "automations.update",
-        input: { id: rule.id, expectedVersion: reviewed?.version ?? rule.version, patch, ...(fields.body !== rule.body && { body: fields.body }) } }
-      : { key: planIntentId(), capability: "automations.create", input: fields });
+    const patch = original
+      ? {
+          ...(fields.title !== original.title && { title: fields.title }),
+          ...((fields.trigger.cron !== original.trigger.cron || fields.trigger.zone !== original.trigger.zone) && { trigger: fields.trigger }),
+          ...((original.legacyEnvironment || !unchangedAction(fields.action, original.action)) && { action: fields.action }),
+          ...(fields.missedRunGraceMinutes !== (original.missedRunGraceMinutes ?? 30) && { missedRunGraceMinutes: fields.missedRunGraceMinutes }),
+        }
+      : {};
+    const request =
+      pending ??
+      (rule
+        ? { key: planIntentId(), capability: "automations.update", input: { id: rule.id, expectedVersion: reviewed?.version ?? rule.version, patch, ...(fields.body !== rule.body && { body: fields.body }) } }
+        : { key: planIntentId(), capability: "automations.create", input: fields });
     setPending(request);
     try {
       const saved = await engine.call<EditableRule>(request.capability, request.input, { write: true, idempotencyKey: request.key });
@@ -80,17 +83,30 @@ export function RuleDraftDialog({ rule, template, onClose, onSaved, registerLeav
 
   return (
     <Dialog open wide title={rule ? "编辑自动化" : "新建自动化"} onClose={dismiss} dismissOnBackdrop error={error} testId="rule-dialog">
-      {current ? <section className="automations-conflict" aria-label="当前计划版本">
-        <p>当前版本「{current.data.title}」· {current.data.trigger.cron} · {current.data.trigger.zone}</p>
-        <details><summary>查看当前配置</summary><pre>{JSON.stringify(current.data.action, null, 2)}{current.body ? `\n${current.body}` : ""}</pre></details>
-        <Button onClick={() => {
-          setReviewed(current);
-          setCurrent(null);
-          setError("再次保存将使用当前版本提交此草稿。");
-        }}>保留草稿并采用当前修订</Button>
-      </section> : null}
-      <RuleEditor {...(rule && { rule })} {...(template && { template })} zone={zone}
-        onSave={save} onCancel={dismiss} onDirty={() => setDirty(true)} waiting={pending !== null} />
+      {current ? (
+        <section className="automations-conflict" aria-label="当前计划版本">
+          <p>
+            当前版本「{current.data.title}」· {current.data.trigger.cron} · {current.data.trigger.zone}
+          </p>
+          <details>
+            <summary>查看当前配置</summary>
+            <pre>
+              {JSON.stringify(current.data.action, null, 2)}
+              {current.body ? `\n${current.body}` : ""}
+            </pre>
+          </details>
+          <Button
+            onClick={() => {
+              setReviewed(current);
+              setCurrent(null);
+              setError("再次保存将使用当前版本提交此草稿。");
+            }}
+          >
+            保留草稿并采用当前修订
+          </Button>
+        </section>
+      ) : null}
+      <RuleEditor {...(rule && { rule })} {...(template && { template })} zone={zone} onSave={save} onCancel={dismiss} onDirty={() => setDirty(true)} waiting={pending !== null} />
       {confirmation}
     </Dialog>
   );

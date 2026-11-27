@@ -54,7 +54,14 @@ export interface SessionRecord {
   error?: string;
 }
 
-export function publicSession({ launchReceipt: _launchReceipt, historyLaunch: _historyLaunch, controlled: _controlled, writableDispatch: _writableDispatch, dispatchOwned: _dispatchOwned, ...session }: SessionRecord): Omit<SessionRecord, "launchReceipt" | "historyLaunch" | "controlled" | "writableDispatch" | "dispatchOwned"> {
+export function publicSession({
+  launchReceipt: _launchReceipt,
+  historyLaunch: _historyLaunch,
+  controlled: _controlled,
+  writableDispatch: _writableDispatch,
+  dispatchOwned: _dispatchOwned,
+  ...session
+}: SessionRecord): Omit<SessionRecord, "launchReceipt" | "historyLaunch" | "controlled" | "writableDispatch" | "dispatchOwned"> {
   if (!session.waiting) return session;
   const { ownerDispatchId: _, ...waiting } = session.waiting;
   return { ...session, waiting };

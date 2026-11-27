@@ -22,24 +22,36 @@ test.skipIf(process.platform !== "linux" || !existsSync("/usr/bin/scp"))("deskto
   const bytes = Buffer.from([0x01, 0xff, 0, 127]);
   await writeFile(remote, bytes);
   const engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create: true });
-  const server = await startFakeSsh({ noSftp: true, onInteractiveExec: (command, channel) => {
-    if (command.includes(wrong)) {
-      channel.once("data", () => channel.write("C0600 3 unrelated.bin\n"));
-      return true;
-    }
-    if (command.startsWith("command -v scp >/dev/null 2>&1") || command.includes("exec scp -f -- ") || (command.startsWith("cd -P -- ") && command.includes(".huhu-scp-"))) {
-      localPosixCommand(channel, command);
-      return true;
-    }
-    return false;
-  } });
+  const server = await startFakeSsh({
+    noSftp: true,
+    onInteractiveExec: (command, channel) => {
+      if (command.includes(wrong)) {
+        channel.once("data", () => channel.write("C0600 3 unrelated.bin\n"));
+        return true;
+      }
+      if (command.startsWith("command -v scp >/dev/null 2>&1") || command.includes("exec scp -f -- ") || (command.startsWith("cd -P -- ") && command.includes(".huhu-scp-"))) {
+        localPosixCommand(channel, command);
+        return true;
+      }
+      return false;
+    },
+  });
   try {
     const client = new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
     const options = { write: true };
-    const { hostId } = await client.call<{ hostId: string }>("ssh.hosts.configure", {
-      name: "real SCP fixture", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
-      credentials: [{ purpose: "password", action: "replace", value: "pw" }],
-    }, options);
+    const { hostId } = await client.call<{ hostId: string }>(
+      "ssh.hosts.configure",
+      {
+        name: "real SCP fixture",
+        host: "127.0.0.1",
+        port: server.port,
+        user: "fixture",
+        authKind: "password",
+        expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+      },
+      options,
+    );
     await client.call("ssh.connect", { hostId, background: true }, options);
     const status = async () => (await client.call<ConnectionStatus[]>("ssh.connections.status")).find((row) => row.hostId === hostId);
     await expect.poll(async () => (await status())?.state).toBe("waiting");

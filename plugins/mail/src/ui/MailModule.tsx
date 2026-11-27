@@ -1,6 +1,19 @@
 import type { Settings } from "@huhu/contracts";
 import { Banner, Button, Dialog, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
-import { CapabilityError, host, onOpenMailDeliveryRequest, registerExitParticipant, registerFlusher, takeAutomationSource, useCapability, useEngine, useEngineEvents, useQueryClient, type ExitParticipant, type ModuleProps } from "@huhu/workbench";
+import {
+  CapabilityError,
+  host,
+  onOpenMailDeliveryRequest,
+  registerExitParticipant,
+  registerFlusher,
+  takeAutomationSource,
+  useCapability,
+  useEngine,
+  useEngineEvents,
+  useQueryClient,
+  type ExitParticipant,
+  type ModuleProps,
+} from "@huhu/workbench";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
 import type { DraftContent } from "../engine/draft-content.js";
 import type { ConversationMessage, ConversationMessagesPage, ConversationSummary, ConversationsPage, LocatedMessage, MailLocationTarget } from "../engine/conversations.js";
@@ -426,9 +439,13 @@ function MailWorkspace({ registerLeaveGuard, onNavigate }: Pick<ModuleProps, "re
     setTab("outbox");
   }
 
-  useEffect(() => onOpenMailDeliveryRequest(({ vaultId, operationId }) => {
-    if (vaultId === engine.vaultId) openDelivery(operationId);
-  }), [engine.vaultId]);
+  useEffect(
+    () =>
+      onOpenMailDeliveryRequest(({ vaultId, operationId }) => {
+        if (vaultId === engine.vaultId) openDelivery(operationId);
+      }),
+    [engine.vaultId],
+  );
 
   function showDelivery(id: string) {
     openDelivery(id);
@@ -476,14 +493,18 @@ function MailWorkspace({ registerLeaveGuard, onNavigate }: Pick<ModuleProps, "re
           </>
         }
       />
-      <Dialog open={settingsOpen} wide title="邮件设置" {...(settingsFromPlan && { initialFocusRef: syncSummary })}
+      <Dialog
+        open={settingsOpen}
+        wide
+        title="邮件设置"
+        {...(settingsFromPlan && { initialFocusRef: syncSummary })}
         onClose={() => {
           setSettingsOpen(false);
           setSettingsFromPlan(false);
-        }}>
+        }}
+      >
         <div className="hu-mail-settings">
-          <MailSyncSettings readOnly={readOnly} accountNames={accountNames} settings={syncSettings} onNavigate={onNavigate}
-            {...(settingsFromPlan && { openInitially: true, summaryRef: syncSummary })} />
+          <MailSyncSettings readOnly={readOnly} accountNames={accountNames} settings={syncSettings} onNavigate={onNavigate} {...(settingsFromPlan && { openInitially: true, summaryRef: syncSummary })} />
           <MailAiSettings key={engine.endpoint.baseUrl} readOnly={readOnly} desktop={desktop} />
           <MailCacheSettings readOnly={readOnly} />
           <MailSubsetSettings readOnly={readOnly} canRestore={accounts.data?.available === true} accounts={accountNames} />
@@ -1338,9 +1359,7 @@ function ConversationTimeline({
           {readerDelivery && (
             <>
               <RecipientDeliveryList recipients={readerDelivery.recipients} />
-              {readerDelivery.recipients.some(({ state }) => state === "unknown") && (
-                <Button onClick={() => onCheckDelivery(readerDelivery.operationId)}>在发件箱核对投递</Button>
-              )}
+              {readerDelivery.recipients.some(({ state }) => state === "unknown") && <Button onClick={() => onCheckDelivery(readerDelivery.operationId)}>在发件箱核对投递</Button>}
             </>
           )}
           {reader.source !== "sent" ? (

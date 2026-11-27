@@ -91,10 +91,12 @@ test("a new Engine sees one terminal outcome for an interrupted transfer and can
   const gate = readGate();
   try {
     const input = await f.endpoint();
-    const output = await f.endpoint({ waitWriteFile: () => {
-      gate.entered.resolve();
-      return gate.released.promise;
-    } });
+    const output = await f.endpoint({
+      waitWriteFile: () => {
+        gate.entered.resolve();
+        return gate.released.promise;
+      },
+    });
     input.server.fs.files.set(source, fresh);
     const { transferId } = f.queue.start({ source: input.file(source), target: output.file(target) });
     await gate.entered.promise;
@@ -121,12 +123,15 @@ test("remote directory downloads complete ordinary children and report unsupport
     server.fs.files.set("/home/test/docs/sub/notes.txt", fresh);
     server.fs.links.set("/home/test/docs/notes-link", "/home/test/docs/sub/notes.txt");
     const local = await f.localDirectory(session.fileSessionId);
-    const batch = await f.queue.startBatch({
-      source: file("/home/test"),
-      target: { kind: "local", path: local.path },
-      names: ["docs"],
-      localFileSessionId: session.fileSessionId,
-    }, new AbortController().signal);
+    const batch = await f.queue.startBatch(
+      {
+        source: file("/home/test"),
+        target: { kind: "local", path: local.path },
+        names: ["docs"],
+        localFileSessionId: session.fileSessionId,
+      },
+      new AbortController().signal,
+    );
     await vi.waitFor(() => expect(f.queue.findBatch(batch.batchId)?.state).toBe("partial"));
     const jobs = f.queue.list().jobs.filter(({ batchId }) => batchId === batch.batchId);
     expect(jobs.find(({ target }) => target.path === path.join(local.path, "docs", "sub", "notes.txt"))?.state).toBe("completed");
@@ -138,33 +143,37 @@ test("remote directory downloads complete ordinary children and report unsupport
   }
 });
 
-test.each(["changed target", "replaced connection"] as const)("waiting transfer preserves current target after %s", async (scenario) => {
-  const f = await fixture();
-  try {
-    const input = await f.endpoint();
-    const output = await f.endpoint();
-    input.server.fs.files.set(source, fresh);
-    output.server.fs.files.set(target, original);
-    const { transferId } = f.queue.start({ source: input.file(source), target: output.file(target) });
-    await f.state(transferId, "waiting");
-    const changed = Buffer.from("different remote revision");
-    if (scenario === "changed target") {
-      output.server.fs.files.set(target, changed);
-      f.queue.decide(transferId, "replace");
-    } else {
-      f.manager.disconnect(output.host.id);
-      await f.manager.connect(output.host.id);
-      expect(f.manager.fileOrigin(output.host.id)?.connectionId).not.toBe(output.session.connectionId);
+test.each(["changed target", "replaced connection"] as const)(
+  "waiting transfer preserves current target after %s",
+  async (scenario) => {
+    const f = await fixture();
+    try {
+      const input = await f.endpoint();
+      const output = await f.endpoint();
+      input.server.fs.files.set(source, fresh);
+      output.server.fs.files.set(target, original);
+      const { transferId } = f.queue.start({ source: input.file(source), target: output.file(target) });
+      await f.state(transferId, "waiting");
+      const changed = Buffer.from("different remote revision");
+      if (scenario === "changed target") {
+        output.server.fs.files.set(target, changed);
+        f.queue.decide(transferId, "replace");
+      } else {
+        f.manager.disconnect(output.host.id);
+        await f.manager.connect(output.host.id);
+        expect(f.manager.fileOrigin(output.host.id)?.connectionId).not.toBe(output.session.connectionId);
+      }
+      await f.state(transferId, "failed");
+      expect(f.find(transferId)?.errorCode).toBe(scenario === "changed target" ? "VERSION_CONFLICT" : "SSH_DISCONNECTED");
+      expect(() => f.queue.retry(transferId)).toThrow(scenario === "changed target" ? "重新发起并核对目标" : "从新文件会话重新发起");
+      expect(output.server.fs.files.get(target)).toEqual(scenario === "changed target" ? changed : original);
+      expect(temporary(output.server.fs.files)).toEqual([]);
+    } finally {
+      await f.close();
     }
-    await f.state(transferId, "failed");
-    expect(f.find(transferId)?.errorCode).toBe(scenario === "changed target" ? "VERSION_CONFLICT" : "SSH_DISCONNECTED");
-    expect(() => f.queue.retry(transferId)).toThrow(scenario === "changed target" ? "重新发起并核对目标" : "从新文件会话重新发起");
-    expect(output.server.fs.files.get(target)).toEqual(scenario === "changed target" ? changed : original);
-    expect(temporary(output.server.fs.files)).toEqual([]);
-  } finally {
-    await f.close();
-  }
-}, 12000);
+  },
+  12000,
+);
 
 test("a second pause during the last SFTP target digest holds publication until another resume", async () => {
   const f = await fixture();

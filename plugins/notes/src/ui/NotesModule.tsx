@@ -140,10 +140,16 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
   const list = useCapability<NoteRef[]>("notes.list", { filter });
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
-  const dailyDates = useMemo(() => new Set((every.data ?? []).flatMap(({ path }) => {
-    const date = dailyNoteDate(path);
-    return date ? [date] : [];
-  })), [every.data]);
+  const dailyDates = useMemo(
+    () =>
+      new Set(
+        (every.data ?? []).flatMap(({ path }) => {
+          const date = dailyNoteDate(path);
+          return date ? [date] : [];
+        }),
+      ),
+    [every.data],
+  );
   const calendarZone = settings.data?.dateTime.zone;
   const calendarToday = useMemo(() => todayInZone(calendarClock, calendarZone), [calendarClock, calendarZone]);
   const calendarDate = (selected && dailyNoteDate(selected)) || calendarToday;
@@ -223,17 +229,14 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
   const restrictedFile = tab?.kind === "file" && (tab.view === "viewer" || hasProtectedSegment(tab.path));
   const selectedFile = tab?.kind === "file" && !restrictedFile ? (fileRefs.find((f) => f.path === tab.path) ?? null) : null;
-  const folderOptions = useMemo(
-    () => ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort(),
-    [folders.data, every.data],
-  );
+  const folderOptions = useMemo(() => ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort(), [folders.data, every.data]);
   // 知识库界面出现就预载编辑器块（F09：打开第一篇笔记不再等块下载与求值）
   useEffect(() => preloadEditorSurface(), []);
 
   // 打开的文档标签（DocTab 联合标签）；文件已不存在（回收 / 永久删除 / 改名后）的文件标签自动消失。
   // 只在两份列表都已加载后才裁剪（否则恢复出来的标签会在加载前被清空）。
   const listsReady = every.data !== undefined && indexEntries.data !== undefined;
-  const aliveKey = useMemo(() => listsReady ? [...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)].sort().join("\n") : null, [listsReady, every.data, fileRefs]);
+  const aliveKey = useMemo(() => (listsReady ? [...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)].sort().join("\n") : null), [listsReady, every.data, fileRefs]);
   const pathsBeingMoved = useRef(new Set<string[]>());
   const notesMain = useRef<HTMLDivElement>(null);
   const [moveRevision, setMoveRevision] = useState(0);
@@ -744,12 +747,16 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
           testId="create-daily-note"
           title={locale === "en" ? "Create daily note" : "创建日记"}
           error={error}
-          onClose={() => { if (!dailyInFlight.current) setDialog(null); }}
+          onClose={() => {
+            if (!dailyInFlight.current) setDialog(null);
+          }}
           actions={
             <>
-              <Button disabled={creatingDaily} onClick={() => setDialog(null)}>{locale === "en" ? "Cancel" : "取消"}</Button>
+              <Button disabled={creatingDaily} onClick={() => setDialog(null)}>
+                {locale === "en" ? "Cancel" : "取消"}
+              </Button>
               <Button variant="primary" disabled={creatingDaily} onClick={() => void createDaily(dialog.date)}>
-                {creatingDaily ? (locale === "en" ? "Creating…" : "正在创建…") : (locale === "en" ? "Create" : "创建")}
+                {creatingDaily ? (locale === "en" ? "Creating…" : "正在创建…") : locale === "en" ? "Create" : "创建"}
               </Button>
             </>
           }

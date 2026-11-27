@@ -148,8 +148,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
 
   useLayoutEffect(() => {
     if (focusWithin.current && entry) {
-      const target = focusWithin.current === "entry-heading" ? entryHeading.current
-        : focusWithin.current === "account-heading" ? accountHeading.current : selectedAccount.current;
+      const target = focusWithin.current === "entry-heading" ? entryHeading.current : focusWithin.current === "account-heading" ? accountHeading.current : selectedAccount.current;
       focusWithin.current = null;
       target?.focus();
     }
@@ -372,8 +371,12 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
                 <div className="safe-read-value">{entry.url || "未填网址"}</div>
                 {entry.tagIds.length ? <div className="safe-tag-strip">{renderTags(entry)}</div> : null}
                 <div className="safe-account-head">
-                  <h3>账号 <Badge>{entry.accounts.length}</Badge></h3>
-                  <Button icon={Plus} onClick={() => openEditor({ kind: "add-account", entry })}>新增账号</Button>
+                  <h3>
+                    账号 <Badge>{entry.accounts.length}</Badge>
+                  </h3>
+                  <Button icon={Plus} onClick={() => openEditor({ kind: "add-account", entry })}>
+                    新增账号
+                  </Button>
                 </div>
                 <ul className="safe-account-list" aria-label="账号列表">
                   {entry.accounts.map((item, index) => (
@@ -387,7 +390,9 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
                         data-account-id={item.accountId}
                         onClick={() => select({ entryId: entry.entryId, accountId: item.accountId }, "detail")}
                       >
-                        <strong>{index + 1}. {item.account}</strong>
+                        <strong>
+                          {index + 1}. {item.account}
+                        </strong>
                         <small>{item.hasPassword ? "密码 · ••••••••" : "未设置密码"}</small>
                       </button>
                     </li>
@@ -403,14 +408,25 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
           {entry && account ? (
             <>
               <div className="shell-card-head">
-                <Button className="safe-back" variant="ghost" icon={ArrowLeft} onClick={() => {
-                  focusWithin.current = "account-row";
-                  setPane("accounts");
-                }}>返回账号</Button>
-                <h2 ref={accountHeading} tabIndex={-1}>{account.account}</h2>
+                <Button
+                  className="safe-back"
+                  variant="ghost"
+                  icon={ArrowLeft}
+                  onClick={() => {
+                    focusWithin.current = "account-row";
+                    setPane("accounts");
+                  }}
+                >
+                  返回账号
+                </Button>
+                <h2 ref={accountHeading} tabIndex={-1}>
+                  {account.account}
+                </h2>
                 <div className="safe-panel-actions">
                   <Button onClick={() => openEditor({ kind: "account", entry, account })}>编辑账号</Button>
-                  <Button variant="ghost" onClick={() => confirmRemove({ kind: "account", entry, account })}>删除账号</Button>
+                  <Button variant="ghost" onClick={() => confirmRemove({ kind: "account", entry, account })}>
+                    删除账号
+                  </Button>
                 </div>
               </div>
               <div className="hu-stack hu-safe-detail-body">
@@ -423,12 +439,20 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
                     request={(signal) => engine.call("safe.accounts.reveal", { session, entryId: entry.entryId, accountId: account.accountId }, { signal })}
                   />
                 </Field>
-                <Field label="手机号"><div className="safe-read-value">{account.phone || "未设置"}</div></Field>
-                <Field label="邮箱"><div className="safe-read-value">{account.email || "未设置"}</div></Field>
-                <Field label="备注"><div className="safe-read-value">{account.note || "未填写"}</div></Field>
+                <Field label="手机号">
+                  <div className="safe-read-value">{account.phone || "未设置"}</div>
+                </Field>
+                <Field label="邮箱">
+                  <div className="safe-read-value">{account.email || "未设置"}</div>
+                </Field>
+                <Field label="备注">
+                  <div className="safe-read-value">{account.note || "未填写"}</div>
+                </Field>
               </div>
             </>
-          ) : <EmptyState icon={KeyRound} title="选择一个账号查看详情" />}
+          ) : (
+            <EmptyState icon={KeyRound} title="选择一个账号查看详情" />
+          )}
         </section>
       </div>
       {managingTags && catalog ? (

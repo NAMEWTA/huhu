@@ -31,12 +31,9 @@ const mailStatus = {
   "partially-accepted": "部分收件人已接受",
 };
 
-export function OccurrenceDetail({ id, terminalRunId, onNavigate, expectedPlanId, onOpenPlan }: {
-  id: string; terminalRunId?: string; onNavigate: Navigate; expectedPlanId?: string; onOpenPlan?(): void;
-}) {
+export function OccurrenceDetail({ id, terminalRunId, onNavigate, expectedPlanId, onOpenPlan }: { id: string; terminalRunId?: string; onNavigate: Navigate; expectedPlanId?: string; onOpenPlan?(): void }) {
   const occurrence = useCapability<PlanOccurrence | null>("automations.plans.readOccurrence", { occurrenceId: id });
-  const historic = useCapability<HistoryPage>("automations.plans.history", { planId: expectedPlanId, occurrenceId: id, limit: 1 },
-    { enabled: Boolean(expectedPlanId && occurrence.data === null) });
+  const historic = useCapability<HistoryPage>("automations.plans.history", { planId: expectedPlanId, occurrenceId: id, limit: 1 }, { enabled: Boolean(expectedPlanId && occurrence.data === null) });
   const terminal = terminalRunId ?? historic.data?.rows[0]?.terminalRunId;
   const [output, setOutput] = useState(false);
   const row = !expectedPlanId || occurrence.data?.plan.planId === expectedPlanId ? occurrence.data : null;
@@ -102,8 +99,7 @@ export function OccurrenceDetail({ id, terminalRunId, onNavigate, expectedPlanId
                         · <code>{effect.receiptId}</code>
                       </>
                     ) : null}
-                    {effect.target.kind === "task" && (effect.kind === "task-create" || effect.kind === "task-comment") && effect.state === "completed"
-                      ? <TaskLink id={effect.target.id} onNavigate={onNavigate} /> : null}
+                    {effect.target.kind === "task" && (effect.kind === "task-create" || effect.kind === "task-comment") && effect.state === "completed" ? <TaskLink id={effect.target.id} onNavigate={onNavigate} /> : null}
                     {effect.recovery ? <EffectRecovery effect={effect} link={{ planId: row.plan.planId, occurrenceId: row.occurrenceId }} changed={occurrence.refetch} /> : null}
                   </li>
                 ))}
@@ -157,11 +153,15 @@ function EffectRecovery({ effect, link, changed }: { effect: PlanEffect; link: P
     }
   }
 
-  return <>
-    <Button variant="ghost" loading={busy} onClick={() => void recover()}>{effect.recovery === "verify" ? "核实该效果" : "重试该效果"}</Button>
-    {message ? <span role="status">{message}</span> : null}
-    {error ? <span role="alert">{error}</span> : null}
-  </>;
+  return (
+    <>
+      <Button variant="ghost" loading={busy} onClick={() => void recover()}>
+        {effect.recovery === "verify" ? "核实该效果" : "重试该效果"}
+      </Button>
+      {message ? <span role="status">{message}</span> : null}
+      {error ? <span role="alert">{error}</span> : null}
+    </>
+  );
 }
 
 function TaskLink({ id, runId, onNavigate }: { id: string; runId?: string; onNavigate: Navigate }) {
@@ -219,7 +219,7 @@ function OccurrenceTask({ effect, onNavigate }: { effect: PlanOccurrence["effect
   return (
     <article className="hu-stack" data-testid="occurrence-child-run">
       <header>
-        <strong>{!task.error && task.data ? task.data.title : taskId}</strong> <Badge>{identity ? views?.taskRunLabel(identity, run) ?? run?.state ?? identity.state : effects[effect.state]}</Badge>
+        <strong>{!task.error && task.data ? task.data.title : taskId}</strong> <Badge>{identity ? (views?.taskRunLabel(identity, run) ?? run?.state ?? identity.state) : effects[effect.state]}</Badge>
       </header>
       {error ? <p role="alert">无法读取原任务运行。{error.message}</p> : null}
       {!error && dispatch.data && !identity ? <p role="status">没有找到原派遣，保留已记录的受理状态。</p> : null}

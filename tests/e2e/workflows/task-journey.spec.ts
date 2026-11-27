@@ -262,7 +262,14 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     const previousEndpoint = await page.evaluate(async () => (await window.huhuHost.engine()).baseUrl);
     await withFixtureDeadline(22_000, () => page.evaluate(() => window.huhuHost.vault.close()));
     expect(await page.evaluate(() => window.huhuHost.vault.state())).toMatchObject({ path: null });
-    await expect.poll(() => fetch(`${previousEndpoint}/healthz`, { signal: AbortSignal.timeout(1000) }).then(() => true, () => false)).toBe(false);
+    await expect
+      .poll(() =>
+        fetch(`${previousEndpoint}/healthz`, { signal: AbortSignal.timeout(1000) }).then(
+          () => true,
+          () => false,
+        ),
+      )
+      .toBe(false);
     expect(await withFixtureDeadline(25_000, () => page.evaluate((vault) => window.huhuHost.vault.open(vault), desktop!.vault))).toMatchObject({ ok: true });
     await page.reload({ timeout: 20_000 });
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
@@ -293,10 +300,14 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     expect(task.execution).toMatchObject({ provider: "codex", spaceId: space!.id, target: { mode: "resume", nativeSessionId: b.id, history: { spaceId: space!.id } } });
     const changedA = oldA + "\n";
     await writeFile(a.file, changedA);
-    await expect(call("tasks.create", {
-      title: "过期物理历史选择", body: "This must not start a turn.", type: "agent",
-      execution: { spaceId: space!.id, provider: "codex", target: { mode: "resume", nativeSessionId: a.id, history: sourceA!.history } },
-    })).rejects.toThrow("INVALID_INPUT");
+    await expect(
+      call("tasks.create", {
+        title: "过期物理历史选择",
+        body: "This must not start a turn.",
+        type: "agent",
+        execution: { spaceId: space!.id, provider: "codex", target: { mode: "resume", nativeSessionId: a.id, history: sourceA!.history } },
+      }),
+    ).rejects.toThrow("INVALID_INPUT");
     expect(await call("agent.sessions.list", { spaceId: space!.id })).toEqual([]);
     expect(responses.requests).toHaveLength(sourceRequests.length);
 
@@ -307,8 +318,7 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     await mkdir(unrelated, { recursive: true });
     for (let i = 0; i < 2001; i++) {
       const id = randomUUID();
-      await writeFile(path.join(unrelated, `rollout-2099-01-01T00-00-00-${id}.jsonl`),
-        JSON.stringify({ type: "session_meta", payload: { id, cwd: other } }) + "\n");
+      await writeFile(path.join(unrelated, `rollout-2099-01-01T00-00-00-${id}.jsonl`), JSON.stringify({ type: "session_meta", payload: { id, cwd: other } }) + "\n");
     }
     const detail = await openTask(page, title);
     const [submitted] = await Promise.all([
@@ -336,10 +346,17 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     expect(responses.requests).toHaveLength(sourceRequests.length + 1);
     const [question] = await questions();
     await call("tasks.comments.add", { taskId: task.id, body: "Circle" });
-    await expect(call("tasks.reply", {
-      taskId: task.id, runId: run!.runId, sessionId: session!.id, requestId: question!.requestId,
-      requestVersion: question!.requestVersion + 1, replyId: randomUUID(), answer: "Circle",
-    })).rejects.toThrow("VERSION_CONFLICT");
+    await expect(
+      call("tasks.reply", {
+        taskId: task.id,
+        runId: run!.runId,
+        sessionId: session!.id,
+        requestId: question!.requestId,
+        requestVersion: question!.requestVersion + 1,
+        replyId: randomUUID(),
+        answer: "Circle",
+      }),
+    ).rejects.toThrow("VERSION_CONFLICT");
     expect(responses.requests).toHaveLength(sourceRequests.length + 1);
     expect(await call("web.share.start", { mode: "local", port: 0 })).toMatchObject({ state: "running" });
     const { links } = await call<{ links: string[] }>("web.invitations.create");
@@ -352,17 +369,27 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     const managed = await openRun(web, title);
     const peerRun = await openRun(peer, title);
     const queued = await call<TaskDto>("tasks.create", {
-      title: "等待同一原会话的任务", body: "This input should stay queued.", type: "agent",
+      title: "等待同一原会话的任务",
+      body: "This input should stay queued.",
+      type: "agent",
       execution: { spaceId: space!.id, target: { mode: "existing", sessionId: session!.id } },
     });
     const queuedDispatch = await call<TaskDispatchView>("tasks.dispatch", {
-      taskId: queued.id, dispatchId: randomUUID(), expectedVersion: queued.version, inputRevision: queued.inputRevision, inputHash: queued.inputHash,
+      taskId: queued.id,
+      dispatchId: randomUUID(),
+      expectedVersion: queued.version,
+      inputRevision: queued.inputRevision,
+      inputHash: queued.inputHash,
     });
     await expect.poll(() => listDispatches(call, queued.id)).toMatchObject([{ reason: "waiting_resource" }]);
     await openTask(page, title);
     for (const viewer of [page, web, peer]) {
       const resources = viewer.getByRole("region", { name: "本机派遣资源" });
-      const value = (label: string) => resources.locator("dl > div").filter({ has: viewer.getByText(label, { exact: true }) }).locator("dd");
+      const value = (label: string) =>
+        resources
+          .locator("dl > div")
+          .filter({ has: viewer.getByText(label, { exact: true }) })
+          .locator("dd");
       await expect(value("本机活动名额")).toHaveText("0 / 1");
       await expect(value("本机保留名额")).toHaveText("1 / 2");
       await expect(value("排队积压")).toHaveText("1");
@@ -375,10 +402,7 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     await refreshResources.click();
     await expect(refreshResources).toBeFocused();
     await expect(refreshResources).toHaveAttribute("aria-disabled", "false");
-    await Promise.all([
-      page.waitForRequest((request) => request.url().endsWith("/api/v1/call") && request.postDataJSON()?.capability === "tasks.dispatch.resources"),
-      refreshResources.press("Enter"),
-    ]);
+    await Promise.all([page.waitForRequest((request) => request.url().endsWith("/api/v1/call") && request.postDataJSON()?.capability === "tasks.dispatch.resources"), refreshResources.press("Enter")]);
     expect(await desktopResources.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
     expect(responses.requests).toHaveLength(sourceRequests.length + 1);
     await call("tasks.dispatch.cancel", { taskId: queued.id, dispatchId: queuedDispatch.dispatchId });
@@ -426,17 +450,26 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     ["关闭独立浏览器", () => withFixtureDeadline(10_000, async () => browser?.close())],
     ["停止桌面引擎", () => withFixtureDeadline(22_000, async () => desktop?.page.evaluate(() => window.huhuHost.vault.close()))],
     ["回收独立 Core", () => stopFixtureCore(coreBin, runtime, process.env)],
-    ["关闭桌面", async () => {
-      if (!desktop) return;
-      try {
-        await withFixtureDeadline(12_000, desktop.close);
-      } catch (error) {
-        desktop.app.process().kill("SIGKILL");
-        throw error;
-      }
-    }],
+    [
+      "关闭桌面",
+      async () => {
+        if (!desktop) return;
+        try {
+          await withFixtureDeadline(12_000, desktop.close);
+        } catch (error) {
+          desktop.app.process().kill("SIGKILL");
+          throw error;
+        }
+      },
+    ],
     ["停止本地模型夹具", () => withFixtureDeadline(5_000, responses.close)],
-    ["清理受控资料和运行目录", () => { rmTree(privateHome); rmTree(runtime); }],
+    [
+      "清理受控资料和运行目录",
+      () => {
+        rmTree(privateHome);
+        rmTree(runtime);
+      },
+    ],
   ]);
 });
 
@@ -459,7 +492,8 @@ test("TW6 历史消失后从所选摘要与产物显式开始新轮次", async (
     const [space] = await call<{ id: string }[]>("agent.spaces.list");
     const { settings } = await call<{ settings: AgentSettingsFile }>("agent.settings.get");
     await call("agent.settings.update", {
-      ...settings, expectedRevision: settings.revision,
+      ...settings,
+      expectedRevision: settings.revision,
       agents: { ...settings.agents, codex: { ...settings.agents["codex"], command: provider, env: { CODEX_HOME: home } } },
     });
     const artifact = "Notes/新轮次产物.txt";
@@ -467,7 +501,9 @@ test("TW6 历史消失后从所选摘要与产物显式开始新轮次", async (
     await mkdir(path.join(vault, "Notes"), { recursive: true });
     await writeFile(path.join(vault, artifact), contents);
     const task = await call<TaskDto>("tasks.create", {
-      title: "原会话结束后明确续办", body: "Work on the fixture task.", type: "agent",
+      title: "原会话结束后明确续办",
+      body: "Work on the fixture task.",
+      type: "agent",
       execution: { spaceId: space!.id, provider: "codex" },
     });
     const detail = await openTask(page, task.title);
@@ -487,8 +523,7 @@ test("TW6 历史消失后从所选摘要与产物显式开始新轮次", async (
     expect(closed).toMatchObject([{ runId: old!.runId, status: "closed" }]);
     expect(closed[0]).not.toHaveProperty("reply");
     await call("agent.sessions.kill", { id: old!.session!.id });
-    await expect.poll(async () => (await call<{ id: string; state: string }[]>("agent.sessions.list", { spaceId: space!.id }))
-      .some(({ id, state }) => id === old!.session!.id && state !== "exited")).toBe(false);
+    await expect.poll(async () => (await call<{ id: string; state: string }[]>("agent.sessions.list", { spaceId: space!.id })).some(({ id, state }) => id === old!.session!.id && state !== "exited")).toBe(false);
     const summary = "SUMMARY-SELECTED";
     const excluded = "SUMMARY-EXCLUDED";
     const { comment } = await call<{ comment: { id: string } }>("tasks.comments.add", { taskId: task.id, body: `${summary} [[${artifact}]]` });
@@ -515,15 +550,25 @@ test("TW6 历史消失后从所选摘要与产物显式开始新轮次", async (
       page.waitForRequest((request) => request.url().endsWith("/api/v1/call") && request.postDataJSON()?.capability === "tasks.dispatch"),
       round.getByRole("button", { name: "确认开始新一轮" }).press("Enter"),
     ]);
-    expect(request.postDataJSON().input).toMatchObject({ taskId: task.id, newRound: true, context: {
-      messageIds: [comment.id],
-      artifacts: [{ path: artifact, expectedVersion: expect.any(String) }],
-    } });
+    expect(request.postDataJSON().input).toMatchObject({
+      taskId: task.id,
+      newRound: true,
+      context: {
+        messageIds: [comment.id],
+        artifacts: [{ path: artifact, expectedVersion: expect.any(String) }],
+      },
+    });
     await expect(round).toBeHidden();
     await expect(detail.getByText("新轮次已受理。")).toBeVisible();
-    await expect.poll(() => listDispatches(call, task.id), { timeout: 30_000 }).toContainEqual(expect.objectContaining({
-      runId: expect.not.stringMatching(old!.runId), parentRunId: old!.runId, state: "running",
-    }));
+    await expect
+      .poll(() => listDispatches(call, task.id), { timeout: 30_000 })
+      .toContainEqual(
+        expect.objectContaining({
+          runId: expect.not.stringMatching(old!.runId),
+          parentRunId: old!.runId,
+          state: "running",
+        }),
+      );
     await expect.poll(() => responses.requests.length).toBe(2);
     const followUp = JSON.stringify(responses.requests[1]!.input);
     expect(followUp).toContain(summary);
@@ -591,7 +636,7 @@ test("T4.1 与 T5.5 在工作台处理 DST 回拨与缺口、保留启用状态�
       return payload?.capability === "automations.plans.previewRuleDraft" && payload.input?.trigger?.zone === "Asia/Taipei";
     });
     await ruleEditor.getByLabel("时区", { exact: true }).fill("Asia/Taipei");
-    const { data: draftPreview } = await (await enginePreview).json() as { data: { next: string[] } };
+    const { data: draftPreview } = (await (await enginePreview).json()) as { data: { next: string[] } };
     const previewTimes = ruleEditor.getByTestId("rule-upcoming").locator("time");
     await expect(previewTimes).toHaveCount(3);
     const proposed = await previewTimes.evaluateAll((elements) => elements.map((element) => element.getAttribute("datetime")));
@@ -1245,7 +1290,16 @@ async function withTaskCodex(
   const provider = await realpath(binary!);
   const coreBin = process.env["HUHU_HERDR_BIN"] ?? path.join(desktopRoot, "resources/herdr/linux-x64/herdr-core");
   const responses = await startCodexResponsesFixture({ step });
-  const env: NodeJS.ProcessEnv = { ...process.env, HUHU_VAULT: vault, HUHU_HERDR_BIN: coreBin, HUHU_CODEX_DISPATCH_HOME: home, HUHU_CODEX_DISPATCH_BIN: provider, XDG_CONFIG_HOME: config, XDG_RUNTIME_DIR: runtime, HUHU_E2E_TASK_RECEIPT_ACK_GATE: gate };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HUHU_VAULT: vault,
+    HUHU_HERDR_BIN: coreBin,
+    HUHU_CODEX_DISPATCH_HOME: home,
+    HUHU_CODEX_DISPATCH_BIN: provider,
+    XDG_CONFIG_HOME: config,
+    XDG_RUNTIME_DIR: runtime,
+    HUHU_E2E_TASK_RECEIPT_ACK_GATE: gate,
+  };
   for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SOCKET", "HC_SESSION", "HC_SCOPE"]) delete env[key];
   let app: ElectronApplication | undefined;
   let vaultId: string | undefined;
@@ -1259,7 +1313,8 @@ async function withTaskCodex(
     await pauseRules(call);
     const { settings } = await call<{ settings: AgentSettingsFile }>("agent.settings.get");
     await call("agent.settings.update", {
-      ...settings, expectedRevision: settings.revision,
+      ...settings,
+      expectedRevision: settings.revision,
       agents: { ...settings.agents, codex: { ...settings.agents["codex"], command: provider, env: { CODEX_HOME: home } } },
     });
     await exercise({ desktop: { page, vault }, call, responses, root, gate });
@@ -1275,21 +1330,22 @@ async function withTaskCodex(
 
 async function publishTaskEcho(call: Call, url: string, namespace: string) {
   const source = await call<McpSource>("mcp.sources.create", {
-    displayName: namespace, namespace,
+    displayName: namespace,
+    namespace,
     configuration: { transport: "streamable-http", url, headers: {}, authentication: { kind: "none" } },
   });
   const ref = { sourceId: source.sourceId, expectedRevision: source.revision };
   expect(await call("mcp.sources.check", ref)).toMatchObject({ state: "ready" });
   const { catalogRevision, policyRevision } = await call<McpCatalogView>("mcp.catalog.list", { sourceId: source.sourceId });
-  await call("mcp.policy.update", { expectedCatalogRevision: catalogRevision, expectedPolicyRevision: policyRevision, choices: [
-    { sourceId: source.sourceId, upstreamIdentity: "echo", selected: true },
-  ] });
+  await call("mcp.policy.update", { expectedCatalogRevision: catalogRevision, expectedPolicyRevision: policyRevision, choices: [{ sourceId: source.sourceId, upstreamIdentity: "echo", selected: true }] });
   return call<McpSource>("mcp.sources.setEnabled", { ...ref, enabled: true });
 }
 
 function holdFixture() {
   let resolve!: () => void;
-  const promise = new Promise<void>((finish) => { resolve = finish; });
+  const promise = new Promise<void>((finish) => {
+    resolve = finish;
+  });
   return { promise, resolve };
 }
 
@@ -1304,7 +1360,9 @@ async function taskFixtureBearer(root: string): Promise<string> {
     for (const attempt of await readdir(path.join(launches, vaultDir))) {
       const marker = await readFile(path.join(launches, vaultDir, attempt, "task-mcp-active.json"), "utf8").catch(() => "");
       if (!marker) continue;
-      const { data: { pid } } = JSON.parse(marker) as { data: { pid: number } };
+      const {
+        data: { pid },
+      } = JSON.parse(marker) as { data: { pid: number } };
       const children = await readFile(`/proc/${pid}/task/${pid}/children`, "utf8");
       for (const child of children.trim().split(/\s+/u)) {
         const vars = await readFile(`/proc/${child}/environ`, "utf8").catch(() => "");
@@ -1323,73 +1381,77 @@ test("受控 Task 只调用授权工具，结束和撤销后旧会话失效", as
   const advance = holdFixture();
   const firstEnd = holdFixture();
   try {
-    await withTaskCodex(async (_request, index) => {
-      if (index === 1) return huhuMcpStep("vault_info", {});
-      if (index === 2) return huhuMcpStep("task_allowed__echo", { value: "first" });
-      if (index === 3) {
-        await firstEnd.promise;
-        return { result: "允许的工具已完成" };
-      }
-      if (index === 4) {
-        await advance.promise;
-        return huhuMcpStep("task_allowed__echo", { value: "revoked" });
-      }
-      return { result: "已处理撤权" };
-    }, async ({ desktop: { page }, call, responses, root }) => {
-      const allowedSource = await publishTaskEcho(call, allowed.url, "task_allowed");
-      const otherSource = await publishTaskEcho(call, other.url, "task_other");
-      await call("gateway.update", { capability: "vault.info", exposed: true });
-      await call("gateway.mcp.update", { enabled: true });
-      // Enabling a source invalidates its temporary check. Rediscover the enabled revision before opening the read-only catalog.
-      for (const source of [allowedSource, otherSource]) {
-        expect(await call("mcp.sources.refresh", { sourceId: source.sourceId, expectedRevision: source.revision }))
-          .toMatchObject({ state: "ready", toolCount: 1 });
-      }
-      const [space] = await call<{ id: string }[]>("agent.spaces.list");
-      async function createAuthorizedTask(title: string) {
-        const task = await call<TaskDto>("tasks.create", { title, body: "调用经授权的工具。", type: "agent", execution: { spaceId: space!.id, provider: "codex" } });
-        const detail = await openTask(page, task.title);
-        await detail.getByRole("button", { name: "任务 MCP 授权" }).click();
-        const dialog = page.getByRole("dialog", { name: "任务 MCP 授权" });
-        await dialog.getByRole("checkbox", { name: "选择 vault.info（Huhu 内置）" }).check();
-        await dialog.getByRole("checkbox", { name: "选择 task_allowed__echo（task_allowed）" }).check();
-        await expect(dialog.getByRole("checkbox", { name: "选择 task_other__echo（task_other）" })).not.toBeChecked();
-        await dialog.getByRole("button", { name: "保存工具授权" }).click();
-        await expect(detail.getByText("已授权 2 项工具")).toBeVisible();
-        await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
-        return { task, detail };
-      }
-      const { task: finished } = await createAuthorizedTask("受控工具完成");
-      await expect.poll(() => responses.requests.length, { timeout: 40_000 }).toBe(3);
-      const { mcp: { url } } = await call<{ mcp: { url: string } }>("gateway.get");
-      const bearer = await taskFixtureBearer(root);
-      const oldSession = await openMcpSession(url, bearer);
-      const attemptUse = (token: string, session: string) => mcpRequest(url, token, mcpRpc("tools/call", { name: "task_allowed__echo", arguments: { value: "cached" } }), session);
-      firstEnd.resolve();
-      await expectTaskResult(call, finished, "允许的工具已完成");
-      expect((await attemptUse(bearer, oldSession)).status).toBe(401);
-      const firstToolNames = huhuMcpTools(responses.requests[0]);
-      expect(firstToolNames).toContain("vault_info");
-      expect(firstToolNames).toContain("task_allowed__echo");
-      expect(firstToolNames).not.toContain("task_other__echo");
-      expect(allowed.calls).toEqual([{ name: "echo", input: { value: "first" } }]);
-      expect(other.calls).toHaveLength(0);
+    await withTaskCodex(
+      async (_request, index) => {
+        if (index === 1) return huhuMcpStep("vault_info", {});
+        if (index === 2) return huhuMcpStep("task_allowed__echo", { value: "first" });
+        if (index === 3) {
+          await firstEnd.promise;
+          return { result: "允许的工具已完成" };
+        }
+        if (index === 4) {
+          await advance.promise;
+          return huhuMcpStep("task_allowed__echo", { value: "revoked" });
+        }
+        return { result: "已处理撤权" };
+      },
+      async ({ desktop: { page }, call, responses, root }) => {
+        const allowedSource = await publishTaskEcho(call, allowed.url, "task_allowed");
+        const otherSource = await publishTaskEcho(call, other.url, "task_other");
+        await call("gateway.update", { capability: "vault.info", exposed: true });
+        await call("gateway.mcp.update", { enabled: true });
+        // Enabling a source invalidates its temporary check. Rediscover the enabled revision before opening the read-only catalog.
+        for (const source of [allowedSource, otherSource]) {
+          expect(await call("mcp.sources.refresh", { sourceId: source.sourceId, expectedRevision: source.revision })).toMatchObject({ state: "ready", toolCount: 1 });
+        }
+        const [space] = await call<{ id: string }[]>("agent.spaces.list");
+        async function createAuthorizedTask(title: string) {
+          const task = await call<TaskDto>("tasks.create", { title, body: "调用经授权的工具。", type: "agent", execution: { spaceId: space!.id, provider: "codex" } });
+          const detail = await openTask(page, task.title);
+          await detail.getByRole("button", { name: "任务 MCP 授权" }).click();
+          const dialog = page.getByRole("dialog", { name: "任务 MCP 授权" });
+          await dialog.getByRole("checkbox", { name: "选择 vault.info（Huhu 内置）" }).check();
+          await dialog.getByRole("checkbox", { name: "选择 task_allowed__echo（task_allowed）" }).check();
+          await expect(dialog.getByRole("checkbox", { name: "选择 task_other__echo（task_other）" })).not.toBeChecked();
+          await dialog.getByRole("button", { name: "保存工具授权" }).click();
+          await expect(detail.getByText("已授权 2 项工具")).toBeVisible();
+          await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
+          return { task, detail };
+        }
+        const { task: finished } = await createAuthorizedTask("受控工具完成");
+        await expect.poll(() => responses.requests.length, { timeout: 40_000 }).toBe(3);
+        const {
+          mcp: { url },
+        } = await call<{ mcp: { url: string } }>("gateway.get");
+        const bearer = await taskFixtureBearer(root);
+        const oldSession = await openMcpSession(url, bearer);
+        const attemptUse = (token: string, session: string) => mcpRequest(url, token, mcpRpc("tools/call", { name: "task_allowed__echo", arguments: { value: "cached" } }), session);
+        firstEnd.resolve();
+        await expectTaskResult(call, finished, "允许的工具已完成");
+        expect((await attemptUse(bearer, oldSession)).status).toBe(401);
+        const firstToolNames = huhuMcpTools(responses.requests[0]);
+        expect(firstToolNames).toContain("vault_info");
+        expect(firstToolNames).toContain("task_allowed__echo");
+        expect(firstToolNames).not.toContain("task_other__echo");
+        expect(allowed.calls).toEqual([{ name: "echo", input: { value: "first" } }]);
+        expect(other.calls).toHaveLength(0);
 
-      const { task: revoked, detail } = await createAuthorizedTask("受控工具撤权");
-      await expect.poll(() => responses.requests.length, { timeout: 30_000 }).toBe(4);
-      const revokingBearer = await taskFixtureBearer(root);
-      const revokingSession = await openMcpSession(url, revokingBearer);
-      await detail.getByRole("button", { name: "任务 MCP 授权" }).click();
-      await page.getByRole("button", { name: "撤销任务授权" }).click();
-      await expect(detail.getByText("未授权工具")).toBeVisible();
-      expect((await attemptUse(revokingBearer, revokingSession)).status).toBe(401);
-      expect((await mcpRequest(url, revokingBearer, initializeMcp)).status).toBe(401);
-      advance.resolve();
-      await expectTaskResult(call, revoked, "已处理撤权");
-      expect(responses.requests[4]?.input).toEqual(expect.arrayContaining([expect.objectContaining({ type: "function_call_output" })]));
-      expect(allowed.calls).toHaveLength(1);
-      expect(other.calls).toHaveLength(0);
-    });
+        const { task: revoked, detail } = await createAuthorizedTask("受控工具撤权");
+        await expect.poll(() => responses.requests.length, { timeout: 30_000 }).toBe(4);
+        const revokingBearer = await taskFixtureBearer(root);
+        const revokingSession = await openMcpSession(url, revokingBearer);
+        await detail.getByRole("button", { name: "任务 MCP 授权" }).click();
+        await page.getByRole("button", { name: "撤销任务授权" }).click();
+        await expect(detail.getByText("未授权工具")).toBeVisible();
+        expect((await attemptUse(revokingBearer, revokingSession)).status).toBe(401);
+        expect((await mcpRequest(url, revokingBearer, initializeMcp)).status).toBe(401);
+        advance.resolve();
+        await expectTaskResult(call, revoked, "已处理撤权");
+        expect(responses.requests[4]?.input).toEqual(expect.arrayContaining([expect.objectContaining({ type: "function_call_output" })]));
+        expect(allowed.calls).toHaveLength(1);
+        expect(other.calls).toHaveLength(0);
+      },
+    );
   } finally {
     firstEnd.resolve();
     advance.resolve();
@@ -1403,51 +1465,58 @@ test("同一受控任务写授权文件、调用内置与外部工具并按原�
   const afterTools = holdFixture();
   let workspace: string;
   try {
-    await withTaskCodex(async ({ tools }, index) => {
-      if (index === 1) {
-        const shell = tools.find(({ name }) => name === "exec_command" || name === "shell_command")?.name ?? "exec_command";
-        const command = "printf 'task-workspace' > proof.txt";
-        return { tool: shell, arguments: shell === "shell_command" ? { command, workdir: workspace } : { cmd: command, workdir: workspace } };
-      }
-      if (index === 2) return huhuMcpStep("vault_info", {});
-      if (index === 3) return huhuMcpStep("task_workspace__echo", { value: "workspace" });
-      if (index === 4) {
-        await afterTools.promise;
-        return huhuMcpStep("task_workspace__echo", { value: "after-revocation" });
-      }
-      return { result: "写入与工具执行已核对" };
-    }, async ({ desktop: { page }, call, responses, root }) => {
-      workspace = path.join(root, "workspace");
-      await mkdir(workspace);
-      const space = await call<{ id: string; revision: number }>("agent.spaces.save", { name: "Task MCP 写入空间", root: workspace });
-      await call("agent.spaces.dispatchWriteApproval", { id: space.id, expectedRevision: space.revision, allowed: true });
-      const source = await publishTaskEcho(call, upstream.url, "task_workspace");
-      await call("gateway.update", { capability: "vault.info", exposed: true });
-      await call("gateway.mcp.update", { enabled: true });
-      const task = await call<TaskDto>("tasks.create", {
-        title: "组合工作区与 MCP", body: "写入授权工作区，调用选定工具。", type: "agent",
-        execution: { spaceId: space.id, provider: "codex", profile: "workspace-write" },
-      });
-      expect(await call("tasks.dispatch.targets", { spaceId: space.id, taskId: task.id, profile: "workspace-write" })).toEqual(expect.arrayContaining([
-        expect.objectContaining({ mode: "new", provider: "codex", capabilities: expect.objectContaining({ mcp: { state: "unsupported", reason: "no_task_tool_scope" } }) }),
-      ]));
-      const tools: TaskMcpTool[] = [{ sourceId: "builtin", upstreamIdentity: "vault.info", sourceRevision: null },
-        { sourceId: source.sourceId, upstreamIdentity: "echo", sourceRevision: source.revision }];
-      await call("tasks.mcp.authorize", { id: task.id, expectedVersion: task.version, tools });
-      const detail = await openTask(page, task.title);
-      await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
-      await expect.poll(() => responses.requests.length, { timeout: 45_000 }).toBe(4);
-      expect(await readFile(path.join(workspace, "proof.txt"), "utf8")).toBe("task-workspace");
-      expect(upstream.calls).toEqual([{ name: "echo", input: { value: "workspace" } }]);
-      const [run] = await listDispatches(call, task.id);
-      expect(run).toMatchObject({ attempt: 1 });
-      const current = await call<TaskDto>("tasks.read", { id: task.id });
-      await call("tasks.mcp.authorize", { id: task.id, expectedVersion: current.version, tools: [] });
-      afterTools.resolve();
-      await expectTaskResult(call, task, "写入与工具执行已核对");
-      expect(await listDispatches(call, task.id)).toMatchObject([{ dispatchId: run!.dispatchId, runId: run!.runId, attempt: 1 }]);
-      expect(upstream.calls).toHaveLength(1);
-    });
+    await withTaskCodex(
+      async ({ tools }, index) => {
+        if (index === 1) {
+          const shell = tools.find(({ name }) => name === "exec_command" || name === "shell_command")?.name ?? "exec_command";
+          const command = "printf 'task-workspace' > proof.txt";
+          return { tool: shell, arguments: shell === "shell_command" ? { command, workdir: workspace } : { cmd: command, workdir: workspace } };
+        }
+        if (index === 2) return huhuMcpStep("vault_info", {});
+        if (index === 3) return huhuMcpStep("task_workspace__echo", { value: "workspace" });
+        if (index === 4) {
+          await afterTools.promise;
+          return huhuMcpStep("task_workspace__echo", { value: "after-revocation" });
+        }
+        return { result: "写入与工具执行已核对" };
+      },
+      async ({ desktop: { page }, call, responses, root }) => {
+        workspace = path.join(root, "workspace");
+        await mkdir(workspace);
+        const space = await call<{ id: string; revision: number }>("agent.spaces.save", { name: "Task MCP 写入空间", root: workspace });
+        await call("agent.spaces.dispatchWriteApproval", { id: space.id, expectedRevision: space.revision, allowed: true });
+        const source = await publishTaskEcho(call, upstream.url, "task_workspace");
+        await call("gateway.update", { capability: "vault.info", exposed: true });
+        await call("gateway.mcp.update", { enabled: true });
+        const task = await call<TaskDto>("tasks.create", {
+          title: "组合工作区与 MCP",
+          body: "写入授权工作区，调用选定工具。",
+          type: "agent",
+          execution: { spaceId: space.id, provider: "codex", profile: "workspace-write" },
+        });
+        expect(await call("tasks.dispatch.targets", { spaceId: space.id, taskId: task.id, profile: "workspace-write" })).toEqual(
+          expect.arrayContaining([expect.objectContaining({ mode: "new", provider: "codex", capabilities: expect.objectContaining({ mcp: { state: "unsupported", reason: "no_task_tool_scope" } }) })]),
+        );
+        const tools: TaskMcpTool[] = [
+          { sourceId: "builtin", upstreamIdentity: "vault.info", sourceRevision: null },
+          { sourceId: source.sourceId, upstreamIdentity: "echo", sourceRevision: source.revision },
+        ];
+        await call("tasks.mcp.authorize", { id: task.id, expectedVersion: task.version, tools });
+        const detail = await openTask(page, task.title);
+        await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
+        await expect.poll(() => responses.requests.length, { timeout: 45_000 }).toBe(4);
+        expect(await readFile(path.join(workspace, "proof.txt"), "utf8")).toBe("task-workspace");
+        expect(upstream.calls).toEqual([{ name: "echo", input: { value: "workspace" } }]);
+        const [run] = await listDispatches(call, task.id);
+        expect(run).toMatchObject({ attempt: 1 });
+        const current = await call<TaskDto>("tasks.read", { id: task.id });
+        await call("tasks.mcp.authorize", { id: task.id, expectedVersion: current.version, tools: [] });
+        afterTools.resolve();
+        await expectTaskResult(call, task, "写入与工具执行已核对");
+        expect(await listDispatches(call, task.id)).toMatchObject([{ dispatchId: run!.dispatchId, runId: run!.runId, attempt: 1 }]);
+        expect(upstream.calls).toHaveLength(1);
+      },
+    );
   } finally {
     afterTools.resolve();
     await upstream.close();
@@ -1458,51 +1527,54 @@ test("TW1 各可信终态显示独立运行结果并释放已证结束的占用"
   test.setTimeout(160_000);
   const held = holdFixture();
   try {
-    await withTaskCodex(async (_request, index) => {
-      if (index === 1) return { result: "独立成功结果" };
-      if (index === 2) return { error: "独立失败原因" };
-      if (index === 3) return { noFinal: true };
-      await held.promise;
-      return { result: "迟到结果" };
-    }, async ({ desktop: { page }, call, responses, gate }) => {
-      const [space] = await call<{ id: string }[]>("agent.spaces.list");
-      const dispatch = async (title: string, dispatchId: string) => {
-        const task = await call<TaskDto>("tasks.create", { title, body: title, type: "agent", execution: { spaceId: space!.id, provider: "codex" } });
-        await call("tasks.dispatch", { taskId: task.id, dispatchId, expectedVersion: task.version, inputRevision: task.inputRevision, inputHash: task.inputHash });
-        const [row] = await listDispatches(call, task.id);
-        return { task, runId: row!.runId };
-      };
-      const proof = async (task: TaskDto, runId: string, state: string) => {
-        await expect.poll(() => call("tasks.runs", { id: task.id }), { timeout: 40_000 }).toMatchObject([{ id: runId, state, finishedAt: expect.any(String) }]);
-        await expect.poll(() => call("tasks.dispatch.resources"), { timeout: 15_000 }).toMatchObject({ vault: { active: 0 }, device: { active: { occupied: 0 } } });
-        expect(await call<TaskDto>("tasks.read", { id: task.id })).toMatchObject({ status: "in_progress" });
-        const row = await openRun(page, task.title);
-        await expect(row).toHaveAttribute("data-run-id", runId);
-        return row;
-      };
+    await withTaskCodex(
+      async (_request, index) => {
+        if (index === 1) return { result: "独立成功结果" };
+        if (index === 2) return { error: "独立失败原因" };
+        if (index === 3) return { noFinal: true };
+        await held.promise;
+        return { result: "迟到结果" };
+      },
+      async ({ desktop: { page }, call, responses, gate }) => {
+        const [space] = await call<{ id: string }[]>("agent.spaces.list");
+        const dispatch = async (title: string, dispatchId: string) => {
+          const task = await call<TaskDto>("tasks.create", { title, body: title, type: "agent", execution: { spaceId: space!.id, provider: "codex" } });
+          await call("tasks.dispatch", { taskId: task.id, dispatchId, expectedVersion: task.version, inputRevision: task.inputRevision, inputHash: task.inputHash });
+          const [row] = await listDispatches(call, task.id);
+          return { task, runId: row!.runId };
+        };
+        const proof = async (task: TaskDto, runId: string, state: string) => {
+          await expect.poll(() => call("tasks.runs", { id: task.id }), { timeout: 40_000 }).toMatchObject([{ id: runId, state, finishedAt: expect.any(String) }]);
+          await expect.poll(() => call("tasks.dispatch.resources"), { timeout: 15_000 }).toMatchObject({ vault: { active: 0 }, device: { active: { occupied: 0 } } });
+          expect(await call<TaskDto>("tasks.read", { id: task.id })).toMatchObject({ status: "in_progress" });
+          const row = await openRun(page, task.title);
+          await expect(row).toHaveAttribute("data-run-id", runId);
+          return row;
+        };
 
-      await writeFile(path.join(gate, "dispatch-id"), "tw1-dropped-ack");
-      await writeFile(path.join(gate, "drop-once"), "");
-      const success = await dispatch("TW1 成功和丢 ACK", "tw1-dropped-ack");
-      await expect.poll(() => readFile(path.join(gate, "held.json"), "utf8").catch(() => ""), { timeout: 45_000 }).not.toBe("");
-      await writeFile(path.join(gate, "release"), "");
-      await expect(await proof(success.task, success.runId, "succeeded")).toContainText("独立成功结果");
-      await expectTaskResult(call, success.task, "独立成功结果");
+        await writeFile(path.join(gate, "dispatch-id"), "tw1-dropped-ack");
+        await writeFile(path.join(gate, "drop-once"), "");
+        const success = await dispatch("TW1 成功和丢 ACK", "tw1-dropped-ack");
+        await expect.poll(() => readFile(path.join(gate, "held.json"), "utf8").catch(() => ""), { timeout: 45_000 }).not.toBe("");
+        await writeFile(path.join(gate, "release"), "");
+        await expect(await proof(success.task, success.runId, "succeeded")).toContainText("独立成功结果");
+        await expectTaskResult(call, success.task, "独立成功结果");
 
-      const failed = await dispatch("TW1 原生失败", "tw1-native-failed");
-      await expect(await proof(failed.task, failed.runId, "failed")).toContainText("独立失败原因");
-      const empty = await dispatch("TW1 结束但结果未知", "tw1-no-final");
-      await expect(await proof(empty.task, empty.runId, "unknown")).toContainText("执行已结束，结果待核实");
+        const failed = await dispatch("TW1 原生失败", "tw1-native-failed");
+        await expect(await proof(failed.task, failed.runId, "failed")).toContainText("独立失败原因");
+        const empty = await dispatch("TW1 结束但结果未知", "tw1-no-final");
+        await expect(await proof(empty.task, empty.runId, "unknown")).toContainText("执行已结束，结果待核实");
 
-      const stopped = await dispatch("TW1 用户停止", "tw1-stopped");
-      await expect.poll(() => responses.requests.length, { timeout: 30_000 }).toBe(4);
-      const original = await openRun(page, stopped.task.title);
-      await original.getByRole("button", { name: "停止本轮", exact: true }).click();
-      await page.getByRole("button", { name: "确认停止本轮", exact: true }).click();
-      await expect(await proof(stopped.task, stopped.runId, "cancelled")).toContainText("本轮已停止");
-      expect(resultMessages(await call<TaskDto>("tasks.read", { id: stopped.task.id }))).toEqual([]);
-      held.resolve();
-    });
+        const stopped = await dispatch("TW1 用户停止", "tw1-stopped");
+        await expect.poll(() => responses.requests.length, { timeout: 30_000 }).toBe(4);
+        const original = await openRun(page, stopped.task.title);
+        await original.getByRole("button", { name: "停止本轮", exact: true }).click();
+        await page.getByRole("button", { name: "确认停止本轮", exact: true }).click();
+        await expect(await proof(stopped.task, stopped.runId, "cancelled")).toContainText("本轮已停止");
+        expect(resultMessages(await call<TaskDto>("tasks.read", { id: stopped.task.id }))).toEqual([]);
+        held.resolve();
+      },
+    );
   } finally {
     held.resolve();
   }
@@ -1512,53 +1584,56 @@ test("停用时已受理的手动和定时运行继续收尾，未受理队列�
   test.setTimeout(180_000);
   const finish = holdFixture();
   try {
-    await withTaskCodex(async ({ input }) => {
-      const body = JSON.stringify(input);
-      await finish.promise;
-      return { result: body.includes("G1-MANUAL") ? "原手动运行已收尾" : "原定时运行已收尾" };
-    }, async ({ desktop: { page, vault }, call, responses }) => {
-      const [space] = await call<{ id: string }[]>("agent.spaces.list");
-      const create = (title: string, tags: string[], availableAt?: string) =>
-        call<TaskDto>("tasks.create", { title, body: title, tags, type: "agent", execution: { spaceId: space!.id, provider: "codex" }, ...(availableAt && { availableAt }) });
-      const manual = await create("G1-MANUAL", ["g1-manual"]);
-      const timed = await create("G1-SCHEDULED", ["g1-scheduled"]);
-      const late = schedule(33);
-      const skipped = await create("G1-UNACCEPTED", ["g1-skipped"], late.at.toISOString());
-      async function rule(title: string, tags: string[], trigger: ReturnType<typeof schedule>["trigger"]) {
-        const draft = await call<Rule>("automations.create", { title, trigger, action: { kind: "agent", input: { source: "tasks", tags, maxConcurrent: 1 } } });
-        return call<Rule>("automations.setEnabled", { id: draft.id, enabled: true, expectedVersion: draft.version });
-      }
-      const manualRule = await rule("手动受理", ["g1-manual"], { preset: "custom", cron: "0 0 0 1 1 *", zone: "UTC" });
-      await rule("未受理队列", ["g1-skipped"], late.trigger);
-      const due = schedule(8);
-      const timedRule = await rule("定时受理", ["g1-scheduled"], due.trigger);
-      await call("automations.runNow", { id: manualRule.id, expectedVersion: manualRule.version, intentId: randomUUID() });
-      await expect.poll(() => responses.requests.length, { timeout: 25_000 }).toBe(2);
-      const accepted = async (taskId: string) => (await listDispatches(call, taskId))[0];
-      await expect.poll(() => accepted(manual.id), { timeout: 12_000 }).toMatchObject({ state: "running", attempt: 1 });
-      await expect.poll(() => accepted(timed.id), { timeout: 12_000 }).toMatchObject({ state: "running", attempt: 1 });
-      const originalManual = (await accepted(manual.id))!;
-      const originalTimed = (await accepted(timed.id))!;
-      expect(originalManual.runId).not.toBe(originalTimed.runId);
-      const scheduleRow = (await call<Activation[]>("automations.activations")).find(({ ruleId, scheduledFor }) => ruleId === timedRule.id && scheduledFor === due.at.toISOString());
-      expect(scheduleRow?.activationId).toBeTruthy();
-      expect(await listDispatches(call, skipped.id)).toEqual([]);
-      expect(Date.now()).toBeLessThan(late.at.getTime());
-      expect(await call("plugins.setEnabled", { id: "automations", enabled: false })).toMatchObject({ state: "disabled" });
-      finish.resolve();
-      await expectTaskResult(call, manual, "原手动运行已收尾");
-      await expectTaskResult(call, timed, "原定时运行已收尾");
-      await expect.poll(() => Date.now(), { timeout: 40_000 }).toBeGreaterThanOrEqual(late.at.getTime());
-      await withFixtureDeadline(22_000, () => page.evaluate(() => window.huhuHost.vault.close()));
-      expect(await withFixtureDeadline(25_000, () => page.evaluate((path) => window.huhuHost.vault.open(path), vault))).toMatchObject({ ok: true });
-      await page.reload();
-      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
-      expect(await listDispatches(call, skipped.id)).toEqual([]);
-      expect(await listDispatches(call, manual.id)).toMatchObject([{ runId: originalManual.runId, attempt: originalManual.attempt }]);
-      expect(await listDispatches(call, timed.id)).toMatchObject([{ runId: originalTimed.runId, attempt: originalTimed.attempt }]);
-      expect((await call<TaskDto>("tasks.read", { id: skipped.id })).status).toBe("not_started");
-      expect(responses.requests).toHaveLength(2);
-    });
+    await withTaskCodex(
+      async ({ input }) => {
+        const body = JSON.stringify(input);
+        await finish.promise;
+        return { result: body.includes("G1-MANUAL") ? "原手动运行已收尾" : "原定时运行已收尾" };
+      },
+      async ({ desktop: { page, vault }, call, responses }) => {
+        const [space] = await call<{ id: string }[]>("agent.spaces.list");
+        const create = (title: string, tags: string[], availableAt?: string) =>
+          call<TaskDto>("tasks.create", { title, body: title, tags, type: "agent", execution: { spaceId: space!.id, provider: "codex" }, ...(availableAt && { availableAt }) });
+        const manual = await create("G1-MANUAL", ["g1-manual"]);
+        const timed = await create("G1-SCHEDULED", ["g1-scheduled"]);
+        const late = schedule(33);
+        const skipped = await create("G1-UNACCEPTED", ["g1-skipped"], late.at.toISOString());
+        async function rule(title: string, tags: string[], trigger: ReturnType<typeof schedule>["trigger"]) {
+          const draft = await call<Rule>("automations.create", { title, trigger, action: { kind: "agent", input: { source: "tasks", tags, maxConcurrent: 1 } } });
+          return call<Rule>("automations.setEnabled", { id: draft.id, enabled: true, expectedVersion: draft.version });
+        }
+        const manualRule = await rule("手动受理", ["g1-manual"], { preset: "custom", cron: "0 0 0 1 1 *", zone: "UTC" });
+        await rule("未受理队列", ["g1-skipped"], late.trigger);
+        const due = schedule(8);
+        const timedRule = await rule("定时受理", ["g1-scheduled"], due.trigger);
+        await call("automations.runNow", { id: manualRule.id, expectedVersion: manualRule.version, intentId: randomUUID() });
+        await expect.poll(() => responses.requests.length, { timeout: 25_000 }).toBe(2);
+        const accepted = async (taskId: string) => (await listDispatches(call, taskId))[0];
+        await expect.poll(() => accepted(manual.id), { timeout: 12_000 }).toMatchObject({ state: "running", attempt: 1 });
+        await expect.poll(() => accepted(timed.id), { timeout: 12_000 }).toMatchObject({ state: "running", attempt: 1 });
+        const originalManual = (await accepted(manual.id))!;
+        const originalTimed = (await accepted(timed.id))!;
+        expect(originalManual.runId).not.toBe(originalTimed.runId);
+        const scheduleRow = (await call<Activation[]>("automations.activations")).find(({ ruleId, scheduledFor }) => ruleId === timedRule.id && scheduledFor === due.at.toISOString());
+        expect(scheduleRow?.activationId).toBeTruthy();
+        expect(await listDispatches(call, skipped.id)).toEqual([]);
+        expect(Date.now()).toBeLessThan(late.at.getTime());
+        expect(await call("plugins.setEnabled", { id: "automations", enabled: false })).toMatchObject({ state: "disabled" });
+        finish.resolve();
+        await expectTaskResult(call, manual, "原手动运行已收尾");
+        await expectTaskResult(call, timed, "原定时运行已收尾");
+        await expect.poll(() => Date.now(), { timeout: 40_000 }).toBeGreaterThanOrEqual(late.at.getTime());
+        await withFixtureDeadline(22_000, () => page.evaluate(() => window.huhuHost.vault.close()));
+        expect(await withFixtureDeadline(25_000, () => page.evaluate((path) => window.huhuHost.vault.open(path), vault))).toMatchObject({ ok: true });
+        await page.reload();
+        await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+        expect(await listDispatches(call, skipped.id)).toEqual([]);
+        expect(await listDispatches(call, manual.id)).toMatchObject([{ runId: originalManual.runId, attempt: originalManual.attempt }]);
+        expect(await listDispatches(call, timed.id)).toMatchObject([{ runId: originalTimed.runId, attempt: originalTimed.attempt }]);
+        expect((await call<TaskDto>("tasks.read", { id: skipped.id })).status).toBe("not_started");
+        expect(responses.requests).toHaveLength(2);
+      },
+    );
   } finally {
     finish.resolve();
   }
@@ -1570,51 +1645,68 @@ test("受控 Task 经公开入口使用 SSH 和账本，撤权后原运行仍可
   let bookId: string;
   const done = holdFixture();
   try {
-    await withTaskCodex(async (_request, index) => {
-      if (index === 1) return huhuMcpStep("ssh_resources_host_get", { hostId });
-      if (index === 2) return huhuMcpStep("ledger_records_list", { bookId });
-      await done.promise;
-      return { result: "SSH 和账本查询已完成" };
-    }, async ({ desktop: { page }, call, responses, root }) => {
-      ({ hostId } = await call<{ hostId: string }>("ssh.hosts.configure", {
-        name: "Task SSH 回环目标", host: "127.0.0.1", port: 2222, user: "fixture", authKind: "password",
-        jumpHostIds: [], expectedRevision: null, credentials: [{ purpose: "password", action: "replace", value: "fixture-only" }],
-      }));
-      ({ id: bookId } = await call<{ id: string }>("ledger.books.create", {
-        name: "Task 授权账本", defaultCurrency: "TWD", timeZone: "Asia/Taipei", firstAccount: { name: "银行" },
-      }));
-      const resources = { "ssh.hosts": [hostId] };
-      const changes = ["ssh.resources.host.get", "ledger.records.list"].map((capability) => ({ capability, exposed: true }));
-      const preview = await call<{ revision: number; catalogRevision: string }>("gateway.policy.preview", { resources, changes });
-      await call("gateway.policy.update", { resources, changes, expectedRevision: preview.revision, catalogRevision: preview.catalogRevision });
-      await call("gateway.mcp.update", { enabled: true });
-      const [space] = await call<{ id: string }[]>("agent.spaces.list");
-      const task = await call<TaskDto>("tasks.create", {
-        title: "SSH 和账本联合运行", body: "读取授权的 SSH 主机和账本记录。", type: "agent", execution: { spaceId: space!.id, provider: "codex" },
-      });
-      const tools: TaskMcpTool[] = changes.map(({ capability }) => ({ sourceId: "builtin", upstreamIdentity: capability, sourceRevision: null }));
-      const granted = await call<TaskDto>("tasks.mcp.authorize", { id: task.id, expectedVersion: task.version, tools });
-      const detail = await openTask(page, task.title);
-      await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
-      await expect.poll(() => responses.requests.length, { timeout: 45_000 }).toBe(3);
-      expect(huhuMcpTools(responses.requests[0]).sort()).toEqual(["ledger_records_list", "ssh_resources_host_get"]);
-      const outputs = responses.requests[2]!.input.filter(({ type }) => type === "function_call_output");
-      expect(outputs).toHaveLength(2);
-      expect(JSON.stringify(outputs[0]?.output)).toContain(hostId);
-      expect(JSON.stringify(outputs[0]?.output)).not.toContain("fixture-only");
-      expect(JSON.stringify(outputs[1]?.output)).not.toContain("PERMISSION_DENIED");
-      const { mcp: { url } } = await call<{ mcp: { url: string } }>("gateway.get");
-      const bearer = await taskFixtureBearer(root);
-      const handle = await openMcpSession(url, bearer);
-      const current = await call<TaskDto>("tasks.read", { id: task.id });
-      expect(current.mcpAuthorization).toEqual(granted.mcpAuthorization);
-      await call("tasks.mcp.authorize", { id: task.id, expectedVersion: current.version, tools: [] });
-      expect((await mcpRequest(url, bearer, mcpRpc("tools/call", { name: "ssh_resources_host_get", arguments: { hostId } }), handle)).status).toBe(401);
-      done.resolve();
-      await expectTaskResult(call, task, "SSH 和账本查询已完成");
-      expect(await listDispatches(call, task.id)).toMatchObject([{ attempt: 1 }]);
-      await expect(await openRun(page, task.title)).toContainText("SSH 和账本查询已完成");
-    });
+    await withTaskCodex(
+      async (_request, index) => {
+        if (index === 1) return huhuMcpStep("ssh_resources_host_get", { hostId });
+        if (index === 2) return huhuMcpStep("ledger_records_list", { bookId });
+        await done.promise;
+        return { result: "SSH 和账本查询已完成" };
+      },
+      async ({ desktop: { page }, call, responses, root }) => {
+        ({ hostId } = await call<{ hostId: string }>("ssh.hosts.configure", {
+          name: "Task SSH 回环目标",
+          host: "127.0.0.1",
+          port: 2222,
+          user: "fixture",
+          authKind: "password",
+          jumpHostIds: [],
+          expectedRevision: null,
+          credentials: [{ purpose: "password", action: "replace", value: "fixture-only" }],
+        }));
+        ({ id: bookId } = await call<{ id: string }>("ledger.books.create", {
+          name: "Task 授权账本",
+          defaultCurrency: "TWD",
+          timeZone: "Asia/Taipei",
+          firstAccount: { name: "银行" },
+        }));
+        const resources = { "ssh.hosts": [hostId] };
+        const changes = ["ssh.resources.host.get", "ledger.records.list"].map((capability) => ({ capability, exposed: true }));
+        const preview = await call<{ revision: number; catalogRevision: string }>("gateway.policy.preview", { resources, changes });
+        await call("gateway.policy.update", { resources, changes, expectedRevision: preview.revision, catalogRevision: preview.catalogRevision });
+        await call("gateway.mcp.update", { enabled: true });
+        const [space] = await call<{ id: string }[]>("agent.spaces.list");
+        const task = await call<TaskDto>("tasks.create", {
+          title: "SSH 和账本联合运行",
+          body: "读取授权的 SSH 主机和账本记录。",
+          type: "agent",
+          execution: { spaceId: space!.id, provider: "codex" },
+        });
+        const tools: TaskMcpTool[] = changes.map(({ capability }) => ({ sourceId: "builtin", upstreamIdentity: capability, sourceRevision: null }));
+        const granted = await call<TaskDto>("tasks.mcp.authorize", { id: task.id, expectedVersion: task.version, tools });
+        const detail = await openTask(page, task.title);
+        await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
+        await expect.poll(() => responses.requests.length, { timeout: 45_000 }).toBe(3);
+        expect(huhuMcpTools(responses.requests[0]).sort()).toEqual(["ledger_records_list", "ssh_resources_host_get"]);
+        const outputs = responses.requests[2]!.input.filter(({ type }) => type === "function_call_output");
+        expect(outputs).toHaveLength(2);
+        expect(JSON.stringify(outputs[0]?.output)).toContain(hostId);
+        expect(JSON.stringify(outputs[0]?.output)).not.toContain("fixture-only");
+        expect(JSON.stringify(outputs[1]?.output)).not.toContain("PERMISSION_DENIED");
+        const {
+          mcp: { url },
+        } = await call<{ mcp: { url: string } }>("gateway.get");
+        const bearer = await taskFixtureBearer(root);
+        const handle = await openMcpSession(url, bearer);
+        const current = await call<TaskDto>("tasks.read", { id: task.id });
+        expect(current.mcpAuthorization).toEqual(granted.mcpAuthorization);
+        await call("tasks.mcp.authorize", { id: task.id, expectedVersion: current.version, tools: [] });
+        expect((await mcpRequest(url, bearer, mcpRpc("tools/call", { name: "ssh_resources_host_get", arguments: { hostId } }), handle)).status).toBe(401);
+        done.resolve();
+        await expectTaskResult(call, task, "SSH 和账本查询已完成");
+        expect(await listDispatches(call, task.id)).toMatchObject([{ attempt: 1 }]);
+        await expect(await openRun(page, task.title)).toContainText("SSH 和账本查询已完成");
+      },
+    );
   } finally {
     done.resolve();
   }

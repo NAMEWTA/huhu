@@ -98,57 +98,59 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
           }}
         />
       </Popover.Anchor>
-      {container ? <Popover.Portal container={container}>
-        <Popover.Content
-          ref={popup}
-          className="hu-combobox-list"
-          align="start"
-          sideOffset={4}
-          collisionBoundary={dialog ?? []}
-          collisionPadding={8}
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          onCloseAutoFocus={(e) => e.preventDefault()}
-          onEscapeKeyDown={(e) => {
-            if (!input.current) return;
-            if (e.isComposing || e.keyCode === 229) {
-              e.preventDefault();
-              return;
-            }
-            dismissChildOnEscape(e, input.current, () => {
-              setOpen(false);
-              setQuery(null);
-            });
-          }}
-          onInteractOutside={(e) => {
-            if (e.target === input.current) e.preventDefault();
-          }}
-          style={{ width: "var(--radix-popover-trigger-width)", maxWidth: "var(--radix-popover-content-available-width)" }}
-        >
-          <ul id={`${id}-list`} role="listbox" aria-label={label}>
-            {matches.map((o, i) => (
-              <li
-                key={o.value}
-                ref={i === active ? activeOption : undefined}
-                id={`${id}-${i}`}
-                role="option"
-                aria-selected={o.value === value}
-                data-active={i === active || undefined}
-                onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setActive(i)}
-                onClick={() => choose(o.value)}
-              >
-                <span>{o.label ?? o.value}</span>
-                {o.hint ? <small>{o.hint}</small> : null}
-              </li>
-            ))}
-            {matches.length === 0 ? (
-              <li role="presentation" className="hu-combobox-empty">
-                {allowCustom && query?.trim() ? `按回车使用“${query.trim()}”` : emptyText}
-              </li>
-            ) : null}
-          </ul>
-        </Popover.Content>
-      </Popover.Portal> : null}
+      {container ? (
+        <Popover.Portal container={container}>
+          <Popover.Content
+            ref={popup}
+            className="hu-combobox-list"
+            align="start"
+            sideOffset={4}
+            collisionBoundary={dialog ?? []}
+            collisionPadding={8}
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            onCloseAutoFocus={(e) => e.preventDefault()}
+            onEscapeKeyDown={(e) => {
+              if (!input.current) return;
+              if (e.isComposing || e.keyCode === 229) {
+                e.preventDefault();
+                return;
+              }
+              dismissChildOnEscape(e, input.current, () => {
+                setOpen(false);
+                setQuery(null);
+              });
+            }}
+            onInteractOutside={(e) => {
+              if (e.target === input.current) e.preventDefault();
+            }}
+            style={{ width: "var(--radix-popover-trigger-width)", maxWidth: "var(--radix-popover-content-available-width)" }}
+          >
+            <ul id={`${id}-list`} role="listbox" aria-label={label}>
+              {matches.map((o, i) => (
+                <li
+                  key={o.value}
+                  ref={i === active ? activeOption : undefined}
+                  id={`${id}-${i}`}
+                  role="option"
+                  aria-selected={o.value === value}
+                  data-active={i === active || undefined}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => choose(o.value)}
+                >
+                  <span>{o.label ?? o.value}</span>
+                  {o.hint ? <small>{o.hint}</small> : null}
+                </li>
+              ))}
+              {matches.length === 0 ? (
+                <li role="presentation" className="hu-combobox-empty">
+                  {allowCustom && query?.trim() ? `按回车使用“${query.trim()}”` : emptyText}
+                </li>
+              ) : null}
+            </ul>
+          </Popover.Content>
+        </Popover.Portal>
+      ) : null}
     </Popover.Root>
   );
 }

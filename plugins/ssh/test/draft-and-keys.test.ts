@@ -192,11 +192,14 @@ test("同步可用 OpenSSH 路径重新配置本机身份文件，同时保留�
   const { SshConfigSync } = await import("../src/engine/config-sync.js");
   const { root, vault, hosts } = await setup();
   const signal = new AbortController().signal;
-  const saved = await hosts.configure({
-    ...configuration(2202),
-    authKind: "identity-file",
-    credentials: [{ purpose: "identityFile", action: "replace", value: path.join(root, "original-key") }],
-  }, signal);
+  const saved = await hosts.configure(
+    {
+      ...configuration(2202),
+      authKind: "identity-file",
+      credentials: [{ purpose: "identityFile", action: "replace", value: path.join(root, "original-key") }],
+    },
+    signal,
+  );
   const device = path.join(root, "replacement-device");
   mkdirSync(device);
   const restoredHosts = new HostConfigurations(new HostStore(path.join(vault.stateDir, "ssh", "hosts")), {

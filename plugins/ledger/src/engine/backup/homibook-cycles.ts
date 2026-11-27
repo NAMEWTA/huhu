@@ -10,18 +10,35 @@ import type { BookState } from "../store.js";
 const instant = z.iso.datetime({ offset: true });
 const decimal = z.string().max(65);
 const cycle = z.object({
-  id: z.string().min(1), accountId: z.string().min(1), name: z.string(),
-  recurringType: z.enum(["PERIODIC", "LOAN"]), type: z.enum(["INCOME", "EXPENSE", "TRANSFER"]),
-  amount: decimal, cron: z.string(), createdAt: instant, nextGenerateAt: instant.nullish(),
-  lastGeneratedAt: instant.nullish(), categoryCode: z.string().nullish(), payer: z.string().nullish(),
-  remark: z.string().nullish(), tags: z.string().optional(),
-  loanTotalAmount: decimal.nullish(), loanInterestRate: decimal.nullish(),
+  id: z.string().min(1),
+  accountId: z.string().min(1),
+  name: z.string(),
+  recurringType: z.enum(["PERIODIC", "LOAN"]),
+  type: z.enum(["INCOME", "EXPENSE", "TRANSFER"]),
+  amount: decimal,
+  cron: z.string(),
+  createdAt: instant,
+  nextGenerateAt: instant.nullish(),
+  lastGeneratedAt: instant.nullish(),
+  categoryCode: z.string().nullish(),
+  payer: z.string().nullish(),
+  remark: z.string().nullish(),
+  tags: z.string().optional(),
+  loanTotalAmount: decimal.nullish(),
+  loanInterestRate: decimal.nullish(),
   loanInterestMethod: z.enum(["EQUAL_INSTALLMENT", "EQUAL_PRINCIPAL"]).nullish(),
-  loanStartDate: instant.nullish(), loanTermMonths: z.int().nullish(),
+  loanStartDate: instant.nullish(),
+  loanTermMonths: z.int().nullish(),
 });
 const repayment = z.object({
-  period: z.int(), dueDate: instant, totalPayment: decimal, principal: decimal, interest: decimal,
-  remainingPrincipal: decimal, status: z.enum(["PENDING", "GENERATED"]), generatedRecordId: z.string().nullish(),
+  period: z.int(),
+  dueDate: instant,
+  totalPayment: decimal,
+  principal: decimal,
+  interest: decimal,
+  remainingPrincipal: decimal,
+  status: z.enum(["PENDING", "GENERATED"]),
+  generatedRecordId: z.string().nullish(),
 });
 
 function fixedCadence(cron: string, date: string) {
@@ -30,7 +47,7 @@ function fixedCadence(cron: string, date: string) {
   if (day === "*" && week === "*") return { frequency: "daily", startOn: date };
   if (day === "*" && /^[0-6]$/u.test(week ?? "")) {
     const anchor = new Date(date + "T00:00:00Z");
-    anchor.setUTCDate(anchor.getUTCDate() + (Number(week) + 7 - anchor.getUTCDay()) % 7);
+    anchor.setUTCDate(anchor.getUTCDate() + ((Number(week) + 7 - anchor.getUTCDay()) % 7));
     return { frequency: "weekly", startOn: anchor.toISOString().slice(0, 10) };
   }
   if (week === "*" && /^(?:[1-9]|1\d|2[0-8])$/u.test(day ?? "")) {
@@ -42,8 +59,11 @@ function fixedCadence(cron: string, date: string) {
 }
 
 export function restoreHomibookCycles(
-  state: BookState, rules: Record<string, unknown>[], periods: Record<string, unknown>[],
-  accounts: ReadonlyMap<string, BookState["accounts"][number]>, records: ReadonlyMap<string, LedgerRecord>,
+  state: BookState,
+  rules: Record<string, unknown>[],
+  periods: Record<string, unknown>[],
+  accounts: ReadonlyMap<string, BookState["accounts"][number]>,
+  records: ReadonlyMap<string, LedgerRecord>,
   issue: (module: BackupModule, row: string, message: string, choices?: BackupDecision[]) => string,
 ) {
   const { id: bookId, timeZone } = state.book;
@@ -73,17 +93,31 @@ export function restoreHomibookCycles(
         if (row.lastGeneratedAt) throw errors.invalidInput("原固定收支缺少逐期期次身份，请按原流水核对后建立新规则");
         const start = ledgerBusinessDate(row.nextGenerateAt ?? row.createdAt, timeZone);
         const amountMinor = ledgerDecimalToMinor(row.amount, currency);
-        state.recurring.push(RecurringRule.parse({ id, title: row.name, type: row.type === "EXPENSE" ? "expense" : "income",
-          amountMinor, currency, accountId: account.id, memo: row.remark?.slice(0, 500) ?? null, ...fixedCadence(row.cron, start),
-          planId: recurringPlanId(bookId, id),
-        }));
+        state.recurring.push(
+          RecurringRule.parse({
+            id,
+            title: row.name,
+            type: row.type === "EXPENSE" ? "expense" : "income",
+            amountMinor,
+            currency,
+            accountId: account.id,
+            memo: row.remark?.slice(0, 500) ?? null,
+            ...fixedCadence(row.cron, start),
+            planId: recurringPlanId(bookId, id),
+          }),
+        );
         continue;
       }
       if (!row.loanStartDate || row.loanTotalAmount == null || !row.loanInterestMethod) throw errors.invalidInput("贷款条件不完整");
       const definition = LoanDefinition.parse({
-        name: row.name, accountId: account.id, currency, method: row.loanInterestMethod === "EQUAL_PRINCIPAL" ? "equal-principal" : "equal-payment",
-        annualRatePercent: row.loanInterestRate ?? "0", principalMinor: ledgerDecimalToMinor(row.loanTotalAmount, currency),
-        startOn: ledgerBusinessDate(row.loanStartDate, timeZone), months: row.loanTermMonths,
+        name: row.name,
+        accountId: account.id,
+        currency,
+        method: row.loanInterestMethod === "EQUAL_PRINCIPAL" ? "equal-principal" : "equal-payment",
+        annualRatePercent: row.loanInterestRate ?? "0",
+        principalMinor: ledgerDecimalToMinor(row.loanTotalAmount, currency),
+        startOn: ledgerBusinessDate(row.loanStartDate, timeZone),
+        months: row.loanTermMonths,
       });
       const schedule = loanSchedule(definition);
       const observed = new Set<number>();
@@ -91,11 +125,15 @@ export function restoreHomibookCycles(
       for (const source of byRule.get(row.id) ?? []) {
         const period = repayment.parse(source);
         const item = schedule[period.period - 1];
-        if (!item || observed.has(item.number) || ledgerBusinessDate(period.dueDate, timeZone) !== item.date ||
-            ledgerDecimalToMinor(period.totalPayment, currency) !== item.paymentMinor ||
-            ledgerDecimalToMinor(period.principal, currency) !== item.principalMinor ||
-            ledgerDecimalToMinor(period.interest, currency) !== item.interestMinor ||
-            ledgerDecimalToMinor(period.remainingPrincipal, currency) !== item.remainingMinor) {
+        if (
+          !item ||
+          observed.has(item.number) ||
+          ledgerBusinessDate(period.dueDate, timeZone) !== item.date ||
+          ledgerDecimalToMinor(period.totalPayment, currency) !== item.paymentMinor ||
+          ledgerDecimalToMinor(period.principal, currency) !== item.principalMinor ||
+          ledgerDecimalToMinor(period.interest, currency) !== item.interestMinor ||
+          ledgerDecimalToMinor(period.remainingPrincipal, currency) !== item.remainingMinor
+        ) {
           throw errors.invalidInput("原还款期次与当前精确摊还口径不一致，请参照原流水核对");
         }
         observed.add(item.number);

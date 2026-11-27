@@ -226,7 +226,7 @@ test("打包后：SSH 连接回环主机、读回测试文件并在退出后回�
       probe.listen(port, "127.0.0.1", resolve);
     });
     const address = probe.address();
-    await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) => probe.close((error) => (error ? reject(error) : resolve())));
     if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
     return address.port;
   }
@@ -236,7 +236,12 @@ test("打包后：SSH 连接回环主机、读回测试文件并在退出后回�
     try {
       const call = <T>(capability: string, input?: unknown) => desktopCall<T>(page, capability, input);
       const { hostId } = await call<{ hostId: string }>("ssh.hosts.configure", {
-        name: "打包 SSH 主机", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+        name: "打包 SSH 主机",
+        host: "127.0.0.1",
+        port: server.port,
+        user: "fixture",
+        authKind: "password",
+        expectedRevision: null,
         credentials: [{ purpose: "password", action: "replace", value: password }],
       });
       await page.getByRole("button", { name: "远程连接", exact: true }).first().click();

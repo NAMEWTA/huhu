@@ -12,7 +12,5 @@ export const automationSummaryWidget = defineHomeWidget({
   maxInstances: 1,
   configSchema: z.strictObject({}),
   defaultConfig: {},
-  capabilities: [
-    { name: "automations.plans.summary", required: true },
-  ],
+  capabilities: [{ name: "automations.plans.summary", required: true }],
 });

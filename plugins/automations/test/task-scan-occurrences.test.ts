@@ -153,7 +153,9 @@ async function stop(engine: RunningEngine) {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
@@ -541,9 +543,11 @@ test("外部提醒规则独立授权，固定版本的运行意图在重启后�
   ({ engine } = await start(root));
   expect(await cli("automations.runNow", input)).toEqual(accepted);
   const notices = await invoke<{ title: string }[]>(engine, "notifications.list", {});
-  expect(notices.filter(({ title }) => title === draft.action.text)).toEqual([expect.objectContaining({
-    occurrence: { planId: id, occurrenceId: (accepted.data as { activationId: string }).activationId },
-  })]);
+  expect(notices.filter(({ title }) => title === draft.action.text)).toEqual([
+    expect.objectContaining({
+      occurrence: { planId: id, occurrenceId: (accepted.data as { activationId: string }).activationId },
+    }),
+  ]);
   expect(readdirSync(path.join(engine.vault.stateDir, "automations/reminder-deliveries"))).toHaveLength(1);
   expect(fixture.dispatch).not.toHaveBeenCalled();
 }, 20_000);
@@ -566,8 +570,7 @@ async function createReminder(engine: RunningEngine, text: string, mode: "notifi
 test("全局暂停跨 Engine 重启保留，恢复时跳过旧排期并保留原计划修订", async () => {
   type State = { revision: string; paused: boolean };
   const state = (engine: RunningEngine) => invoke<State>(engine, "automations.plans.automationState", {});
-  const set = (engine: RunningEngine, paused: boolean, expectedRevision: string) =>
-    call<State>(engine, "automations.plans.setAutomationState", { paused, expectedRevision }, false, randomUUID());
+  const set = (engine: RunningEngine, paused: boolean, expectedRevision: string) => call<State>(engine, "automations.plans.setAutomationState", { paused, expectedRevision }, false, randomUUID());
   const first = await start();
   const rule = await createReminder(first.engine, "全局暂停的原规则", "notification");
   const initial = await state(first.engine);
@@ -651,9 +654,7 @@ test("提醒任务创建后落盘失败，重启只读回原任务和已发通�
   expect(await invoke(reopened.engine, "notifications.list", {})).toEqual([expect.objectContaining({ title: "保留确认身份" })]);
 });
 
-test.each((["reschedule", "set-intent", "delete"] as const).flatMap((change) =>
-  (["selected", "claimed"] as const).map((point) => ({ change, point }))),
-)("关联任务提醒在 $point 时 $change，旧排期不递送", async ({ change, point }) => {
+test.each((["reschedule", "set-intent", "delete"] as const).flatMap((change) => (["selected", "claimed"] as const).map((point) => ({ change, point }))))("关联任务提醒在 $point 时 $change，旧排期不递送", async ({ change, point }) => {
   const { engine } = await start();
   const task = await createTask(engine, "关联提醒的原任务");
   const selected = deferred<Parameters<ReminderDeliveries["activateTaskReminder"]>[0]>();
@@ -664,7 +665,7 @@ test.each((["reschedule", "set-intent", "delete"] as const).flatMap((change) =>
   let effect: Promise<void> | undefined;
   const boundary = vi.spyOn(ReminderDeliveries.prototype, "activateTaskReminder").mockImplementation(function (this: ReminderDeliveries, plan) {
     selected.resolve(plan);
-    return effect = point === "selected" ? release.promise.then(() => dispatch.call(this, plan)) : dispatch.call(this, plan);
+    return (effect = point === "selected" ? release.promise.then(() => dispatch.call(this, plan)) : dispatch.call(this, plan));
   });
   const writeFile = VaultFiles.prototype.write;
   const writeBoundary = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(async function (this: VaultFiles, name, bytes, options) {
@@ -684,16 +685,23 @@ test.each((["reschedule", "set-intent", "delete"] as const).flatMap((change) =>
   const scheduledFor = at("01:15:00").toISOString();
   fixture.now = at("01:15:00");
   const intentId = randomUUID();
-  const { data: original } = await call<PlanSummary>(engine, "automations.plans.createTaskReminder", {
-    taskId: task.id, scheduledFor, intentId,
-  }, false, intentId);
+  const { data: original } = await call<PlanSummary>(
+    engine,
+    "automations.plans.createTaskReminder",
+    {
+      taskId: task.id,
+      scheduledFor,
+      intentId,
+    },
+    false,
+    intentId,
+  );
   try {
     expect(original).toMatchObject({ intent: "enabled", nextAt: scheduledFor });
     const candidate = await selected.promise;
     expect(candidate).toMatchObject({ planId: original.planId, revision: original.revision, taskId: task.id, scheduledFor });
     const ref = { planId: original.planId, expectedRevision: original.revision, intentId: randomUUID() };
-    const write: PlanWrite = change === "reschedule" ? { ...ref, change, trigger: { kind: "once", scheduledFor: at("01:30:00").toISOString() } }
-      : change === "set-intent" ? { ...ref, change, intent: "paused" } : { ...ref, change };
+    const write: PlanWrite = change === "reschedule" ? { ...ref, change, trigger: { kind: "once", scheduledFor: at("01:30:00").toISOString() } } : change === "set-intent" ? { ...ref, change, intent: "paused" } : { ...ref, change };
     if (point === "claimed") await claimed.promise;
     const changeResult = call(engine, "automations.plans.submit", write, false, ref.intentId);
     if (point === "claimed") {
@@ -707,10 +715,13 @@ test.each((["reschedule", "set-intent", "delete"] as const).flatMap((change) =>
     const occurrenceId = planReminderOccurrenceId(candidate);
     const originalOccurrence = await invoke(engine, "automations.plans.readOccurrence", { occurrenceId });
     if (point === "selected") expect(originalOccurrence).toBeNull();
-    else expect(originalOccurrence).toMatchObject({
-      occurrenceId, plan: { planId: original.planId, revision: original.revision },
-      state: "cancelled", effects: [{ kind: "notification", state: "not-accepted" }],
-    });
+    else
+      expect(originalOccurrence).toMatchObject({
+        occurrenceId,
+        plan: { planId: original.planId, revision: original.revision },
+        state: "cancelled",
+        effects: [{ kind: "notification", state: "not-accepted" }],
+      });
     expect(await invoke(engine, "notifications.list", {})).toEqual([]);
     expect((await invoke<TaskDto>(engine, "tasks.read", { id: task.id })).comments).toEqual([]);
   } finally {
@@ -726,10 +737,20 @@ test.each(["before", "after"] as const)("观察评论在提交 %s 中断后按�
   const task = await createTask(engine, "观察评论的原任务");
   const root = engine.vault.root;
   const intentId = randomUUID();
-  const { data: plan } = await call<PlanSummary>(engine, "automations.plans.createObservation", {
-    intentId, title: "原观察", target: { kind: "task", id: task.id }, effect: "comment",
-    everySeconds: 60, condition: { kind: "threshold", status: "not_started", seconds: 60 },
-  }, false, intentId);
+  const { data: plan } = await call<PlanSummary>(
+    engine,
+    "automations.plans.createObservation",
+    {
+      intentId,
+      title: "原观察",
+      target: { kind: "task", id: task.id },
+      effect: "comment",
+      everySeconds: 60,
+      condition: { kind: "threshold", status: "not_started", seconds: 60 },
+    },
+    false,
+    intentId,
+  );
   expect(plan).toMatchObject({ intent: "enabled", nextAt: expect.any(String) });
   const stamp = plan.nextAt!;
   const comments = vi.spyOn(TasksService.prototype, "addComment");
@@ -753,28 +774,43 @@ test.each(["before", "after"] as const)("观察评论在提交 %s 中断后按�
   const pending = await read(engine);
   const [effect] = pending.effects;
   expect(pending).toMatchObject({
-    occurrenceId, plan: { planId: plan.planId, revision: plan.revision }, state: "unknown",
+    occurrenceId,
+    plan: { planId: plan.planId, revision: plan.revision },
+    state: "unknown",
     effects: [{ effectId: expect.any(String), kind: "task-comment", state: "unknown", recovery: "verify" }],
   });
   const observationComments = async (running: RunningEngine) => (await invoke<TaskDto>(running, "tasks.read", { id: task.id })).comments.filter(({ event }) => event === "observation");
   const actual = point === "after" ? [{ id: effect!.effectId, body: plan.title }] : [];
   expect(await observationComments(engine)).toMatchObject(actual);
   const pauseId = randomUUID();
-  expect(await call(engine, "automations.plans.submit", {
-    planId: plan.planId, expectedRevision: plan.revision, change: "set-intent", intent: "paused", intentId: pauseId,
-  }, false, pauseId)).toMatchObject({ ok: true, data: { outcome: "completed" } });
+  expect(
+    await call(
+      engine,
+      "automations.plans.submit",
+      {
+        planId: plan.planId,
+        expectedRevision: plan.revision,
+        change: "set-intent",
+        intent: "paused",
+        intentId: pauseId,
+      },
+      false,
+      pauseId,
+    ),
+  ).toMatchObject({ ok: true, data: { outcome: "completed" } });
   await stop(engine);
   const reopened = await start(root);
   await reopened.reminders.recover();
   // Restart recovery confirms a comment that actually landed; one that never landed stays for explicit verification.
-  const recovered = point === "after"
-    ? await read(reopened.engine)
-    : (expect(await read(reopened.engine)).toEqual(pending),
-      await invoke<PlanOccurrence>(reopened.engine, "automations.plans.recoverEffect", { planId: plan.planId, occurrenceId, effectId: effect!.effectId }));
+  const recovered =
+    point === "after"
+      ? await read(reopened.engine)
+      : (expect(await read(reopened.engine)).toEqual(pending), await invoke<PlanOccurrence>(reopened.engine, "automations.plans.recoverEffect", { planId: plan.planId, occurrenceId, effectId: effect!.effectId }));
   expect(recovered).toMatchObject({
-    plan: pending.plan, occurrenceId, state: point === "after" ? "completed" : "cancelled",
-    effects: [{ effectId: effect!.effectId, state: point === "after" ? "completed" : "not-accepted",
-      receiptId: point === "after" ? effect!.effectId : null }],
+    plan: pending.plan,
+    occurrenceId,
+    state: point === "after" ? "completed" : "cancelled",
+    effects: [{ effectId: effect!.effectId, state: point === "after" ? "completed" : "not-accepted", receiptId: point === "after" ? effect!.effectId : null }],
   });
   await reopened.reminders.recover();
   expect(await read(reopened.engine)).toEqual(recovered);
@@ -817,10 +853,7 @@ test("只重试失败的建任务效果，并始终沿用原任务和原发生�
   const effect = original.effects.find(({ kind }) => kind === "task-create")!;
   expect(effect).toMatchObject({ state: "failed", recovery: "retry" });
   const input = { planId: rule.id, occurrenceId, effectId: effect.effectId };
-  const [a, b] = await Promise.all([
-    invoke<PlanOccurrence>(engine, "automations.plans.recoverEffect", input),
-    invoke<PlanOccurrence>(engine, "automations.plans.recoverEffect", input),
-  ]);
+  const [a, b] = await Promise.all([invoke<PlanOccurrence>(engine, "automations.plans.recoverEffect", input), invoke<PlanOccurrence>(engine, "automations.plans.recoverEffect", input)]);
   expect(a).toEqual(b);
   expect(a.effects).toEqual([original.effects[0], expect.objectContaining({ effectId: effect.effectId, state: "completed", receiptId: effect.effectId })]);
   expect(fixture.createFromRule).toHaveBeenCalledTimes(2);
@@ -960,9 +993,17 @@ test("扫描预览与发生共同使用 Tasks 的原生历史资格", async () =
     reason: null,
     profile: "read-only",
     capabilities: {
-      interactive: available, dispatch: available, liveSession: unsupported, coldResume: available,
-      structuredReply: unsupported, structuredResult: unsupported, stop: unsupported,
-      workspaceRead: unsupported, workspaceWrite: unsupported, command: unsupported, mcp: unsupported,
+      interactive: available,
+      dispatch: available,
+      liveSession: unsupported,
+      coldResume: available,
+      structuredReply: unsupported,
+      structuredResult: unsupported,
+      stop: unsupported,
+      workspaceRead: unsupported,
+      workspaceWrite: unsupported,
+      command: unsupported,
+      mcp: unsupported,
     },
   } satisfies Awaited<ReturnType<AgentDispatch["targets"]>>[number];
   const targets = vi.spyOn(AgentDispatch.prototype, "targets").mockResolvedValue([targetInfo]);
@@ -1516,15 +1557,34 @@ test("AW6 AU17 同一计划区分源插件停用和只读，外部只发现批�
   let { engine } = await start();
   const task = await createTask(engine, "AW6 原任务");
   const reminderIntent = randomUUID();
-  const created = await call<PlanSummary>(engine, "automations.plans.createTaskReminder", {
-    taskId: task.id, scheduledFor: at("23:00:00").toISOString(), intentId: reminderIntent, startPaused: true,
-  }, false, reminderIntent);
+  const created = await call<PlanSummary>(
+    engine,
+    "automations.plans.createTaskReminder",
+    {
+      taskId: task.id,
+      scheduledFor: at("23:00:00").toISOString(),
+      intentId: reminderIntent,
+      startPaused: true,
+    },
+    false,
+    reminderIntent,
+  );
   expect(created).toMatchObject({ ok: true, data: { availability: { state: "ready" }, intent: "paused" } });
   const observeIntent = randomUUID();
-  const observation = await call<PlanSummary>(engine, "automations.plans.createObservation", {
-    title: "AW6 原任务状态", target: { kind: "task", id: task.id }, condition: { kind: "change" },
-    everySeconds: 60, intentId: observeIntent, startPaused: true,
-  }, false, observeIntent);
+  const observation = await call<PlanSummary>(
+    engine,
+    "automations.plans.createObservation",
+    {
+      title: "AW6 原任务状态",
+      target: { kind: "task", id: task.id },
+      condition: { kind: "change" },
+      everySeconds: 60,
+      intentId: observeIntent,
+      startPaused: true,
+    },
+    false,
+    observeIntent,
+  );
   expect(observation).toMatchObject({ ok: true, data: { availability: { state: "ready" }, intent: "paused" } });
 
   const { planId, revision } = created.data;
@@ -1542,16 +1602,29 @@ test("AW6 AU17 同一计划区分源插件停用和只读，外部只发现批�
   for (const before of [created.data, observation.data]) {
     const unavailable = await read(before.planId);
     expect(unavailable).toMatchObject({
-      planId: before.planId, revision: before.revision, nextAt: null, intent: "paused",
+      planId: before.planId,
+      revision: before.revision,
+      nextAt: null,
+      intent: "paused",
       availability: { state: "blocked", reason: "plugin-disabled" },
     });
     expect(unavailable.actions).not.toContain("resume");
   }
   const update = async (plan: PlanSummary, intent: "enabled" | "paused") => {
     const intentId = randomUUID();
-    return call(engine, "automations.plans.submit", {
-      planId: plan.planId, expectedRevision: plan.revision, intentId, change: "set-intent", intent,
-    }, false, intentId);
+    return call(
+      engine,
+      "automations.plans.submit",
+      {
+        planId: plan.planId,
+        expectedRevision: plan.revision,
+        intentId,
+        change: "set-intent",
+        intent,
+      },
+      false,
+      intentId,
+    );
   };
   expect(await update(observation.data, "enabled")).toMatchObject({ ok: true, data: { outcome: "not-accepted", error: { code: "INVALID_INPUT" } } });
   await invoke(engine, "plugins.setEnabled", { id: "tasks", enabled: true });
@@ -1564,7 +1637,8 @@ test("AW6 AU17 同一计划区分源插件停用和只读，外部只发现批�
   const readonly = await read(planId);
   expect(readonly).toMatchObject({ planId, revision, actions: [], nextAt: null, availability: { state: "blocked", reason: "read-only" } });
   expect(await update(readonly, "enabled")).toMatchObject({
-    ok: false, error: { code: "INVALID_INPUT", message: "此能力需要可写的持久操作记录" },
+    ok: false,
+    error: { code: "INVALID_INPUT", message: "此能力需要可写的持久操作记录" },
   });
   expect(await read(planId)).toEqual(readonly);
 });

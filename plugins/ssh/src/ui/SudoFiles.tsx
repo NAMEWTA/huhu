@@ -29,11 +29,14 @@ export function SudoFiles({ session }: { session: FileSession }) {
   const authenticated = useRef<string>(undefined);
   const { fileSessionId } = session;
   const bound = { fileSessionId, ...(sudoSessionId && { sudoSessionId }) };
-  useEffect(() => () => {
-    active.current?.abort();
-    const id = authenticated.current;
-    if (id) void engine.call("ssh.fileSessions.sudo.close", { fileSessionId, sudoSessionId: id }, { write: true }).catch(() => undefined);
-  }, [engine, fileSessionId]);
+  useEffect(
+    () => () => {
+      active.current?.abort();
+      const id = authenticated.current;
+      if (id) void engine.call("ssh.fileSessions.sudo.close", { fileSessionId, sudoSessionId: id }, { write: true }).catch(() => undefined);
+    },
+    [engine, fileSessionId],
+  );
 
   async function enable() {
     const pending = new AbortController();
@@ -150,8 +153,10 @@ export function SudoFiles({ session }: { session: FileSession }) {
     const remote = { kind: "remote", ...bound, path: directory.path, sudo: true } as const;
     const here = { kind: "local", path: local.path } as const;
     const request: TransferBatchRequest = {
-      source: upload ? here : remote, target: upload ? remote : here,
-      names: upload ? selectedLocal : selectedRemote, localFileSessionId: session.fileSessionId,
+      source: upload ? here : remote,
+      target: upload ? remote : here,
+      names: upload ? selectedLocal : selectedRemote,
+      localFileSessionId: session.fileSessionId,
     };
     setBusy(true);
     setError("");
@@ -194,73 +199,147 @@ export function SudoFiles({ session }: { session: FileSession }) {
     }
   }
 
-  const updateSelection = (current: string[], name: string, checked: boolean) =>
-    checked ? [...current, name] : current.filter((item) => item !== name);
+  const updateSelection = (current: string[], name: string, checked: boolean) => (checked ? [...current, name] : current.filter((item) => item !== name));
   return (
     <section aria-label="sudo 文件操作" className="hu-stack">
       {scope ? (
         <>
           <p role="status">此文件视图已启用 sudo 操作。已经加入队列的任务按发起时的权限执行。</p>
           <Button onClick={disable}>退出 sudo 文件操作</Button>
-          <form className="ssh-workspace-controls" onSubmit={(event) => { event.preventDefault(); void open(path, "directory"); }}>
+          <form
+            className="ssh-workspace-controls"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void open(path, "directory");
+            }}
+          >
             <label htmlFor={pathId}>sudo 文件路径</label>
             <input id={pathId} value={path} maxLength={4096} onChange={(event) => setPath(event.currentTarget.value)} />
-            <Button type="submit" disabled={busy}>浏览目录</Button>
-            <Button disabled={busy || !path.startsWith("/")} onClick={() => void open(path, "file")}>打开文本</Button>
+            <Button type="submit" disabled={busy}>
+              浏览目录
+            </Button>
+            <Button disabled={busy || !path.startsWith("/")} onClick={() => void open(path, "file")}>
+              打开文本
+            </Button>
           </form>
           <div className="ssh-workspace-controls">
-            <Button disabled={busy || !path.startsWith("/")} onClick={() => setPropertyPath(path)}>sudo 属性与移动</Button>
-            <Button disabled={busy || !path.startsWith("/")} onClick={() => void confirmDelete(path)}>sudo 删除项目</Button>
-            <Button disabled={busy} onClick={() => void pickLocal()}>选择 sudo 传输的本机目录</Button>
+            <Button disabled={busy || !path.startsWith("/")} onClick={() => setPropertyPath(path)}>
+              sudo 属性与移动
+            </Button>
+            <Button disabled={busy || !path.startsWith("/")} onClick={() => void confirmDelete(path)}>
+              sudo 删除项目
+            </Button>
+            <Button disabled={busy} onClick={() => void pickLocal()}>
+              选择 sudo 传输的本机目录
+            </Button>
           </div>
-          {directory && <FileTable caption="sudo 目录项目" entries={directory.entries} disabled={busy} onOpen={(entry) => {
-            if (entry.type === "dir" || entry.type === "file") {
-              const target = directory.path.replace(/\/$/u, "") + "/" + entry.name;
-              void open(target, entry.type === "dir" ? "directory" : "file");
-            }
-          }} />}
+          {directory && (
+            <FileTable
+              caption="sudo 目录项目"
+              entries={directory.entries}
+              disabled={busy}
+              onOpen={(entry) => {
+                if (entry.type === "dir" || entry.type === "file") {
+                  const target = directory.path.replace(/\/$/u, "") + "/" + entry.name;
+                  void open(target, entry.type === "dir" ? "directory" : "file");
+                }
+              }}
+            />
+          )}
           {directory && local && (
             <div className="ssh-file-columns">
               <fieldset>
                 <legend>本机目录 {local.path}</legend>
-                {local.entries.filter(({ type }) => type === "file" || type === "dir").map(({ name }) => (
-                  <label key={name} className="hu-setting-row">
-                    {name}
-                    <input type="checkbox" disabled={busy || selectedLocal.length >= 32 && !selectedLocal.includes(name)} checked={selectedLocal.includes(name)} onChange={(event) => setSelectedLocal(updateSelection(selectedLocal, name, event.currentTarget.checked))} />
-                  </label>
-                ))}
-                <Button disabled={busy || !selectedLocal.length} onClick={() => void queue(true)}>sudo 上传所选</Button>
+                {local.entries
+                  .filter(({ type }) => type === "file" || type === "dir")
+                  .map(({ name }) => (
+                    <label key={name} className="hu-setting-row">
+                      {name}
+                      <input
+                        type="checkbox"
+                        disabled={busy || (selectedLocal.length >= 32 && !selectedLocal.includes(name))}
+                        checked={selectedLocal.includes(name)}
+                        onChange={(event) => setSelectedLocal(updateSelection(selectedLocal, name, event.currentTarget.checked))}
+                      />
+                    </label>
+                  ))}
+                <Button disabled={busy || !selectedLocal.length} onClick={() => void queue(true)}>
+                  sudo 上传所选
+                </Button>
               </fieldset>
               <fieldset>
                 <legend>远端目录 {directory.path}</legend>
-                {directory.entries.filter(({ type }) => type === "file" || type === "dir").map(({ name }) => (
-                  <label key={name} className="hu-setting-row">
-                    {name}
-                    <input type="checkbox" disabled={busy || selectedRemote.length >= 32 && !selectedRemote.includes(name)} checked={selectedRemote.includes(name)} onChange={(event) => setSelectedRemote(updateSelection(selectedRemote, name, event.currentTarget.checked))} />
-                  </label>
-                ))}
-                <Button disabled={busy || !selectedRemote.length} onClick={() => void queue(false)}>sudo 下载所选</Button>
+                {directory.entries
+                  .filter(({ type }) => type === "file" || type === "dir")
+                  .map(({ name }) => (
+                    <label key={name} className="hu-setting-row">
+                      {name}
+                      <input
+                        type="checkbox"
+                        disabled={busy || (selectedRemote.length >= 32 && !selectedRemote.includes(name))}
+                        checked={selectedRemote.includes(name)}
+                        onChange={(event) => setSelectedRemote(updateSelection(selectedRemote, name, event.currentTarget.checked))}
+                      />
+                    </label>
+                  ))}
+                <Button disabled={busy || !selectedRemote.length} onClick={() => void queue(false)}>
+                  sudo 下载所选
+                </Button>
               </fieldset>
             </div>
           )}
           {notice && <p role="status">{notice}</p>}
-          {propertyPath && <FilePropertiesDialog session={session} path={propertyPath} sudoSignal={scope.signal} sudoSessionId={sudoSessionId} onClose={() => setPropertyPath(undefined)} onSaved={() => { if (directory) void open(directory.path, "directory"); }} />}
-          {deleting && <Dialog open title="确认 sudo 删除" description={deleting.path} error={error} onClose={() => { if (!busy) setDeleting(undefined); }}
-            actions={<>
-              <Button autoFocus disabled={busy} onClick={() => setDeleting(undefined)}>取消</Button>
-              <Button variant="danger" loading={busy} onClick={() => void erase()}>确认删除</Button>
-            </>}
-          ><p>将删除这个文件或空目录。</p></Dialog>}
+          {propertyPath && (
+            <FilePropertiesDialog
+              session={session}
+              path={propertyPath}
+              sudoSignal={scope.signal}
+              sudoSessionId={sudoSessionId}
+              onClose={() => setPropertyPath(undefined)}
+              onSaved={() => {
+                if (directory) void open(directory.path, "directory");
+              }}
+            />
+          )}
+          {deleting && (
+            <Dialog
+              open
+              title="确认 sudo 删除"
+              description={deleting.path}
+              error={error}
+              onClose={() => {
+                if (!busy) setDeleting(undefined);
+              }}
+              actions={
+                <>
+                  <Button autoFocus disabled={busy} onClick={() => setDeleting(undefined)}>
+                    取消
+                  </Button>
+                  <Button variant="danger" loading={busy} onClick={() => void erase()}>
+                    确认删除
+                  </Button>
+                </>
+              }
+            >
+              <p>将删除这个文件或空目录。</p>
+            </Dialog>
+          )}
           {editing && <RemoteTextEditor session={session} initial={editing} sudoSignal={scope.signal} sudoSessionId={sudoSessionId} onClose={() => setEditing(undefined)} />}
         </>
       ) : showPassword ? (
         <form className="ssh-workspace-controls" onSubmit={(event) => void authenticate(event)}>
           <label htmlFor={passwordId}>原主机 sudo 口令</label>
           <input id={passwordId} name="password" type="password" autoComplete="off" maxLength={4096} required disabled={busy} />
-          <Button type="submit" loading={busy}>一次性认证</Button>
+          <Button type="submit" loading={busy}>
+            一次性认证
+          </Button>
           <Button onClick={disable}>取消 sudo 认证</Button>
         </form>
-      ) : <Button loading={busy} onClick={() => void enable()}>检查 sudo 文件权限</Button>}
+      ) : (
+        <Button loading={busy} onClick={() => void enable()}>
+          检查 sudo 文件权限
+        </Button>
+      )}
       {error && <p role="alert">{error}</p>}
     </section>
   );

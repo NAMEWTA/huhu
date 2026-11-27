@@ -6,7 +6,10 @@ import { HolidayYear } from "./reports.js";
 
 const monthNumber = z.string().regex(/^(0[1-9]|1[0-2])$/u);
 const BudgetMonth = z.templateLiteral([HolidayYear, "-", monthNumber]);
-const dimensions = z.array(EntryId).max(50).refine((ids) => new Set(ids).size === ids.length, "分类或标签不能重复");
+const dimensions = z
+  .array(EntryId)
+  .max(50)
+  .refine((ids) => new Set(ids).size === ids.length, "分类或标签不能重复");
 const common = z.strictObject({
   name: BookName,
   currency: LedgerCurrency,
@@ -18,12 +21,14 @@ const fixed = common.extend({
   direction: z.enum(["income", "expense"]),
   categoryIds: dimensions,
 });
-const free = common.extend({
-  type: z.literal("free"),
-  tagIds: dimensions.min(1),
-  from: LedgerBusinessDate.optional(),
-  to: LedgerBusinessDate.optional(),
-}).refine(({ from, to }) => !from || !to || from <= to, "开始日期须早于或等于结束日期");
+const free = common
+  .extend({
+    type: z.literal("free"),
+    tagIds: dimensions.min(1),
+    from: LedgerBusinessDate.optional(),
+    to: LedgerBusinessDate.optional(),
+  })
+  .refine(({ from, to }) => !from || !to || from <= to, "开始日期须早于或等于结束日期");
 const definition = z.discriminatedUnion("type", [fixed, free]);
 const identities = { id: EntryId, bookId: BookId, revision: z.string().min(1) };
 export const Budget = z.strictObject({ ...identities, definition });
@@ -43,18 +48,29 @@ export const BudgetOverview = z.strictObject({
   totals: z.array(totals.extend({ currency: LedgerCurrency, type: z.enum(["fixed", "free"]), direction: fixed.shape.direction })),
 });
 export const BudgetDetailQuery = BudgetQuery.extend({
-  budgetId: EntryId, page: RecordsQuery.shape.page, pageSize: RecordsQuery.shape.pageSize,
+  budgetId: EntryId,
+  page: RecordsQuery.shape.page,
+  pageSize: RecordsQuery.shape.pageSize,
 });
 export const BudgetDetail = budgetProgress.extend({
-  page: z.int().positive(), pageSize: z.int().positive(), rows: z.array(RecordView),
+  page: z.int().positive(),
+  pageSize: z.int().positive(),
+  rows: z.array(RecordView),
 });
 export const SaveBudgets = BookVersion.extend({
-  budgets: z.array(z.strictObject({ id: EntryId.optional(), definition })).min(1).max(200),
+  budgets: z
+    .array(z.strictObject({ id: EntryId.optional(), definition }))
+    .min(1)
+    .max(200),
 });
 export const RemoveBudget = BookVersion.extend({ budgetId: EntryId });
 export const CopyBudgets = BookVersion.extend({
   source: BudgetMonth,
-  targets: z.array(BudgetMonth).min(1).max(120).refine((months) => new Set(months).size === months.length, "目标月份不能重复"),
+  targets: z
+    .array(BudgetMonth)
+    .min(1)
+    .max(120)
+    .refine((months) => new Set(months).size === months.length, "目标月份不能重复"),
 });
 export const CopyBudgetResult = z.strictObject({
   created: z.int().nonnegative(),

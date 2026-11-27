@@ -3,10 +3,14 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-const listen = (server: Server, endpoint: string) => new Promise<void>((resolve, reject) => {
-  server.once("error", reject);
-  server.listen(endpoint, () => { server.off("error", reject); resolve(); });
-});
+const listen = (server: Server, endpoint: string) =>
+  new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(endpoint, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
 
 /** Redirect the actual Core through a test-owned Unix socket. Only ordinary event subscriptions are reframed. */
 export async function fragmentHerdrEvents(directory: string, binary: string, marker: Buffer) {
@@ -41,8 +45,12 @@ export async function fragmentHerdrEvents(directory: string, binary: string, mar
               if (newline < 0) return;
               client.off("data", firstRequest);
               let subscription = false;
-              try { subscription = JSON.parse(request.subarray(0, newline).toString()).method === "events.subscribe"; }
-              catch { client.destroy(); return; }
+              try {
+                subscription = JSON.parse(request.subarray(0, newline).toString()).method === "events.subscribe";
+              } catch {
+                client.destroy();
+                return;
+              }
               if (subscription) {
                 void (async () => {
                   let pending = Buffer.alloc(0);
@@ -87,7 +95,9 @@ export async function fragmentHerdrEvents(directory: string, binary: string, mar
       }
     });
   });
-  writeFileSync(launcher, `#!${process.execPath}
+  writeFileSync(
+    launcher,
+    `#!${process.execPath}
 const { spawnSync } = require("node:child_process");
 const { createConnection } = require("node:net");
 const address = process.env.HC_SOCKET;
@@ -107,11 +117,16 @@ function failed(error) {
 control.on("data", (part) => { reply += part; });
 control.on("error", failed);
 control.on("end", () => { if (reply !== "ready") failed(reply); });
-`);
+`,
+  );
   chmodSync(launcher, 0o700);
   await listen(control, registration);
   return {
-    launcher, get subscriptions() { return subscriptions; }, boundaries,
+    launcher,
+    get subscriptions() {
+      return subscriptions;
+    },
+    boundaries,
     async close() {
       for (const socket of sockets) socket.destroy();
       await Promise.all([control, ...listeners.values()].map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));

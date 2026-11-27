@@ -1,5 +1,16 @@
 import { mailTool, requireMailCaller } from "./tool-access.js";
-import { errors, isWorkbenchCaller, PERIODIC_PLANS_SERVICE, PlanSummarySchema, periodicPlanSourceService, type PeriodicPlanControl, type PeriodicPlanSource, type PeriodicPlanSpec, type PeriodicRunContext, type PeriodicRunOutcome } from "@huhu/contracts";
+import {
+  errors,
+  isWorkbenchCaller,
+  PERIODIC_PLANS_SERVICE,
+  PlanSummarySchema,
+  periodicPlanSourceService,
+  type PeriodicPlanControl,
+  type PeriodicPlanSource,
+  type PeriodicPlanSpec,
+  type PeriodicRunContext,
+  type PeriodicRunOutcome,
+} from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { openMailAccounts } from "./accounts.js";
@@ -24,7 +35,9 @@ export interface MailSyncOptions {
 function spec(minutes: number, previousSeconds = 900): PeriodicPlanSpec {
   const object = { kind: "mail-accounts", id: "selected-folders" };
   return {
-    planId, title: "邮件周期同步", source: { plugin: "mail", object },
+    planId,
+    title: "邮件周期同步",
+    source: { plugin: "mail", object },
     everySeconds: minutes > 0 ? minutes * 60 : previousSeconds,
     bounds: { min: 60, max: 86_400, step: 60 },
     action: { capability: "mail.sync.refresh", object, summary: "同步已配置邮箱的所选文件夹" },
@@ -195,14 +208,18 @@ export function registerMailSyncSchedule(
   api.provide(periodicPlanSourceService("mail"), {
     signal: stopped,
     legacy: readLegacy,
-    availability: () => accounts ? { state: "ready" } : { state: "blocked", reason: "credentials-unavailable" },
+    availability: () => (accounts ? { state: "ready" } : { state: "blocked", reason: "credentials-unavailable" }),
     async run(plan, context) {
       if (planSignal !== context.signal) {
         clearProjection();
         planSignal = context.signal;
-        context.signal.addEventListener("abort", () => {
-          if (planSignal === context.signal) clearProjection();
-        }, { once: true });
+        context.signal.addEventListener(
+          "abort",
+          () => {
+            if (planSignal === context.signal) clearProjection();
+          },
+          { once: true },
+        );
       }
       active = sweep(plan.everySeconds * 1_000, context);
       try {
@@ -223,8 +240,7 @@ export function registerMailSyncSchedule(
       await service?.importSource("mail");
       signal.throwIfAborted();
       const plan = service?.read(planId) ?? null;
-      const minutes = plan?.intent === "enabled" && plan.trigger.kind === "interval"
-        ? (plan.trigger.unit === "minutes" ? plan.trigger.every : plan.trigger.every / 60) : 0;
+      const minutes = plan?.intent === "enabled" && plan.trigger.kind === "interval" ? (plan.trigger.unit === "minutes" ? plan.trigger.every : plan.trigger.every / 60) : 0;
       return { minutes, accounts: [...states.values()], revision: plan?.revision ?? null, plan, available: Boolean(service && accounts) };
     }),
   );

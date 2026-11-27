@@ -27,7 +27,10 @@ export function checkMutation(context: Pick<CapabilityContext, "signal" | "asser
 }
 
 export class McpSourceStore {
-  constructor(readonly files: VaultFiles, private readonly local: { path: string; vaultInstance: string; hostId: string } | undefined) {}
+  constructor(
+    readonly files: VaultFiles,
+    private readonly local: { path: string; vaultInstance: string; hostId: string } | undefined,
+  ) {}
 
   read(): { data: Data; version: string | null } {
     try {
@@ -46,7 +49,9 @@ export class McpSourceStore {
   }
 
   fingerprint(source: McpSource, data = this.read().data): string {
-    return createHash("sha256").update(canonicalJson([source.sourceId, data.connectionRevisions[source.sourceId] ?? 0, source.configuration])).digest("hex");
+    return createHash("sha256")
+      .update(canonicalJson([source.sourceId, data.connectionRevisions[source.sourceId] ?? 0, source.configuration]))
+      .digest("hex");
   }
 
   async change(context: CapabilityContext, update: (data: Data) => void, validate = () => {}): Promise<Data> {
@@ -57,7 +62,10 @@ export class McpSourceStore {
     data.revision++;
     await this.files.write(sourceFile, Buffer.from(JSON.stringify(dataSchema.parse(data)) + "\n"), {
       expectedVersion: version,
-      beforeCommit: () => { checkMutation(context); validate(); },
+      beforeCommit: () => {
+        checkMutation(context);
+        validate();
+      },
     });
     return data;
   }
@@ -74,10 +82,15 @@ export class McpSourceStore {
     if (!local || this.files.readOnly) return false;
     try {
       const fingerprint = this.fingerprint(source);
-      return this.localApprovals().approvals.some((approval) => approval.sourceId === source.sourceId &&
-        approval.vaultInstance === local.vaultInstance && approval.hostId === local.hostId &&
-        approval.configurationFingerprint === fingerprint && approval.authenticationRevision === 0 &&
-        (["initialize", "discover", "call"] as const).every((operation) => approval.operations.includes(operation)));
+      return this.localApprovals().approvals.some(
+        (approval) =>
+          approval.sourceId === source.sourceId &&
+          approval.vaultInstance === local.vaultInstance &&
+          approval.hostId === local.hostId &&
+          approval.configurationFingerprint === fingerprint &&
+          approval.authenticationRevision === 0 &&
+          (["initialize", "discover", "call"] as const).every((operation) => approval.operations.includes(operation)),
+      );
     } catch {
       return false;
     }
@@ -95,18 +108,29 @@ export class McpSourceStore {
     assertSource();
     const previous = this.localApprovals();
     const approvals = previous.approvals.filter(({ sourceId }) => sourceId !== source.sourceId);
-    if (enabled) approvals.push({
-      sourceId: source.sourceId, hostId: local.hostId, vaultInstance: local.vaultInstance, configurationFingerprint: fingerprint,
-      authenticationRevision: 0, operations: ["initialize", "discover", "call"],
-    });
+    if (enabled)
+      approvals.push({
+        sourceId: source.sourceId,
+        hostId: local.hostId,
+        vaultInstance: local.vaultInstance,
+        configurationFingerprint: fingerprint,
+        authenticationRevision: 0,
+        operations: ["initialize", "discover", "call"],
+      });
     await this.files.write(local.path, Buffer.from(JSON.stringify({ format: 1, approvals }) + "\n"), {
       expectedVersion: previous.version,
-      beforeCommit: () => { checkMutation(context); assertSource(); },
+      beforeCommit: () => {
+        checkMutation(context);
+        assertSource();
+      },
     });
   }
 }
 
 function parseLocal(bytes: Buffer): unknown {
-  try { return JSON.parse(bytes.toString("utf8")); }
-  catch { return undefined; }
+  try {
+    return JSON.parse(bytes.toString("utf8"));
+  } catch {
+    return undefined;
+  }
 }

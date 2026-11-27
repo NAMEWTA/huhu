@@ -19,22 +19,23 @@ function setup(opts: { disabled?: ConvertTarget[]; failBeforeCreate?: boolean; l
   const created = new Map<string, { id: string }>();
   const transportCache = new Set<string>();
   let createCalls = 0;
-  const service = () => new InboxService({
-    repo,
-    trash: new Trash(files),
-    publish: () => undefined,
-    now: () => new Date("2026-11-10T12:00:00Z"),
-    isTargetEnabled: (k) => !(opts.disabled ?? []).includes(k),
-    createTarget: async (kind, _fields, key) => {
-      createCalls++;
-      if (opts.failBeforeCreate) throw new Error("目标调用在写入前中断");
-      if (transportCache.has(key)) return;
-      created.set(key, { id: `${kind}-new${createCalls}` });
-      transportCache.add(key);
-      if (opts.loseCreateReply) throw new Error("目标已落盘但没有回执");
-    },
-    readTarget: (_kind, key) => created.get(key)?.id ?? null,
-  });
+  const service = () =>
+    new InboxService({
+      repo,
+      trash: new Trash(files),
+      publish: () => undefined,
+      now: () => new Date("2026-11-10T12:00:00Z"),
+      isTargetEnabled: (k) => !(opts.disabled ?? []).includes(k),
+      createTarget: async (kind, _fields, key) => {
+        createCalls++;
+        if (opts.failBeforeCreate) throw new Error("目标调用在写入前中断");
+        if (transportCache.has(key)) return;
+        created.set(key, { id: `${kind}-new${createCalls}` });
+        transportCache.add(key);
+        if (opts.loseCreateReply) throw new Error("目标已落盘但没有回执");
+      },
+      readTarget: (_kind, key) => created.get(key)?.id ?? null,
+    });
   return { svc: service(), service, repo, root, created, transportCache, calls: () => createCalls };
 }
 

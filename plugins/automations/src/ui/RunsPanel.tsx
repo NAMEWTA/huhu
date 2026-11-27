@@ -30,7 +30,7 @@ export function RunsPanel({ onNavigate }: { onNavigate?: Navigate }) {
   const terminal = useCapability<TerminalRunRow[]>("automations.runs.list");
   const views = useTaskAutomationViews();
   const [selection, setSelection] = useState<Selection | null>(null);
-  const taskRuns = tasks.error ? [] : tasks.data ?? [];
+  const taskRuns = tasks.error ? [] : (tasks.data ?? []);
   const taskRows = taskRuns.map(({ dispatch, run, title }) => ({
     id: dispatch.runId,
     kind: "task" as const,
@@ -130,10 +130,15 @@ export function TerminalRun({ id, onNavigate }: { id: string; onNavigate: Naviga
       setBusy(false);
     }
   }
-  if (!row) return detail.error ? <div className="hu-stack">
-    <p role="alert">{detail.error.message}</p>
-    <Button onClick={() => void detail.refetch()}>重新读取终端输出</Button>
-  </div> : <p role="status">正在读取运行结果…</p>;
+  if (!row)
+    return detail.error ? (
+      <div className="hu-stack">
+        <p role="alert">{detail.error.message}</p>
+        <Button onClick={() => void detail.refetch()}>重新读取终端输出</Button>
+      </div>
+    ) : (
+      <p role="status">正在读取运行结果…</p>
+    );
   const data = row.data;
   return (
     <>

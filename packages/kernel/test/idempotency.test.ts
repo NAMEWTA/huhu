@@ -26,14 +26,25 @@ const request = { capability, input, requestId: "fixture-r1", idempotencyKey: ke
 
 function dispatcher(store: IdempotencyStore, handler: () => { count: number }) {
   const registry = new CapabilityRegistry();
-  registry.register(defineCapability({
-    name: capability, plugin: "fixture", scope: "write",
-    input: z.object({ count: z.number() }), output: z.object({ count: z.number() }),
-    exposable: false, defaultExposed: false, handler,
-  }));
+  registry.register(
+    defineCapability({
+      name: capability,
+      plugin: "fixture",
+      scope: "write",
+      input: z.object({ count: z.number() }),
+      output: z.object({ count: z.number() }),
+      exposable: false,
+      defaultExposed: false,
+      handler,
+    }),
+  );
   return new Dispatcher({
-    registry, idempotency: store, audit: new GatewayAudit(),
-    grantedPermissions: () => [], pluginOrigin: () => "builtin", isPluginEnabled: () => true,
+    registry,
+    idempotency: store,
+    audit: new GatewayAudit(),
+    grantedPermissions: () => [],
+    pluginOrigin: () => "builtin",
+    isPluginEnabled: () => true,
     toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
   });
 }
@@ -88,7 +99,9 @@ test("副作用发生后结果写入失败，重启仍识别受理，异输入�
 
 test("已确认的可重试错误持久释放受理键", async () => {
   const file = journal();
-  const failure = dispatcher(new IdempotencyStore(file), () => { throw new HuhuError("INTERNAL", "fixture retry"); });
+  const failure = dispatcher(new IdempotencyStore(file), () => {
+    throw new HuhuError("INTERNAL", "fixture retry");
+  });
   expect(await failure.call(owner, request)).toMatchObject({ ok: false, error: { retryable: true } });
   const retry = dispatcher(new IdempotencyStore(file), () => ({ count: 1 }));
   expect(await retry.call(owner, request)).toEqual(saved);

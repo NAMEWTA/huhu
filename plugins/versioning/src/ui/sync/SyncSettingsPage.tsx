@@ -35,16 +35,20 @@ function SyncSettingsForm({ cfg, status, onNavigate }: { cfg: Cfg; status: SyncS
   const intervalHint = useId();
   const base = { mode: cfg.mode, pullSec: String(cfg.pullIntervalSec), pushSec: String(cfg.pushIntervalSec) };
   const { mode, pullSec, pushSec } = schedule ?? base;
-  const updateSchedule = (patch: Partial<typeof base>) => setSchedule((previous) => ({
-    ...base, revisions: { pull: cfg.periodics?.pull?.revision ?? null, sync: cfg.periodics?.sync?.revision ?? null }, revision: cfg.revision, ...previous, ...patch,
-  }));
+  const updateSchedule = (patch: Partial<typeof base>) =>
+    setSchedule((previous) => ({
+      ...base,
+      revisions: { pull: cfg.periodics?.pull?.revision ?? null, sync: cfg.periodics?.sync?.revision ?? null },
+      revision: cfg.revision,
+      ...previous,
+      ...patch,
+    }));
   const okSec = (v: string) => /^\d+$/.test(v) && Number(v) >= 30 && Number(v) <= 3600;
   const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const dirty = remote !== cfg.remote || branch !== cfg.branch || mode !== cfg.mode || exclude !== cfg.exclude.join("\n") || pullSec !== String(cfg.pullIntervalSec) || pushSec !== String(cfg.pushIntervalSec);
   const pausedReason = status?.pausedReason;
   const readOnly = status?.name === "read-only";
-  const canSave = dirty && !busy && !readOnly && Boolean(remote.trim() && branch.trim())
-    && (mode === "off" || okSec(pullSec)) && (mode !== "full" || okSec(pushSec));
+  const canSave = dirty && !busy && !readOnly && Boolean(remote.trim() && branch.trim()) && (mode === "off" || okSec(pullSec)) && (mode !== "full" || okSec(pushSec));
 
   async function save() {
     if (!canSave) return;
@@ -113,19 +117,43 @@ function SyncSettingsForm({ cfg, status, onNavigate }: { cfg: Cfg; status: SyncS
                 <>
                   <label>
                     {t.sync.pullEvery}
-                    <input className="hu-input" type="number" min={30} max={3600} data-testid="sync-pull-sec" aria-invalid={!okSec(pullSec)} aria-describedby={intervalHint} value={pullSec} onChange={(e) => updateSchedule({ pullSec: e.target.value })} />
+                    <input
+                      className="hu-input"
+                      type="number"
+                      min={30}
+                      max={3600}
+                      data-testid="sync-pull-sec"
+                      aria-invalid={!okSec(pullSec)}
+                      aria-describedby={intervalHint}
+                      value={pullSec}
+                      onChange={(e) => updateSchedule({ pullSec: e.target.value })}
+                    />
                   </label>
                   {mode === "full" ? (
                     <label>
                       {t.sync.pushEvery}
-                      <input className="hu-input" type="number" min={30} max={3600} data-testid="sync-push-sec" aria-invalid={!okSec(pushSec)} aria-describedby={intervalHint} value={pushSec} onChange={(e) => updateSchedule({ pushSec: e.target.value })} />
+                      <input
+                        className="hu-input"
+                        type="number"
+                        min={30}
+                        max={3600}
+                        data-testid="sync-push-sec"
+                        aria-invalid={!okSec(pushSec)}
+                        aria-describedby={intervalHint}
+                        value={pushSec}
+                        onChange={(e) => updateSchedule({ pushSec: e.target.value })}
+                      />
                     </label>
                   ) : null}
                   <small id={intervalHint}>{t.sync.intervalRange}</small>
                 </>
               ) : null}
             </fieldset>
-            {pausedReason ? <p role="status" className="hu-overdue" data-testid="sync-auto-paused">{t.sync.autoPaused[pausedReason]}</p> : null}
+            {pausedReason ? (
+              <p role="status" className="hu-overdue" data-testid="sync-auto-paused">
+                {t.sync.autoPaused[pausedReason]}
+              </p>
+            ) : null}
             {!cfg.periodics ? <p role="status">周期计划服务暂不可用。</p> : null}
             <div className="hu-sync-actions">
               {cfg.periodics?.pull && cfg.periodics.pull.intent !== "deleted" && <AutomationPlanLink planId={cfg.periodics.pull.planId} onNavigate={onNavigate} label="管理 Git 拉取计划" />}
@@ -141,7 +169,9 @@ function SyncSettingsForm({ cfg, status, onNavigate }: { cfg: Cfg; status: SyncS
           </label>
         </section>
         <div className="hu-sync-actions">
-          <Button type="submit" variant="primary" disabled={!canSave} loading={busy} data-testid="sync-save">{t.sync.save}</Button>
+          <Button type="submit" variant="primary" disabled={!canSave} loading={busy} data-testid="sync-save">
+            {t.sync.save}
+          </Button>
           {msg ? (
             <div role={msg.tone === "error" ? "alert" : "status"} className={msg.tone === "error" ? "hu-overdue" : undefined} data-testid="sync-message">
               {msg.text}

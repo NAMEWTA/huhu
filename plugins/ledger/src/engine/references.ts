@@ -55,7 +55,11 @@ export function removeReference(state: BookState, owner: ReferenceOwner, id: str
 }
 
 function safeMarkdown(text: string) {
-  return text.replace(/\s+/gu, " ").replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;")
+  return text
+    .replace(/\s+/gu, " ")
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
     .replace(/[\\`*_~[\]#|]/gu, "\\$&");
 }
 
@@ -63,17 +67,20 @@ export function draftReview(state: BookState, input: z.infer<typeof ReportQuery>
   const { from, to, series } = report(state, input);
   const rows = series.map(({ currency, incomeMinor, expenseMinor, transferInMinor, transferOutMinor }) => {
     const net = (BigInt(incomeMinor) - BigInt(expenseMinor)).toString();
-    return "| " + [currency, ...[incomeMinor, expenseMinor, net, transferInMinor, transferOutMinor].map((amount) => displayMoney(amount, currency))]
-      .join(" | ") + " |";
+    return "| " + [currency, ...[incomeMinor, expenseMinor, net, transferInMinor, transferOutMinor].map((amount) => displayMoney(amount, currency))].join(" | ") + " |";
   });
   const markdown = [
-    "# 账本复盘", "",
+    "# 账本复盘",
+    "",
     `- 账本：${safeMarkdown(state.book.name)}`,
     `- 期间：${from} 至 ${to}（${state.book.timeZone} 业务日）`,
     `- 币种：${series.map(({ currency }) => currency).join("、")}`,
     `- 统计口径：${input.includeOffset ? "包含平账组与历史排除流水" : "排除平账组与历史排除流水"}。转账单列，币种分别汇总。`,
-    "", "| 币种 | 收入 | 支出 | 净收入 | 转入 | 转出 |", "| --- | ---: | ---: | ---: | ---: | ---: |",
-    ...rows, "",
+    "",
+    "| 币种 | 收入 | 支出 | 净收入 | 转入 | 转出 |",
+    "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ...rows,
+    "",
   ].join("\n");
   return { revision: state.book.revision, markdown };
 }
@@ -83,8 +90,7 @@ export class LedgerReferences {
 
   private async call(context: CapabilityContext, capability: "notes.list" | "archives.list" | "notes.create", input: unknown, idempotencyKey?: string) {
     context.assertCapabilityCurrent?.();
-    const reply = await this.dispatcher().call(context.caller as Caller, { capability, input, requestId: context.requestId, idempotencyKey },
-      context.signal, context.subject ?? context.caller);
+    const reply = await this.dispatcher().call(context.caller as Caller, { capability, input, requestId: context.requestId, idempotencyKey }, context.signal, context.subject ?? context.caller);
     if (!reply.ok) throw new HuhuError(reply.error.code, reply.error.message);
     return reply.data;
   }
@@ -96,8 +102,7 @@ export class LedgerReferences {
         return rows.map(({ path, noteId }) => ({ kind, path, documentId: noteId }));
       }
       const rows = notes.parse(await this.call(context, "notes.list", { filter: "all" }));
-      return rows.filter(({ path }) => path.split("/")[0]?.toLowerCase() !== "archives")
-        .map(({ path, id }) => ({ kind, path, documentId: id }));
+      return rows.filter(({ path }) => path.split("/")[0]?.toLowerCase() !== "archives").map(({ path, id }) => ({ kind, path, documentId: id }));
     } catch (error) {
       if (error instanceof HuhuError && (error.code === "PLUGIN_DISABLED" || error.code === "CAPABILITY_NOT_FOUND")) return null;
       throw error;
@@ -119,8 +124,7 @@ export class LedgerReferences {
     return rows.map((row) => {
       const documents = directories.get(row.resource.kind);
       if (!documents) return { ...row, status: "notes-disabled" };
-      const resource = documents.find(({ path, documentId }) => row.resource.documentId === null
-        ? path === row.resource.path : documentId === row.resource.documentId);
+      const resource = documents.find(({ path, documentId }) => (row.resource.documentId === null ? path === row.resource.path : documentId === row.resource.documentId));
       return resource ? { ...row, resource, status: "available" } : { ...row, status: "missing" };
     });
   }
@@ -133,8 +137,11 @@ export class LedgerReferences {
   async createReview(context: CapabilityContext, state: BookState, input: z.infer<typeof SaveReview>) {
     const { markdown } = draftReview(state, input);
     const key = context.parentOperationId ?? context.idempotencyKey;
-    const idempotencyKey = key ? createHash("sha256")
-      .update(canonicalJson([context.caller, context.subject ?? null, context.delegatedBy ?? null, "ledger-review", key])).digest("hex") : undefined;
+    const idempotencyKey = key
+      ? createHash("sha256")
+          .update(canonicalJson([context.caller, context.subject ?? null, context.delegatedBy ?? null, "ledger-review", key]))
+          .digest("hex")
+      : undefined;
     return ReviewNote.parse(await this.call(context, "notes.create", { name: input.name, body: markdown }, idempotencyKey));
   }
 }

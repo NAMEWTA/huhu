@@ -25,9 +25,7 @@ function VaultForm({ section, initial, reload }: { section: Section; initial: Va
     setNotice("");
     setError("");
     setSaving(true);
-    const change = section === "connection" ? { section, values: draft.connection } as const
-      : section === "recording" ? { section, values: draft.recording } as const
-        : { section, values: draft.transfer } as const;
+    const change = section === "connection" ? ({ section, values: draft.connection } as const) : section === "recording" ? ({ section, values: draft.recording } as const) : ({ section, values: draft.transfer } as const);
     try {
       const next = await engine.call<VaultPreferencesSnapshot>("ssh.settings.update", { expectedRevision: saved.revision, change }, { write: true });
       setSaved(next);
@@ -90,26 +88,31 @@ function VaultForm({ section, initial, reload }: { section: Section; initial: Va
           </label>
           <div className="hu-setting-row">
             <label htmlFor={autoReconnectId}>断线后自动重连</label>
-            <input id={autoReconnectId} type="checkbox" checked={draft.connection.autoReconnect} onChange={(event) =>
-              setDraft({ ...draft, connection: { ...draft.connection, autoReconnect: event.currentTarget.checked } })} />
+            <input id={autoReconnectId} type="checkbox" checked={draft.connection.autoReconnect} onChange={(event) => setDraft({ ...draft, connection: { ...draft.connection, autoReconnect: event.currentTarget.checked } })} />
           </div>
-          {([
-            ["attempts", "自动重连次数", 10],
-            ["intervalSec", "重试间隔（秒）", 300],
-            ["maxDelaySec", "退避上限（秒）", 300],
-          ] as const).map(([key, label, max]) => (
-            <label className="hu-setting-row" key={key}>{label}
-              <input type="number" required min={key === "maxDelaySec" ? draft.connection.reconnect.intervalSec || 1 : 1} max={max}
+          {(
+            [
+              ["attempts", "自动重连次数", 10],
+              ["intervalSec", "重试间隔（秒）", 300],
+              ["maxDelaySec", "退避上限（秒）", 300],
+            ] as const
+          ).map(([key, label, max]) => (
+            <label className="hu-setting-row" key={key}>
+              {label}
+              <input
+                type="number"
+                required
+                min={key === "maxDelaySec" ? draft.connection.reconnect.intervalSec || 1 : 1}
+                max={max}
                 disabled={!draft.connection.autoReconnect}
                 value={Number.isNaN(draft.connection.reconnect[key]) ? "" : draft.connection.reconnect[key]}
-                onChange={(event) => setDraft({ ...draft, connection: { ...draft.connection,
-                  reconnect: { ...draft.connection.reconnect, [key]: event.currentTarget.valueAsNumber } } })} />
+                onChange={(event) => setDraft({ ...draft, connection: { ...draft.connection, reconnect: { ...draft.connection.reconnect, [key]: event.currentTarget.valueAsNumber } } })}
+              />
             </label>
           ))}
           <div className="hu-setting-row">
             <label htmlFor={shareConnectionsId}>同主机的新终端复用 SSH 连接</label>
-            <input id={shareConnectionsId} type="checkbox" checked={draft.connection.shareConnections} onChange={(event) =>
-              setDraft({ ...draft, connection: { ...draft.connection, shareConnections: event.currentTarget.checked } })} />
+            <input id={shareConnectionsId} type="checkbox" checked={draft.connection.shareConnections} onChange={(event) => setDraft({ ...draft, connection: { ...draft.connection, shareConnections: event.currentTarget.checked } })} />
           </div>
           <p>自动重连使用原 SSH 路由。断开的 Shell 和文件会话需要重新打开。保活间隔填 0 会停用协议保活。</p>
         </>
@@ -117,13 +120,19 @@ function VaultForm({ section, initial, reload }: { section: Section; initial: Va
         <>
           <div className="hu-setting-row">
             <label htmlFor={recordingEnabledId}>允许开始新的终端录制</label>
-            <input id={recordingEnabledId} type="checkbox" checked={draft.recording.enabled} onChange={(event) =>
-              setDraft({ ...draft, recording: { ...draft.recording, enabled: event.currentTarget.checked } })} />
+            <input id={recordingEnabledId} type="checkbox" checked={draft.recording.enabled} onChange={(event) => setDraft({ ...draft, recording: { ...draft.recording, enabled: event.currentTarget.checked } })} />
           </div>
           <div className="hu-setting-row">
             <label htmlFor={recordingHistoryId}>录制历史上限</label>
-            <input id={recordingHistoryId} type="number" required min={1} max={60} value={Number.isNaN(draft.recording.savedLimit) ? "" : draft.recording.savedLimit}
-              onChange={(event) => setDraft({ ...draft, recording: { ...draft.recording, savedLimit: event.currentTarget.valueAsNumber } })} />
+            <input
+              id={recordingHistoryId}
+              type="number"
+              required
+              min={1}
+              max={60}
+              value={Number.isNaN(draft.recording.savedLimit) ? "" : draft.recording.savedLimit}
+              onChange={(event) => setDraft({ ...draft, recording: { ...draft.recording, savedLimit: event.currentTarget.valueAsNumber } })}
+            />
           </div>
           <p>正在进行的录制可正常结束。每次保存录制后，清理超出上限的旧录制。</p>
         </>

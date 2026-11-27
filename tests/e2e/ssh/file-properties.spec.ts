@@ -31,14 +31,23 @@ test("A09 desktop transfers a single file in both directions when SFTP is unavai
     const data = Buffer.from([0xff, 0x00, 0x11]);
     await mkdir(destination);
     await writeFile(remote, data);
-    await app.evaluate(({ dialog }, targets) => {
-      dialog.showOpenDialog = (async (_parent, options) => ({
-        canceled: false, filePaths: [options?.properties?.includes("openFile") ? targets.file : targets.directory],
-      })) as typeof dialog.showOpenDialog;
-    }, { directory: destination, file: path.join(destination, name) });
+    await app.evaluate(
+      ({ dialog }, targets) => {
+        dialog.showOpenDialog = (async (_parent, options) => ({
+          canceled: false,
+          filePaths: [options?.properties?.includes("openFile") ? targets.file : targets.directory],
+        })) as typeof dialog.showOpenDialog;
+      },
+      { directory: destination, file: path.join(destination, name) },
+    );
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-      name: "SCP 回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      name: "SCP 回环",
+      host: "127.0.0.1",
+      port: server.port,
+      user: "fixture",
+      authKind: "password",
+      expectedRevision: null,
       credentials: [{ purpose: "password", action: "replace", value: password }],
     });
     await desktopCall(page, "ssh.workspace.runs.start", { name: "SCP 工作区", layout: { kind: "one" }, panes: [{ hostId }] });
@@ -76,11 +85,14 @@ test("A09 desktop transfers a single file in both directions when SFTP is unavai
 test("A09 desktop sudo SFTP edits an actual root-owned file and leaves the shell connected", async () => {
   test.skip(process.platform !== "linux" || !existsSync("/usr/lib/openssh/sftp-server") || spawnSync("sudo", ["-n", "true"]).status !== 0, "需要 Linux OpenSSH sftp-server 和免交互 sudo");
   const password = randomUUID();
-  const server = await startFakeSsh({ password, onInteractiveExec(command, channel) {
-    if (command !== privilegedSftpCommand) return false;
-    localPosixCommand(channel, command);
-    return true;
-  } });
+  const server = await startFakeSsh({
+    password,
+    onInteractiveExec(command, channel) {
+      if (command !== privilegedSftpCommand) return false;
+      localPosixCommand(channel, command);
+      return true;
+    },
+  });
   const fixture = await openApp();
   try {
     const { page, vault } = fixture;
@@ -90,7 +102,12 @@ test("A09 desktop sudo SFTP edits an actual root-owned file and leaves the shell
     execFileSync("sudo", ["-n", "install", "-m", "600", seed, target]);
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-      name: "sudo 文件测试", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      name: "sudo 文件测试",
+      host: "127.0.0.1",
+      port: server.port,
+      user: "fixture",
+      authKind: "password",
+      expectedRevision: null,
       credentials: [{ purpose: "password", action: "replace", value: password }],
     });
     await desktopCall(page, "ssh.workspace.runs.start", { name: "sudo 文件工作区", layout: { kind: "one" }, panes: [{ hostId }] });
@@ -145,11 +162,16 @@ test("A09 external editor copies text locally and writes back through the origin
     server.fs.permissions.set(source, 0o640);
     await app.evaluate(({ dialog, shell }, output) => {
       dialog.showSaveDialog = (async () => ({ canceled: false, filePath: output })) as typeof dialog.showSaveDialog;
-      shell.openPath = async (file) => file === output ? "" : "unexpected editor target";
+      shell.openPath = async (file) => (file === output ? "" : "unexpected editor target");
     }, local);
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-      name: "外部编辑回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      name: "外部编辑回环",
+      host: "127.0.0.1",
+      port: server.port,
+      user: "fixture",
+      authKind: "password",
+      expectedRevision: null,
       credentials: [{ purpose: "password", action: "replace", value: password }],
     });
     await desktopCall(page, "ssh.workspace.runs.start", { name: "外部编辑工作区", layout: { kind: "one" }, panes: [{ hostId }] });
@@ -199,7 +221,12 @@ test("A08 Linux desktop creates, lists and extracts a ZIP over the bound SFTP co
     server.fs.timestamps.set(`${source}/report.txt`, 1_700_000_001);
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-      name: "ZIP 回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      name: "ZIP 回环",
+      host: "127.0.0.1",
+      port: server.port,
+      user: "fixture",
+      authKind: "password",
+      expectedRevision: null,
       credentials: [{ purpose: "password", action: "replace", value: password }],
     });
     await desktopCall(page, "ssh.workspace.runs.start", { name: "ZIP 工作区", layout: { kind: "one" }, panes: [{ hostId }] });
@@ -315,7 +342,12 @@ test("A07 独立 Web 文件会话按路径前进和返回，保留桌面来源�
     server.fs.files.set("/home/test/docs/marker.txt", Buffer.from("directory fixture"));
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-      name: "浏览器文件源", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      name: "浏览器文件源",
+      host: "127.0.0.1",
+      port: server.port,
+      user: "fixture",
+      authKind: "password",
+      expectedRevision: null,
       credentials: [{ purpose: "password", action: "replace", value: password }],
     });
     await desktopCall(page, "ssh.workspace.runs.start", { name: "浏览器文件工作区", layout: { kind: "one" }, panes: [{ hostId }] });
@@ -336,7 +368,10 @@ test("A07 独立 Web 文件会话按路径前进和返回，保留桌面来源�
     await expect(web.getByTestId("home-dashboard")).toBeVisible();
     await web.getByRole("button", { name: "远程连接", exact: true }).first().click();
     await web.getByTestId("ssh-module").getByRole("button", { name: "独立文件会话", exact: true }).click();
-    await web.getByRole("complementary", { name: "独立文件会话" }).getByRole("button", { name: /浏览器文件源/ }).click();
+    await web
+      .getByRole("complementary", { name: "独立文件会话" })
+      .getByRole("button", { name: /浏览器文件源/ })
+      .click();
     const independent = web.getByTestId("ssh-independent-files").filter({ visible: true });
     await expect(independent).toHaveAttribute("data-file-session-id", sessionId!);
     await expect(independent).toHaveAttribute("data-connection-id", connectionId!);
@@ -390,7 +425,12 @@ test("A07 从未连接主机打开独立文件管理并单独释放原连接", a
     server.fs.files.set("/home/test/independent.txt", Buffer.from("independent file"));
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await desktopCall(page, "ssh.hosts.configure", {
-      name: "文件直开回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      name: "文件直开回环",
+      host: "127.0.0.1",
+      port: server.port,
+      user: "fixture",
+      authKind: "password",
+      expectedRevision: null,
       credentials: [{ purpose: "password", action: "replace", value: password }],
     });
     await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
@@ -431,14 +471,26 @@ test("A07 外置原生文件窗口保留打开时的分栏并在关闭后保留 
     await settings.getByRole("button", { name: "保存本机文件设置" }).click();
     await expect(settings.getByText("已保存到本机。")).toBeVisible();
     const panes = [];
-    for (const [name, port] of [["文件甲", first.port], ["文件乙", second.port]] as const) {
-      panes.push(await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-        name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
-        credentials: [{ purpose: "password", action: "replace", value: password }],
-      }));
+    for (const [name, port] of [
+      ["文件甲", first.port],
+      ["文件乙", second.port],
+    ] as const) {
+      panes.push(
+        await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+          name,
+          host: "127.0.0.1",
+          port,
+          user: "fixture",
+          authKind: "password",
+          expectedRevision: null,
+          credentials: [{ purpose: "password", action: "replace", value: password }],
+        }),
+      );
     }
     await desktopCall(page, "ssh.workspace.runs.start", {
-      name: "文件窗口绑定", layout: { kind: "tabs" }, panes: panes.map(({ hostId }) => ({ hostId })),
+      name: "文件窗口绑定",
+      layout: { kind: "tabs" },
+      panes: panes.map(({ hostId }) => ({ hostId })),
     });
     await ssh.click();
     await page.getByRole("button", { name: "工作区", exact: true }).click();
@@ -465,10 +517,13 @@ test("A07 外置原生文件窗口保留打开时的分栏并在关闭后保留 
   } finally {
     try {
       if (previousPreferences !== undefined) {
-        await fixture.page.evaluate(({ key, saved }) => {
-          if (saved === null) localStorage.removeItem(key);
-          else localStorage.setItem(key, saved);
-        }, { key: preferenceKey, saved: previousPreferences });
+        await fixture.page.evaluate(
+          ({ key, saved }) => {
+            if (saved === null) localStorage.removeItem(key);
+            else localStorage.setItem(key, saved);
+          },
+          { key: preferenceKey, saved: previousPreferences },
+        );
       }
     } finally {
       await fixture.close();

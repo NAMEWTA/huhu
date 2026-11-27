@@ -8,9 +8,7 @@ import { planIntentId } from "./PlanScheduleControls.js";
 
 type Input = { taskId: string; scheduledFor: string; intentId: string; startPaused: true };
 
-export function TaskReminderEditor({ onClose, onSaved, registerLeaveGuard }: {
-  onClose(): void; onSaved(planId: string): void; registerLeaveGuard: ModuleProps["registerLeaveGuard"];
-}) {
+export function TaskReminderEditor({ onClose, onSaved, registerLeaveGuard }: { onClose(): void; onSaved(planId: string): void; registerLeaveGuard: ModuleProps["registerLeaveGuard"] }) {
   const engine = useEngine();
   const formId = useId();
   const tasks = useCapability<{ id: string; title: string; status: string; readOnly: boolean }[]>("tasks.list");
@@ -32,7 +30,9 @@ export function TaskReminderEditor({ onClose, onSaved, registerLeaveGuard }: {
     setPending(input);
     try {
       const plan = await engine.call<PlanSummary>("automations.plans.createTaskReminder", input, {
-        write: true, intentKey: input.intentId, idempotencyKey: input.intentId,
+        write: true,
+        intentKey: input.intentId,
+        idempotencyKey: input.intentId,
       });
       onSaved(plan.planId);
     } catch (failure) {
@@ -44,21 +44,60 @@ export function TaskReminderEditor({ onClose, onSaved, registerLeaveGuard }: {
     }
   }
 
-  return <Dialog open title="一次性任务提醒" error={error || tasks.error?.message} onClose={dismiss} dismissOnBackdrop
-    actions={<><Button disabled={busy || pending !== null} onClick={dismiss}>取消</Button>
-      <Button type="submit" form={formId} variant="primary" disabled={busy || (!pending && (!taskId || !validTime))}>{pending ? "核对原请求" : "保存提醒"}</Button></>}>
-    <form id={formId} onSubmit={(event) => { event.preventDefault(); void save(); }}>
-      <Field label="关联任务">
-        <Select aria-label="关联任务" value={taskId} disabled={pending !== null} onChange={(event) => setTaskId(event.target.value)}>
-          <option value="">选择任务</option>
-          {tasks.data?.filter((task) => !task.readOnly && task.status !== "completed").map(({ id, title }) => <option key={id} value={id}>{title}</option>)}
-        </Select>
-      </Field>
-      <DateTimePicker label="提醒时间" clearable={false} field={{ kind: "instant", value: scheduledFor }} disabled={pending !== null}
-        onChange={(field) => { if (field.kind === "instant") setScheduledFor(field.value); }} />
-      {scheduledFor ? <p>{Intl.DateTimeFormat().resolvedOptions().timeZone} · {scheduledFor}（UTC）</p> : null}
-      {scheduledFor && !validTime ? <p role="alert">请选择未来时刻。</p> : null}
-    </form>
-    {confirmation}
-  </Dialog>;
+  return (
+    <Dialog
+      open
+      title="一次性任务提醒"
+      error={error || tasks.error?.message}
+      onClose={dismiss}
+      dismissOnBackdrop
+      actions={
+        <>
+          <Button disabled={busy || pending !== null} onClick={dismiss}>
+            取消
+          </Button>
+          <Button type="submit" form={formId} variant="primary" disabled={busy || (!pending && (!taskId || !validTime))}>
+            {pending ? "核对原请求" : "保存提醒"}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id={formId}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <Field label="关联任务">
+          <Select aria-label="关联任务" value={taskId} disabled={pending !== null} onChange={(event) => setTaskId(event.target.value)}>
+            <option value="">选择任务</option>
+            {tasks.data
+              ?.filter((task) => !task.readOnly && task.status !== "completed")
+              .map(({ id, title }) => (
+                <option key={id} value={id}>
+                  {title}
+                </option>
+              ))}
+          </Select>
+        </Field>
+        <DateTimePicker
+          label="提醒时间"
+          clearable={false}
+          field={{ kind: "instant", value: scheduledFor }}
+          disabled={pending !== null}
+          onChange={(field) => {
+            if (field.kind === "instant") setScheduledFor(field.value);
+          }}
+        />
+        {scheduledFor ? (
+          <p>
+            {Intl.DateTimeFormat().resolvedOptions().timeZone} · {scheduledFor}（UTC）
+          </p>
+        ) : null}
+        {scheduledFor && !validTime ? <p role="alert">请选择未来时刻。</p> : null}
+      </form>
+      {confirmation}
+    </Dialog>
+  );
 }

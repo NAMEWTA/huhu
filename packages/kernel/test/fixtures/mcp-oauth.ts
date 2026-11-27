@@ -25,11 +25,17 @@ export async function loopbackOAuth(options: { beforeRefresh?: (subject: string)
       return data;
     }
     if (url.pathname.startsWith("/.well-known/oauth-protected-resource")) return json({ resource: origin + "/mcp", authorization_servers: [origin] });
-    if (url.pathname === "/.well-known/oauth-authorization-server") return json({
-      issuer: origin, authorization_endpoint: origin + "/authorize", token_endpoint: origin + "/token", registration_endpoint: origin + "/register",
-      response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"],
-      code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["none"],
-    });
+    if (url.pathname === "/.well-known/oauth-authorization-server")
+      return json({
+        issuer: origin,
+        authorization_endpoint: origin + "/authorize",
+        token_endpoint: origin + "/token",
+        registration_endpoint: origin + "/register",
+        response_types_supported: ["code"],
+        grant_types_supported: ["authorization_code", "refresh_token"],
+        code_challenge_methods_supported: ["S256"],
+        token_endpoint_auth_methods_supported: ["none"],
+      });
     if (url.pathname === "/register") {
       const input = JSON.parse(await body()) as { redirect_uris: [string] };
       const id = randomUUID();
@@ -86,23 +92,33 @@ export async function loopbackOAuth(options: { beforeRefresh?: (subject: string)
         return { content: [{ type: "text", text: "authorized" }], structuredContent: { subject } };
       });
       await mcp.connect(transport);
-      try { await transport.handleRequest(request, response); }
-      finally { await mcp.close(); }
+      try {
+        await transport.handleRequest(request, response);
+      } finally {
+        await mcp.close();
+      }
       return;
     }
     response.writeHead(404).end();
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => { server.off("error", reject); resolve(); });
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
   });
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
     url: origin + "/mcp",
     calls,
     refreshSubjects,
-    get refreshes() { return refreshes; },
-    get exchanges() { return exchanges; },
+    get refreshes() {
+      return refreshes;
+    },
+    get exchanges() {
+      return exchanges;
+    },
     async stop() {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

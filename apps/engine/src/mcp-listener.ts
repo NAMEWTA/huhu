@@ -20,7 +20,10 @@ export class LocalMcpListener {
   private configuredPort: number | null;
   private activePort: number | null = null;
 
-  constructor(private readonly vault: Vault, private readonly tokens: GatewayTokens) {
+  constructor(
+    private readonly vault: Vault,
+    private readonly tokens: GatewayTokens,
+  ) {
     this.settingsFile = path.join(vault.runtimeDir, "mcp-listener.json");
     this.rootBinding = endpointRootBinding(vault.root);
     this.configuredPort = vault.readOnly ? null : this.read();

@@ -248,10 +248,12 @@ export function isPiHistoryFile(file: string, nativeId: string, historyId: strin
 }
 
 function uuidStores(provider: UuidHistoryProvider, profile: string) {
-  return provider === "claude" ? [{ dir: path.join(profile, "projects"), depth: 1, optional: false }] : [
-    { dir: path.join(profile, "sessions"), depth: 3, optional: false },
-    { dir: path.join(profile, "archived_sessions"), depth: 0, optional: true },
-  ];
+  return provider === "claude"
+    ? [{ dir: path.join(profile, "projects"), depth: 1, optional: false }]
+    : [
+        { dir: path.join(profile, "sessions"), depth: 3, optional: false },
+        { dir: path.join(profile, "archived_sessions"), depth: 0, optional: true },
+      ];
 }
 
 function recordUuidCandidate(provider: UuidHistoryProvider, depth: number, entry: Dirent, location: string, candidates: Map<string, string | null>): void {
@@ -319,7 +321,7 @@ async function projectedUuidCandidates(provider: UuidHistoryProvider, profile: s
     }
   };
   try {
-    if (await realpath(profile) !== profile) return undefined;
+    if ((await realpath(profile)) !== profile) return undefined;
     for (const { dir, depth, optional } of uuidStores(provider, profile)) await visit(dir, depth, optional);
     return candidates;
   } catch {
@@ -382,7 +384,9 @@ function historyEntry(provider: Provider, file: string, id: string, rawCwd: stri
   return {
     provider,
     historyId: historyIdentity(provider, id, file, rawCwd, cwd, stamp.physical),
-    legacyHistoryId: createHash("sha256").update(JSON.stringify([provider, id, file, cwd])).digest("hex"),
+    legacyHistoryId: createHash("sha256")
+      .update(JSON.stringify([provider, id, file, cwd]))
+      .digest("hex"),
     revision: stamp.revision,
     nativeSessionId: id,
     cwd,
@@ -440,7 +444,10 @@ export class HistoryProjection {
   private readonly snapshots = new Map<string, Snapshot>();
   private readonly pending = new Map<string, Promise<Snapshot>>();
 
-  constructor(private readonly signal?: AbortSignal, private readonly now = Date.now) {}
+  constructor(
+    private readonly signal?: AbortSignal,
+    private readonly now = Date.now,
+  ) {}
 
   async scan(o: ScanOptions, { fresh = false } = {}): Promise<ScanResult & { candidates: Map<Provider, Snapshot["candidates"]> }> {
     const env = o.env ?? process.env;
@@ -448,7 +455,7 @@ export class HistoryProjection {
     const roots = o.roots.map(real);
     const providers = o.providers ?? (Object.keys(stores) as Provider[]);
     const snapshots = await Promise.all(providers.map((provider) => this.snapshot(provider, env, home, fresh)));
-    const entries = snapshots.flatMap(({ byCwd }) => [...byCwd].flatMap(([cwd, rows]) => roots.some((root) => within(root, cwd)) ? rows : []));
+    const entries = snapshots.flatMap(({ byCwd }) => [...byCwd].flatMap(([cwd, rows]) => (roots.some((root) => within(root, cwd)) ? rows : [])));
     entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.historyId.localeCompare(b.historyId));
     return {
       entries,
@@ -488,10 +495,12 @@ export class HistoryProjection {
     for (const [other, snapshot] of this.snapshots) {
       if (other !== key && now - snapshot.at >= 60_000) this.snapshots.delete(other);
     }
-    const refresh = this.refresh(provider, root, store, existing, env, home).then((next) => {
-      this.snapshots.set(key, next);
-      return next;
-    }).finally(() => this.pending.delete(key));
+    const refresh = this.refresh(provider, root, store, existing, env, home)
+      .then((next) => {
+        this.snapshots.set(key, next);
+        return next;
+      })
+      .finally(() => this.pending.delete(key));
     this.pending.set(key, refresh);
     return refresh;
   }
@@ -514,7 +523,11 @@ export class HistoryProjection {
         skipped++;
         continue;
       }
-      const { parsed: { cwd: rawCwd, title }, id, stamp } = source;
+      const {
+        parsed: { cwd: rawCwd, title },
+        id,
+        stamp,
+      } = source;
       if (!rawCwd || !id || !isValidNativeId(id)) {
         skipped++;
         continue;
@@ -527,7 +540,10 @@ export class HistoryProjection {
       const cwd = await resolved;
       if (!cwd) continue;
       const entry = historyEntry(provider, file, id, rawCwd, cwd, title, stamp);
-      for (const [index, key] of [[byCwd, cwd], [byNativeId, id]] as const) {
+      for (const [index, key] of [
+        [byCwd, cwd],
+        [byNativeId, id],
+      ] as const) {
         const rows = index.get(key);
         if (rows) rows.push(entry);
         else index.set(key, [entry]);

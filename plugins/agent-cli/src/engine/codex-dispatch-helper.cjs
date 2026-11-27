@@ -80,9 +80,15 @@ function main(file) {
     try {
       const stat = statSync(workspace.root, { bigint: true });
       const identity = stat.ino === 0n ? null : `${stat.dev}:${stat.ino}`;
-      return !resume && process.platform === "linux" && process.cwd() === workspace.root && realpathSync(workspace.root) === workspace.root &&
-        stat.isDirectory() && JSON.stringify([identity, String(stat.birthtimeNs)]) === workspace.rootIdentity &&
-        workspace.files.every(({ path, stamp: expected }) => stamp(path) === expected);
+      return (
+        !resume &&
+        process.platform === "linux" &&
+        process.cwd() === workspace.root &&
+        realpathSync(workspace.root) === workspace.root &&
+        stat.isDirectory() &&
+        JSON.stringify([identity, String(stat.birthtimeNs)]) === workspace.rootIdentity &&
+        workspace.files.every(({ path, stamp: expected }) => stamp(path) === expected)
+      );
     } catch {
       return false;
     }
@@ -123,13 +129,17 @@ function main(file) {
   if (!windows) env.HOME = config.home;
 
   // Codex merges tables across layers, so an empty CLI MCP table alone does not clear profile entries.
-  const isolatedMcpArgs = config.args.length ? [] : [
-    "--disable", "plugins", "--disable", "remote_plugin", "--disable", "skill_mcp_dependency_install", "--disable", "apps",
-    "--config", "projects." + JSON.stringify(process.cwd()) + '.trust_level="untrusted"',
-  ];
+  const isolatedMcpArgs = config.args.length
+    ? []
+    : ["--disable", "plugins", "--disable", "remote_plugin", "--disable", "skill_mcp_dependency_install", "--disable", "apps", "--config", "projects." + JSON.stringify(process.cwd()) + '.trust_level="untrusted"'];
   if (isolatedMcpArgs.length) {
     const inventory = spawnSync(config.command, [...isolatedMcpArgs, "mcp", "list", "--json"], {
-      cwd: process.cwd(), env, encoding: "utf8", timeout: 4_000, maxBuffer: 512 * 1024, windowsHide: true,
+      cwd: process.cwd(),
+      env,
+      encoding: "utf8",
+      timeout: 4_000,
+      maxBuffer: 512 * 1024,
+      windowsHide: true,
     });
     if (inventory.status !== 0) throw new Error("Controlled MCP configuration could not be verified");
     const entries = JSON.parse(inventory.stdout);
@@ -139,9 +149,7 @@ function main(file) {
 
   const nativeChoiceFeature = "default_mode_request_user_input";
   const choiceArgs = nativeChoiceBridge ? ["--enable", nativeChoiceFeature] : [];
-  const toolArgs = workspace
-    ? ["--enable", "shell_tool", "--config", "sandbox_workspace_write={writable_roots=[],network_access=false,exclude_tmpdir_env_var=true,exclude_slash_tmp=true}"]
-    : ["--disable", "shell_tool"];
+  const toolArgs = workspace ? ["--enable", "shell_tool", "--config", "sandbox_workspace_write={writable_roots=[],network_access=false,exclude_tmpdir_env_var=true,exclude_slash_tmp=true}"] : ["--disable", "shell_tool"];
   const tokenFile = path.join(directory, "task-mcp-token.json");
   const taskMcp = !resume && statSync(tokenFile, { throwIfNoEntry: false }) ? JSON.parse(readFileSync(tokenFile, "utf8")) : null;
   const endTaskMcp = () => {
@@ -154,7 +162,7 @@ function main(file) {
     rmSync(tokenFile);
     if (!/^http:\/\/127\.0\.0\.1:[0-9]+\/mcp$/.test(taskMcp.url) || !/^[A-Za-z0-9_-]{43}$/.test(taskMcp.token)) throw new Error("Invalid task MCP binding");
     env.HUHU_TASK_MCP_TOKEN = taskMcp.token;
-    mcp = 'mcp_servers={huhu={url=' + JSON.stringify(taskMcp.url) + ',bearer_token_env_var="HUHU_TASK_MCP_TOKEN",default_tools_approval_mode="approve"}}';
+    mcp = "mcp_servers={huhu={url=" + JSON.stringify(taskMcp.url) + ',bearer_token_env_var="HUHU_TASK_MCP_TOKEN",default_tools_approval_mode="approve"}}';
     toolArgs.push("--config", 'shell_environment_policy.exclude=["HUHU_TASK_MCP_TOKEN"]');
     const processStart = process.platform === "linux" ? statSync(`/proc/${process.pid}`, { bigint: true }).ino.toString() : undefined;
     save("task-mcp-active", { pid: process.pid, processStart });
@@ -267,9 +275,7 @@ function main(file) {
     const { status, error } = completion;
     endTaskMcp();
     if (status === "completed" && final) report(final.source, { message: final.text });
-    const withoutFinal = status === "completed" && !final
-      ? (final === undefined && resultMode === "allow_no_update" ? "allowed" : "unconfirmed")
-      : undefined;
+    const withoutFinal = status === "completed" && !final ? (final === undefined && resultMode === "allow_no_update" ? "allowed" : "unconfirmed") : undefined;
     save(runFile(executionBinding, "completed"), { threadId, turnId, status, error, withoutFinal });
     log("original turn ended");
     submitted = false;
@@ -331,7 +337,10 @@ function main(file) {
       answer.resolved = true;
       confirmAnswer(answer);
       if (resumeTurnOffset !== undefined && !answer.accepted) {
-        const { fingerprint, source: { turnId, itemId, questionId } } = answer;
+        const {
+          fingerprint,
+          source: { turnId, itemId, questionId },
+        } = answer;
         save("answer-resolved-" + fingerprint, { fingerprint, turnId, itemId, questionId, offset: resumeTurnOffset });
       }
       return;
@@ -420,7 +429,7 @@ function main(file) {
       (requestedResultMode !== undefined && requestedResultMode !== "allow_no_update")
     )
       return;
-    if (taskMcp && observedTurns.size === 0 && Object.entries(taskMcp.key).some(([key, value]) => key === "machineId" ? binding.machineId !== value : execution[key] !== value)) return;
+    if (taskMcp && observedTurns.size === 0 && Object.entries(taskMcp.key).some(([key, value]) => (key === "machineId" ? binding.machineId !== value : execution[key] !== value))) return;
     if (!workspaceApproved()) return stop("workspace write approval changed before input");
     if (resume && observedTurns.size === 0) {
       if (execution.dispatchId !== resume.dispatchId) return;
@@ -504,10 +513,11 @@ function main(file) {
   }
 
   const startup = setTimeout(() => stop("thread startup is unconfirmed"), 20_000);
-  // oxlint-disable-next-line huhu-scheduling/no-private-periodic-timer -- 子进程执行期间监控工作区授权撤回，随子进程退出清理。
-  const approvalWatch = workspace ? setInterval(() => {
+  const watchApproval = () => {
     if (!workspaceApproved()) stop("workspace write approval changed");
-  }, 250) : undefined;
+  };
+  // oxlint-disable-next-line huhu-scheduling/no-private-periodic-timer -- 子进程执行期间监控工作区授权撤回，随子进程退出清理。
+  const approvalWatch = workspace ? setInterval(watchApproval, 250) : undefined;
   app.once("error", () => stop("App Server unavailable"));
   app.once("close", () => stop("App Server ended"));
   app.stdin.on("error", () => stop("App Server connection lost"));
@@ -585,9 +595,17 @@ function main(file) {
       if (!validId(started?.thread?.id)) return stop("thread startup is unconfirmed");
       if (workspace) {
         const sandbox = started.sandbox;
-        if (!workspaceApproved() || started.approvalPolicy !== "never" || started.thread.cwd !== workspace.root || sandbox?.type !== "workspaceWrite" ||
-            sandbox.networkAccess !== false || sandbox.excludeTmpdirEnvVar !== true || sandbox.excludeSlashTmp !== true ||
-            !Array.isArray(sandbox.writableRoots) || sandbox.writableRoots.some((root) => root !== workspace.root)) {
+        if (
+          !workspaceApproved() ||
+          started.approvalPolicy !== "never" ||
+          started.thread.cwd !== workspace.root ||
+          sandbox?.type !== "workspaceWrite" ||
+          sandbox.networkAccess !== false ||
+          sandbox.excludeTmpdirEnvVar !== true ||
+          sandbox.excludeSlashTmp !== true ||
+          !Array.isArray(sandbox.writableRoots) ||
+          sandbox.writableRoots.some((root) => root !== workspace.root)
+        ) {
           return stop("workspace sandbox is unconfirmed");
         }
       }

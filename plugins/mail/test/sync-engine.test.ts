@@ -39,7 +39,9 @@ vi.mock("../src/engine/registration.js", async (importOriginal) => {
 
 function deferred() {
   let resolve!: () => void;
-  const promise = new Promise<void>((done) => { resolve = done; });
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
@@ -154,7 +156,9 @@ engineTest(
       expect(notices.list()).toHaveLength(0);
 
       // Let the successful sync finish after its slot so the next regular slot must still be eligible.
-      fault = async (uid) => { if (uid === 232) now += 1_000; };
+      fault = async (uid) => {
+        if (uid === 232) now += 1_000;
+      };
       await tick(5000);
       await expect.poll(() => nextDelay(), waitForImap).toBe(59_000);
       await expect.poll(() => call("mail.sync.settings"), waitForImap).toMatchObject({ accounts: [{ accountId, phase: "ready" }] });

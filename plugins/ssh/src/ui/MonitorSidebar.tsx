@@ -96,10 +96,14 @@ export function MonitorMetrics({ host, details = true }: { host: MonitorHost; de
               {sample.interfaces?.length ? (
                 <ul>
                   {sample.interfaces.map(({ name, received, sent }) => (
-                    <li key={name}>{name} · 接收 {Math.round(received)} B/s · 发送 {Math.round(sent)} B/s</li>
+                    <li key={name}>
+                      {name} · 接收 {Math.round(received)} B/s · 发送 {Math.round(sent)} B/s
+                    </li>
                   ))}
                 </ul>
-              ) : unknown}
+              ) : (
+                unknown
+              )}
             </dd>
           </dl>
         </details>
@@ -234,18 +238,26 @@ function ActiveMonitorSidebar({ hostId, shellId, name, shown, dock, onDock, onCl
           </Button>
         )}
         <Button onClick={onClose}>关闭监控</Button>
-        <Button aria-pressed={sudo} disabled={!current || busy || current.host.state === "disconnected"} onClick={() => {
-          setSession(undefined);
-          setError("");
-          setSudo(!sudo);
-        }}>
+        <Button
+          aria-pressed={sudo}
+          disabled={!current || busy || current.host.state === "disconnected"}
+          onClick={() => {
+            setSession(undefined);
+            setError("");
+            setSudo(!sudo);
+          }}
+        >
           监控 sudo
         </Button>
         {current?.host.state !== "disconnected" && <Button onClick={() => showTools(true)}>服务器工具</Button>}
         {toolHost?.openSshToolWindow && current?.host.state !== "disconnected" && (
-          <Button onClick={() => void toolHost.openSshToolWindow({ vaultId: engine.vaultId, hostId, shellId, name }).catch((cause: unknown) => {
-            setError(cause instanceof Error ? cause.message : "无法打开服务器工具窗口");
-          })}>
+          <Button
+            onClick={() =>
+              void toolHost.openSshToolWindow({ vaultId: engine.vaultId, hostId, shellId, name }).catch((cause: unknown) => {
+                setError(cause instanceof Error ? cause.message : "无法打开服务器工具窗口");
+              })
+            }
+          >
             在新窗口打开服务器工具
           </Button>
         )}

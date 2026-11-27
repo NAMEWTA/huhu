@@ -64,7 +64,7 @@ type StopRecord = NonNullable<OwnedRecord["stop"]>;
 type RuleSlots = Map<string, Set<string>>;
 type Occupancy = "active" | "none" | { waitingSince: string };
 const noBacklog = () => ({ pending: 0, active: 0, waitingNative: 0, unknown: 0, oldestPendingAt: null as string | null, oldestNativeWaitAt: null as string | null, oldestUnknownAt: null as string | null });
-const earlier = (previous: string | null, next: string) => previous === null || next < previous ? next : previous;
+const earlier = (previous: string | null, next: string) => (previous === null || next < previous ? next : previous);
 type ReplyInput = z.infer<typeof TaskReplyInput>;
 type ReplyLookup = z.infer<typeof TaskReplyLookup>;
 type ReplyView = z.infer<typeof TaskReplyView>;
@@ -165,8 +165,7 @@ function rejectDispatch(reason: Rejection, message: string, existing?: DispatchR
 }
 
 function maySend(task: TaskDto, receipt: DispatchReceipt, now: Date): boolean {
-  return (isTaskAvailable(task.availableAt, new Date(receipt.acceptedAt)) && isTaskAvailable(task.availableAt, now))
-    || task.availableAt === receipt.overriddenAvailableAt;
+  return (isTaskAvailable(task.availableAt, new Date(receipt.acceptedAt)) && isTaskAvailable(task.availableAt, now)) || task.availableAt === receipt.overriddenAvailableAt;
 }
 
 function holdsRun(record: DispatchRecord, outcomes: ReadonlyMap<string, RunOutcome>, task: TaskDto | null): boolean {
@@ -194,12 +193,10 @@ export class TaskDispatch {
     if (!record || !this.store.owns(record) || record.claim?.machineId !== this.machineId) return false;
     const { receipt, snapshot } = record;
     // The native helper may still be starting while Tasks returns the same attempt to claimed.
-    if (receipt.taskId !== key.taskId || receipt.runId !== key.runId || receipt.attempt !== key.attempt ||
-        !["claimed", "sending", "running", "unknown"].includes(receipt.state) || snapshot.mcpAuthorization?.revision !== revision) return false;
+    if (receipt.taskId !== key.taskId || receipt.runId !== key.runId || receipt.attempt !== key.attempt || !["claimed", "sending", "running", "unknown"].includes(receipt.state) || snapshot.mcpAuthorization?.revision !== revision)
+      return false;
     const task = this.tasks.read(key.taskId);
-    return task.type === "agent" && task.mcpAuthorization?.revision === revision &&
-      fingerprint(task.mcpAuthorization) === fingerprint(snapshot.mcpAuthorization) &&
-      fingerprint(authorization) === fingerprint(snapshot.mcpAuthorization);
+    return task.type === "agent" && task.mcpAuthorization?.revision === revision && fingerprint(task.mcpAuthorization) === fingerprint(snapshot.mcpAuthorization) && fingerprint(authorization) === fingerprint(snapshot.mcpAuthorization);
   }
 
   private readonly acceptance = new WriteQueue();
@@ -263,8 +260,7 @@ export class TaskDispatch {
     const { outcomes } = this.receipts.history(taskId, this.matchesExecution, this.onError);
     return this.receipts.committedResult(taskId, receiptId, (execution) => {
       const outcome = outcomes.get(execution.dispatchId);
-      return outcome?.state === "succeeded" && outcome.result.kind === "result" && outcome.result.receiptId === receiptId &&
-        this.matchesExecution(execution) && !this.store.read(eventIdOf(retryDispatchId(execution.dispatchId)));
+      return outcome?.state === "succeeded" && outcome.result.kind === "result" && outcome.result.receiptId === receiptId && this.matchesExecution(execution) && !this.store.read(eventIdOf(retryDispatchId(execution.dispatchId)));
     });
   }
 
@@ -599,8 +595,7 @@ export class TaskDispatch {
       const state = this.runs(task.id, records).find(({ id }) => id === latest.receipt.runId)?.state;
       const { coreAddress: _, ...sessionBinding } = binding.sessionBinding;
       execution = {
-        state: state === "succeeded" ? "completed" : state === "waiting_input" ? "waiting-input"
-          : state === "running" || state === "failed" ? state : "unknown",
+        state: state === "succeeded" ? "completed" : state === "waiting_input" ? "waiting-input" : state === "running" || state === "failed" ? state : "unknown",
         identity: { ...binding, sessionBinding },
       };
     }
@@ -884,10 +879,14 @@ export class TaskDispatch {
   private viewWithSession(record: DispatchRecord, toolOwner?: string): TaskDispatchView {
     const { boundExecution, snapshot, stop } = record;
     const spaceId = snapshot.execution.spaceId;
-    const session = boundExecution && spaceId && this.matchesExecution(boundExecution) ? {
-      id: boundExecution.sessionBinding.sessionId, spaceId,
-      ...(toolOwner === undefined && { processGeneration: boundExecution.sessionBinding.processGeneration }),
-    } : null;
+    const session =
+      boundExecution && spaceId && this.matchesExecution(boundExecution)
+        ? {
+            id: boundExecution.sessionBinding.sessionId,
+            spaceId,
+            ...(toolOwner === undefined && { processGeneration: boundExecution.sessionBinding.processGeneration }),
+          }
+        : null;
     const view = { ...this.dispatchView(record), session };
     if (!stop || (toolOwner !== undefined && stop.toolOwner !== toolOwner)) return view;
     const { toolOwner: _, ...stopStatus } = stop;
@@ -936,8 +935,7 @@ export class TaskDispatch {
   }
 
   private scheduleRecovery(): void {
-    if (this.recoveryDelay === undefined || this.recoveryTimer || this.abort.signal.aborted
-      || !(this.store.hasActive() || this.receipts.hasPending() || this.replies.hasPending())) return;
+    if (this.recoveryDelay === undefined || this.recoveryTimer || this.abort.signal.aborted || !(this.store.hasActive() || this.receipts.hasPending() || this.replies.hasPending())) return;
     this.recoveryTimer = setTimeout(() => {
       this.recoveryTimer = undefined;
       void this.check();
@@ -974,9 +972,7 @@ export class TaskDispatch {
       await this.receipts.replay(this.tasks, this.matchesExecution, this.abort.signal, onError, snapshot);
       const records = this.store.active(onError);
       const owned = records.filter((record): record is OwnedRecord => this.store.owns(record));
-      const events = records
-        .filter(({ receipt }) => holdsTask(receipt))
-        .sort((a, b) => a.receipt.acceptedAt.localeCompare(b.receipt.acceptedAt) || a.receipt.eventId.localeCompare(b.receipt.eventId));
+      const events = records.filter(({ receipt }) => holdsTask(receipt)).sort((a, b) => a.receipt.acceptedAt.localeCompare(b.receipt.acceptedAt) || a.receipt.eventId.localeCompare(b.receipt.eventId));
       const { occupancy, refreshReplies } = this.schedulingOccupancy(owned, snapshot);
       const budgetReady = this.refreshResources(owned, occupancy);
       const takeActive = ({ receipt }: DispatchRecord) => !this.budget || (budgetReady && this.budget.claim("active", receipt.eventId));
@@ -1000,8 +996,7 @@ export class TaskDispatch {
         if (this.abort.signal.aborted) break;
         try {
           await this.advance(event, slots, takeActive);
-          if (this.store.owns(event) && event.receipt.state === "running"
-            && !["pending", "sending", "unknown"].includes(event.stop?.status ?? "") && occupancy(event) === "none") {
+          if (this.store.owns(event) && event.receipt.state === "running" && !["pending", "sending", "unknown"].includes(event.stop?.status ?? "") && occupancy(event) === "none") {
             this.store.retire(event.receipt.eventId);
           }
         } catch (error) {
@@ -1081,7 +1076,8 @@ export class TaskDispatch {
           replies = this.replies.list(taskId, matches);
           repliesByTask.set(taskId, replies);
         }
-        if (waits.some((question) => replies.some((reply) => reply.runId === runId && reply.requestId === question.requestId && reply.requestVersion === question.requestVersion && ["sending", "unknown", "accepted"].includes(reply.status)))) return "active";
+        if (waits.some((question) => replies.some((reply) => reply.runId === runId && reply.requestId === question.requestId && reply.requestVersion === question.requestVersion && ["sending", "unknown", "accepted"].includes(reply.status))))
+          return "active";
         return { waitingSince: waits.reduce((oldest, question) => earlier(oldest, question.at), waits[0]!.at) };
       } catch (error) {
         this.onError?.(error);
@@ -1196,7 +1192,7 @@ export class TaskDispatch {
       }
       // claimed 独立落盘。进程在此中断时，可以证明尚未开始派遣。
       if (!(await this.beginSending(record))) return;
-      await this.finishSending(record, () => this.scheduleAllows(record) ? executor.dispatch(prepared, signal) : Promise.resolve("not_sent"));
+      await this.finishSending(record, () => (this.scheduleAllows(record) ? executor.dispatch(prepared, signal) : Promise.resolve("not_sent")));
       return;
     }
     if (executor && (receipt.state === "sending" || receipt.state === "unknown")) await this.finishSending(record, () => executor.inspect(work, signal));

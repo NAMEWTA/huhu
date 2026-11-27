@@ -91,7 +91,7 @@ export function RuleEditor({
   const prompt0 = a?.kind === "agent" && a.input.source === "prompt" ? a.input : null;
   const [text, setText] = useState(a?.kind === "reminder" ? a.text : "");
   const [mode, setMode] = useState<"notification" | "task" | "both">(a?.kind === "reminder" ? a.mode : "notification");
-  const [taskId, setTaskId] = useState(a?.kind === "reminder" ? a.taskId ?? "" : "");
+  const [taskId, setTaskId] = useState(a?.kind === "reminder" ? (a.taskId ?? "") : "");
   const [spaceId, setSpaceId] = useState(prompt0?.spaceId ?? (a?.kind === "terminal" ? (a.spaceId ?? "") : ""));
   const [provider, setProvider] = useState(prompt0?.provider ?? "");
   const [model, setModel] = useState(prompt0?.model ?? "");
@@ -126,10 +126,14 @@ export function RuleEditor({
   const windowValid = windowKind !== "custom" || Boolean(windowStart && windowEnd && Date.parse(windowStart) < Date.parse(windowEnd));
   const parallelCount = Number(parallel);
   const scanValid = windowValid && Number.isInteger(parallelCount) && parallelCount >= 1 && parallelCount <= 4 && prompt.length <= 20_000;
-  const actionValid = kind === "reminder" ? Boolean(text.trim() && (!taskId || tasks.data?.some(({ id }) => id === taskId)))
-    : kind === "agent_prompt" ? canUseSpace && validProvider && validModel && Boolean(prompt.trim())
-    : kind === "terminal" ? Boolean(command.trim() && (!spaceId || canUseSpace))
-    : scanValid;
+  const actionValid =
+    kind === "reminder"
+      ? Boolean(text.trim() && (!taskId || tasks.data?.some(({ id }) => id === taskId)))
+      : kind === "agent_prompt"
+        ? canUseSpace && validProvider && validModel && Boolean(prompt.trim())
+        : kind === "terminal"
+          ? Boolean(command.trim() && (!spaceId || canUseSpace))
+          : scanValid;
   const timeOk = !PRESETS.find((p) => p.id === preset)?.time || /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
   // 本地反馈用于校验输入，预览时刻来自负责执行的 Engine。
   let triggerError: string | null = null;
@@ -145,20 +149,39 @@ export function RuleEditor({
     }
   }
   const graceNumber = Number(grace);
-  const valid = Boolean(title.trim() && triggerError === null && actionValid && grace.trim()
-    && Number.isInteger(graceNumber) && graceNumber >= 0 && (graceNumber <= 1440 || graceNumber === start?.data.missedRunGraceMinutes)
-    && (!rule?.data.legacyEnvironment || replaceLegacy));
+  const valid = Boolean(
+    title.trim() &&
+    triggerError === null &&
+    actionValid &&
+    grace.trim() &&
+    Number.isInteger(graceNumber) &&
+    graceNumber >= 0 &&
+    (graceNumber <= 1440 || graceNumber === start?.data.missedRunGraceMinutes) &&
+    (!rule?.data.legacyEnvironment || replaceLegacy),
+  );
   const draft = (): RuleDraft => {
-    const window: TaskDispatchWindow | null = windowKind === "custom" ? { kind: "custom", start: windowStart ?? "", end: windowEnd ?? "" }
-      : windowKind ? { kind: windowKind } : null;
-    const action: Action = kind === "reminder"
-      ? { kind: "reminder", mode, text: text.trim(), taskId: taskId || null }
-      : kind === "agent_prompt"
-        ? { kind: "agent", input: { source: "prompt", spaceId, provider, model: model || null, effort: effort || null, fast } }
-        : kind === "agent_tasks"
-          ? { kind: "agent", input: { source: "tasks", tags: tagsText.split(",").map((tag) => tag.trim()).filter(Boolean),
-            maxConcurrent: parallelCount, window, includeOverdue: overdue, includeUnscheduled: unscheduled ?? !window } }
-          : { kind: "terminal", command: command.trim(), shell, spaceId: spaceId || null };
+    const window: TaskDispatchWindow | null = windowKind === "custom" ? { kind: "custom", start: windowStart ?? "", end: windowEnd ?? "" } : windowKind ? { kind: windowKind } : null;
+    const action: Action =
+      kind === "reminder"
+        ? { kind: "reminder", mode, text: text.trim(), taskId: taskId || null }
+        : kind === "agent_prompt"
+          ? { kind: "agent", input: { source: "prompt", spaceId, provider, model: model || null, effort: effort || null, fast } }
+          : kind === "agent_tasks"
+            ? {
+                kind: "agent",
+                input: {
+                  source: "tasks",
+                  tags: tagsText
+                    .split(",")
+                    .map((tag) => tag.trim())
+                    .filter(Boolean),
+                  maxConcurrent: parallelCount,
+                  window,
+                  includeOverdue: overdue,
+                  includeUnscheduled: unscheduled ?? !window,
+                },
+              }
+            : { kind: "terminal", command: command.trim(), shell, spaceId: spaceId || null };
     return { title: title.trim(), trigger: { preset, cron, zone: tz.trim() }, action, body: kind.startsWith("agent_") ? prompt : "", missedRunGraceMinutes: graceNumber };
   };
 
@@ -180,7 +203,7 @@ export function RuleEditor({
       const data = await engine.call<Preview>("automations.plans.previewRuleDraft", { trigger, action, body }, { signal: controller.signal });
       if (!controller.signal.aborted) setPreview({ version: previewVersion, status: "loaded", data });
     } catch (failure) {
-      if (!controller.signal.aborted) setPreview({ version: previewVersion, status: "error", error: failure instanceof Error ? failure.message : "暂时无法预览。"});
+      if (!controller.signal.aborted) setPreview({ version: previewVersion, status: "error", error: failure instanceof Error ? failure.message : "暂时无法预览。" });
     }
   }
 
@@ -240,22 +263,59 @@ export function RuleEditor({
                 </Field>
                 <Field label="派遣窗口">
                   <Select aria-label="派遣窗口" value={windowKind} onChange={(event) => setWindowKind(event.target.value as typeof windowKind)}>
-                    <option value="">不限</option><option value="today">今天</option><option value="week">本周</option>
-                    <option value="month">本月</option><option value="next-seven-days">未来 7 天</option><option value="custom">自定义范围</option>
+                    <option value="">不限</option>
+                    <option value="today">今天</option>
+                    <option value="week">本周</option>
+                    <option value="month">本月</option>
+                    <option value="next-seven-days">未来 7 天</option>
+                    <option value="custom">自定义范围</option>
                   </Select>
                 </Field>
-                {windowKind === "custom" ? <>
-                  <DateTimePicker label="窗口开始" field={{ kind: "instant", value: windowStart }}
-                    onChange={(field) => { if (field.kind === "instant") { onDirty(); setWindowStart(field.value); } }} />
-                  <DateTimePicker label="窗口结束" field={{ kind: "instant", value: windowEnd }}
-                    onChange={(field) => { if (field.kind === "instant") { onDirty(); setWindowEnd(field.value); } }} />
-                  {!windowValid ? <p role="alert">请选择结束时刻晚于开始时刻的范围。</p> : null}
-                </> : null}
-                <label><input type="checkbox" checked={overdue} onChange={(event) => setOverdue(event.target.checked)} /> 包括逾期</label>
-                <label><input type="checkbox" checked={unscheduled ?? !windowKind} onChange={(event) => setUnscheduled(event.target.checked)} /> 包括未排期</label>
-                <Field label="每次并发上限"><input aria-label="每次并发上限" type="number" min={1} max={4} value={parallel} onChange={(event) => setParallel(event.target.value)} /></Field>
+                {windowKind === "custom" ? (
+                  <>
+                    <DateTimePicker
+                      label="窗口开始"
+                      field={{ kind: "instant", value: windowStart }}
+                      onChange={(field) => {
+                        if (field.kind === "instant") {
+                          onDirty();
+                          setWindowStart(field.value);
+                        }
+                      }}
+                    />
+                    <DateTimePicker
+                      label="窗口结束"
+                      field={{ kind: "instant", value: windowEnd }}
+                      onChange={(field) => {
+                        if (field.kind === "instant") {
+                          onDirty();
+                          setWindowEnd(field.value);
+                        }
+                      }}
+                    />
+                    {!windowValid ? <p role="alert">请选择结束时刻晚于开始时刻的范围。</p> : null}
+                  </>
+                ) : null}
+                <label>
+                  <input type="checkbox" checked={overdue} onChange={(event) => setOverdue(event.target.checked)} /> 包括逾期
+                </label>
+                <label>
+                  <input type="checkbox" checked={unscheduled ?? !windowKind} onChange={(event) => setUnscheduled(event.target.checked)} /> 包括未排期
+                </label>
+                <Field label="每次并发上限">
+                  <input aria-label="每次并发上限" type="number" min={1} max={4} value={parallel} onChange={(event) => setParallel(event.target.value)} />
+                </Field>
                 <Field label={t.instruction}>
-                  <textarea className="automations-description-input" rows={4} maxLength={20_000} aria-label={t.instruction} placeholder={t.instructionPlaceholder} data-testid="rule-instruction" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+                  <textarea
+                    className="automations-description-input"
+                    rows={4}
+                    maxLength={20_000}
+                    aria-label={t.instruction}
+                    placeholder={t.instructionPlaceholder}
+                    data-testid="rule-instruction"
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                  />
                 </Field>
               </>
             ) : null}
@@ -272,7 +332,11 @@ export function RuleEditor({
                   <Select aria-label="关联任务" value={taskId} onChange={(event) => setTaskId(event.target.value)}>
                     <option value="">无关联任务</option>
                     {taskId && !tasks.data?.some(({ id }) => id === taskId) ? <option value={taskId}>当前任务暂不可用</option> : null}
-                    {tasks.data?.map(({ id, title }) => <option key={id} value={id}>{title}</option>)}
+                    {tasks.data?.map(({ id, title }) => (
+                      <option key={id} value={id}>
+                        {title}
+                      </option>
+                    ))}
                   </Select>
                 </Field>
                 <Field label={t.ruleText} description={!text.trim() ? "填写要发送的提醒内容。" : undefined}>
@@ -310,25 +374,43 @@ export function RuleEditor({
                 </Field>
                 {found.length === 0 && providers.data ? <p className="tasks-hint">{t.noProvider}</p> : null}
                 <Field label={t.model}>
-                  <Select aria-label={t.model} value={model} onChange={(event) => {
-                    const next = models.find((item) => item.id === event.target.value);
-                    setModel(event.target.value);
-                    if (!next?.efforts.includes(effort)) setEffort("");
-                    if (!next?.fast) setFast(false);
-                  }}>
+                  <Select
+                    aria-label={t.model}
+                    value={model}
+                    onChange={(event) => {
+                      const next = models.find((item) => item.id === event.target.value);
+                      setModel(event.target.value);
+                      if (!next?.efforts.includes(effort)) setEffort("");
+                      if (!next?.fast) setFast(false);
+                    }}
+                  >
                     <option value="">使用 Agent 默认模型</option>
                     {model && !selectedModel ? <option value={model}>原模型 · {model}</option> : null}
-                    {models.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                    {models.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
                   </Select>
                 </Field>
-                {selectedModel?.efforts.length || effort ? <Field label="推理档位">
-                  <Select aria-label="推理档位" value={effort} onChange={(event) => setEffort(event.target.value)}>
-                    <option value="">使用默认档位</option>
-                    {effort && !selectedModel?.efforts.includes(effort) ? <option value={effort}>原档位 · {effort}</option> : null}
-                    {selectedModel?.efforts.map((value) => <option key={value} value={value}>{value}</option>)}
-                  </Select>
-                </Field> : null}
-                {selectedModel?.fast || fast ? <label><input type="checkbox" checked={fast} onChange={(event) => setFast(event.target.checked)} /> 快速模式</label> : null}
+                {selectedModel?.efforts.length || effort ? (
+                  <Field label="推理档位">
+                    <Select aria-label="推理档位" value={effort} onChange={(event) => setEffort(event.target.value)}>
+                      <option value="">使用默认档位</option>
+                      {effort && !selectedModel?.efforts.includes(effort) ? <option value={effort}>原档位 · {effort}</option> : null}
+                      {selectedModel?.efforts.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                ) : null}
+                {selectedModel?.fast || fast ? (
+                  <label>
+                    <input type="checkbox" checked={fast} onChange={(event) => setFast(event.target.checked)} /> 快速模式
+                  </label>
+                ) : null}
                 <p>每次执行都会在所选 Space 创建并派遣新任务。</p>
                 {spaceId && !canUseSpace ? <p role="status">原 Space 需要重新绑定或已不可用。</p> : null}
                 {provider && !validProvider ? <p role="status">所选 CLI 当前不可用。请检查 Agent 配置。</p> : null}
@@ -357,7 +439,11 @@ export function RuleEditor({
                 <Field label="Shell">
                   <Select aria-label="Shell" value={shell} onChange={(event) => setShell(event.target.value as typeof shell)}>
                     <option value="default">默认 Shell</option>
-                    {["bash", "zsh", "sh", "powershell", "cmd"].map((value) => <option key={value} value={value}>{value}</option>)}
+                    {["bash", "zsh", "sh", "powershell", "cmd"].map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
                   </Select>
                 </Field>
                 <p className="tasks-hint">在已保存规则的详情中设置受保护环境。</p>
@@ -396,15 +482,27 @@ export function RuleEditor({
           </Field>
           {PRESETS.find((p) => p.id === preset)?.time ? (
             <Field label={t.timeOfDay}>
-              <DateInput type="time" label={t.timeOfDay} value={time || null} onChange={(next) => { onDirty(); setTime(next ?? ""); }} />
+              <DateInput
+                type="time"
+                label={t.timeOfDay}
+                value={time || null}
+                onChange={(next) => {
+                  onDirty();
+                  setTime(next ?? "");
+                }}
+              />
             </Field>
           ) : null}
-          {preset === "weekly" ? <fieldset className="automations-plan-weekdays">
-            <legend>执行星期</legend>
-            {["日", "一", "二", "三", "四", "五", "六"].map((label, day) => <label key={day}>
-              <input type="checkbox" checked={days.includes(day)} onChange={() => setDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day])} /> 周{label}
-            </label>)}
-          </fieldset> : null}
+          {preset === "weekly" ? (
+            <fieldset className="automations-plan-weekdays">
+              <legend>执行星期</legend>
+              {["日", "一", "二", "三", "四", "五", "六"].map((label, day) => (
+                <label key={day}>
+                  <input type="checkbox" checked={days.includes(day)} onChange={() => setDays((current) => (current.includes(day) ? current.filter((item) => item !== day) : [...current, day]))} /> 周{label}
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
           <Field label={t.ruleCron}>{preset === "custom" ? <input aria-label={t.ruleCron} value={custom} onChange={(e) => setCustom(e.target.value)} /> : <code data-testid="rule-cron">{cron}</code>}</Field>
           <Field label={t.zone}>
             <input
@@ -425,7 +523,14 @@ export function RuleEditor({
             <div className="automations-schedule-preview" data-testid="rule-upcoming" aria-busy={schedule.isPending || undefined}>
               <strong>{t.upcoming}</strong>
               <small>{tz.trim()} · 仅预览</small>
-              {schedule.isError ? <p role="alert">无法读取激活时间。<Button variant="ghost" onClick={() => void schedule.refetch()}>重试</Button></p> : null}
+              {schedule.isError ? (
+                <p role="alert">
+                  无法读取激活时间。
+                  <Button variant="ghost" onClick={() => void schedule.refetch()}>
+                    重试
+                  </Button>
+                </p>
+              ) : null}
               {schedule.data?.next.length === 0 ? <p>当前日程没有后续激活时间。</p> : null}
               {schedule.data?.next.map((x) => (
                 <time key={x} dateTime={x}>
@@ -441,16 +546,35 @@ export function RuleEditor({
             </Field>
             <p>宽限内仅补最近一次，重叠执行时跳过。</p>
           </details>
-          {kind === "agent_tasks" ? <section aria-label="候选预览">
-            <Button type="button" disabled={triggerError !== null || !scanValid || shownPreview?.status === "loading"} onClick={() => void previewCandidates()}>预览候选</Button>
-            {shownPreview?.error ? <p role="alert">{shownPreview.error}</p> : null}
-            {shownPreview?.data ? <>
-              <p role="status">{formatMoment(shownPreview.data.at, tz.trim())} · {shownPreview.data.candidates.length} 个候选，{shownPreview.data.skipped.length} 个跳过</p>
-              {shownPreview.data.tasksDisabled ? <p>任务插件当前不可用。</p> : null}
-              <ul>{shownPreview.data.candidates.map((item) => <li key={item.taskId}>{item.title}</li>)}</ul>
-              <ul>{shownPreview.data.skipped.map((item) => <li key={item.taskId}>{item.title} · {t.reasons[item.reason as keyof typeof t.reasons] ?? item.reason}{item.detail ? ` · ${item.detail}` : ""}</li>)}</ul>
-            </> : null}
-          </section> : null}
+          {kind === "agent_tasks" ? (
+            <section aria-label="候选预览">
+              <Button type="button" disabled={triggerError !== null || !scanValid || shownPreview?.status === "loading"} onClick={() => void previewCandidates()}>
+                预览候选
+              </Button>
+              {shownPreview?.error ? <p role="alert">{shownPreview.error}</p> : null}
+              {shownPreview?.data ? (
+                <>
+                  <p role="status">
+                    {formatMoment(shownPreview.data.at, tz.trim())} · {shownPreview.data.candidates.length} 个候选，{shownPreview.data.skipped.length} 个跳过
+                  </p>
+                  {shownPreview.data.tasksDisabled ? <p>任务插件当前不可用。</p> : null}
+                  <ul>
+                    {shownPreview.data.candidates.map((item) => (
+                      <li key={item.taskId}>{item.title}</li>
+                    ))}
+                  </ul>
+                  <ul>
+                    {shownPreview.data.skipped.map((item) => (
+                      <li key={item.taskId}>
+                        {item.title} · {t.reasons[item.reason as keyof typeof t.reasons] ?? item.reason}
+                        {item.detail ? ` · ${item.detail}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </section>
+          ) : null}
           <p className="tasks-hint">{start?.data.legacyEnvironment ? "保存并替换旧环境后暂停。" : start ? (start.data.enabled ? "保存后保持启用，后续触发采用新日程。已受理的派遣保留原设置。" : "保存后保持暂停。") : t.savedPaused}</p>
         </aside>
       </fieldset>

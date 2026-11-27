@@ -239,13 +239,7 @@ export class OperationLog {
     return normalizeRelPath(path.relative(realpathSync(this.files.root), absolute).split(path.sep).join("/"));
   }
 
-  private changeExisting(
-    op: OpRecord,
-    step: StepRecord,
-    target: string,
-    untrack: (() => void)[],
-    replacement?: { path: string; retainStage(): void },
-  ): void {
+  private changeExisting(op: OpRecord, step: StepRecord, target: string, untrack: (() => void)[], replacement?: { path: string; retainStage(): void }): void {
     const original = lstatSync(target, { throwIfNoEntry: false });
     const identity = entryIdentity(target);
     if ((!original?.isFile() && !original?.isSymbolicLink()) || !identity) throw errors.invalidInput(`无法保留原始文件条目：${step.path}`);

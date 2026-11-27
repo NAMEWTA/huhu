@@ -65,9 +65,13 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
   }
   const mcp = gw.data?.mcp;
   const canEditVault = vault.data?.readOnly === false;
-  const toolPolicyRestriction = vault.data?.readOnly ? "Vault 以只读方式打开，可以查看已有授权。"
-    : !engine.endpoint.token ? "当前浏览器连接可以查看工具授权。请在桌面工作台更改授权。"
-    : canEditVault ? undefined : "Vault 状态暂不可用，工具授权无法修改。";
+  const toolPolicyRestriction = vault.data?.readOnly
+    ? "Vault 以只读方式打开，可以查看已有授权。"
+    : !engine.endpoint.token
+      ? "当前浏览器连接可以查看工具授权。请在桌面工作台更改授权。"
+      : canEditVault
+        ? undefined
+        : "Vault 状态暂不可用，工具授权无法修改。";
   const [configOpen, setConfigOpen] = useState(false);
   const [portDraft, setPortDraft] = useState("");
   const [invalidPort, setInvalidPort] = useState(false);
@@ -404,16 +408,30 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                 </div>
                 <p className="small muted">
                   {mcp?.enabled ? "本机端点已启用。请从运行 Engine 的机器使用服务端令牌连接。" : "MCP 服务当前关闭。"}
-                  {mcp?.url && <> <code>{mcp.url}</code></>}
+                  {mcp?.url && (
+                    <>
+                      {" "}
+                      <code>{mcp.url}</code>
+                    </>
+                  )}
                 </p>
-                {mcp?.restartRequired && <p role="status" className="small muted">重启 Engine 后将使用端口 {mcp.configuredPort}。</p>}
+                {mcp?.restartRequired && (
+                  <p role="status" className="small muted">
+                    重启 Engine 后将使用端口 {mcp.configuredPort}。
+                  </p>
+                )}
                 <div className="shell-gateway-meta">
-                  <button type="button" data-testid="gateway-mcp-config" disabled={!mcp} onClick={() => {
-                    setPortDraft(String(mcp?.configuredPort ?? mcp?.activePort ?? ""));
-                    setInvalidPort(false);
-                    setError(null);
-                    setConfigOpen(true);
-                  }}>
+                  <button
+                    type="button"
+                    data-testid="gateway-mcp-config"
+                    disabled={!mcp}
+                    onClick={() => {
+                      setPortDraft(String(mcp?.configuredPort ?? mcp?.activePort ?? ""));
+                      setInvalidPort(false);
+                      setError(null);
+                      setConfigOpen(true);
+                    }}
+                  >
                     <Settings size={14} aria-hidden /> 配置本机端点
                   </button>
                   <button type="button" data-testid="gateway-mcp-copy" disabled={!mcp?.enabled || !mcp.url} onClick={() => void copyClientConfig()}>
@@ -429,19 +447,49 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                   </p>
                 ) : null}
               </section>
-              <Dialog open={configOpen} title="MCP 配置" description="端口设置在 Engine 下次启动时生效。" error={error} onClose={() => setConfigOpen(false)} testId="gateway-mcp-dialog" actions={<Button type="submit" form={portId}>保存端口</Button>}>
-                <form id={portId} className="hu-field" noValidate onSubmit={(event) => {
-                  event.preventDefault();
-                  void configurePort();
-                }}>
-                  <label className="hu-field-label" htmlFor={`${portId}-value`}>本机端口</label>
-                  <input id={`${portId}-value`} ref={portInput} type="number" required min={1} max={65535} step={1} aria-invalid={invalidPort || undefined} value={portDraft} onChange={(event) => {
-                    setPortDraft(event.target.value);
-                    if (invalidPort) {
-                      setInvalidPort(false);
-                      setError(null);
-                    }
-                  }} />
+              <Dialog
+                open={configOpen}
+                title="MCP 配置"
+                description="端口设置在 Engine 下次启动时生效。"
+                error={error}
+                onClose={() => setConfigOpen(false)}
+                testId="gateway-mcp-dialog"
+                actions={
+                  <Button type="submit" form={portId}>
+                    保存端口
+                  </Button>
+                }
+              >
+                <form
+                  id={portId}
+                  className="hu-field"
+                  noValidate
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void configurePort();
+                  }}
+                >
+                  <label className="hu-field-label" htmlFor={`${portId}-value`}>
+                    本机端口
+                  </label>
+                  <input
+                    id={`${portId}-value`}
+                    ref={portInput}
+                    type="number"
+                    required
+                    min={1}
+                    max={65535}
+                    step={1}
+                    aria-invalid={invalidPort || undefined}
+                    value={portDraft}
+                    onChange={(event) => {
+                      setPortDraft(event.target.value);
+                      if (invalidPort) {
+                        setInvalidPort(false);
+                        setError(null);
+                      }
+                    }}
+                  />
                 </form>
               </Dialog>
               <div className="hu-capabilities-toolbar">
@@ -451,8 +499,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
               <McpSourcesPanel kind={MCP_KIND[mcpTab]} filter={mcpTab === "tools" ? filter : ""} published={mcp?.enabled ?? false} />
               <div hidden={mcpTab !== "tools"}>
                 <SshHostGrants policy={gw.data?.toolAccess} writable={canEditVault} />
-                <ToolPolicyCatalog entries={caps.data} catalogFailed={caps.isError} filter={filter} policy={gw.data?.toolAccess}
-                  restriction={toolPolicyRestriction} published={mcp?.enabled === true} />
+                <ToolPolicyCatalog entries={caps.data} catalogFailed={caps.isError} filter={filter} policy={gw.data?.toolAccess} restriction={toolPolicyRestriction} published={mcp?.enabled === true} />
               </div>
               <div className="hu-callout shell-system-note">
                 <ShieldCheck size={17} aria-hidden />

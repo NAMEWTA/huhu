@@ -99,8 +99,16 @@ const authenticate = defineCapabilityDescriptor({
   name: "ssh.fileSessions.sudo.authenticate",
   title: "一次性认证 sudo 文件会话",
   description: "只向此 SSH 文件连接提交一次口令，保留已认证的 SFTP 通道。",
-  scope: "execute", risk: "high", idempotency: "handler",
-  input: FileSessionId.extend({ password: z.string().min(1).max(4096).regex(/^[^\0\r\n]+$/u) }),
+  scope: "execute",
+  risk: "high",
+  idempotency: "handler",
+  input: FileSessionId.extend({
+    password: z
+      .string()
+      .min(1)
+      .max(4096)
+      .regex(/^[^\0\r\n]+$/u),
+  }),
   output: z.object({ sudoSessionId: z.uuid() }),
 });
 const end = defineCapabilityDescriptor({
@@ -108,67 +116,104 @@ const end = defineCapabilityDescriptor({
   name: "ssh.fileSessions.sudo.close",
   title: "关闭一次性 sudo 文件会话",
   description: "结束已认证通道和绑定到此代的传输操作。",
-  scope: "execute", risk: "high", idempotency: "handler",
+  scope: "execute",
+  risk: "high",
+  idempotency: "handler",
   input: FileSessionId.extend({ sudoSessionId: z.uuid() }),
   output: z.object({ ok: z.literal(true) }),
 });
 
-export const sshPrivilegedFileDescriptors = { sudoFileProbe: probe, sudoFileList: browse, sudoFileRead: read, sudoFileSave: save, sudoFileProperties: properties, sudoFileAttributes: attributes, sudoFileMove: move, sudoFileDelete: erase, sudoFileAuthenticate: authenticate, sudoFileClose: end };
+export const sshPrivilegedFileDescriptors = {
+  sudoFileProbe: probe,
+  sudoFileList: browse,
+  sudoFileRead: read,
+  sudoFileSave: save,
+  sudoFileProperties: properties,
+  sudoFileAttributes: attributes,
+  sudoFileMove: move,
+  sudoFileDelete: erase,
+  sudoFileAuthenticate: authenticate,
+  sudoFileClose: end,
+};
 
 export function registerPrivilegedFiles(api: HuhuApi, files: FileSessions, manager: SshManager) {
   const source = (caller: string, id: string, sudoSessionId?: string) => {
     if (caller !== "desktop" || files.get(id).source === "external") throw errors.permissionDenied("本机 SSH 文件 sudo");
     return files.sudoSource(id, { sudoSessionId });
   };
-  api.defineCapability(bindCapability(authenticate, ({ caller, signal }, input) => {
-    source(caller, input.fileSessionId);
-    const pending = files.authenticateSudo(input.fileSessionId, input.password, signal);
-    input.password = "";
-    return pending;
-  }));
-  api.defineCapability(bindCapability(end, ({ caller }, { fileSessionId, sudoSessionId }) => {
-    if (caller !== "desktop") throw errors.permissionDenied("本机 SSH 文件 sudo");
-    files.closeSudo(fileSessionId, sudoSessionId);
-    return { ok: true as const };
-  }));
-  api.defineCapability(bindCapability(probe, async ({ caller, signal }, { fileSessionId }) => {
-    const session = source(caller, fileSessionId);
-    try {
-      await manager.withSftp(session, "sudo.probe", "sudo SFTP", (channel) => realpath(channel, "."), { signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]), elevated: true });
-      return { available: true };
-    } catch {
-      signal.throwIfAborted();
-      return { available: false };
-    }
-  }));
-  api.defineCapability(bindCapability(browse, ({ caller, signal }, { fileSessionId, path, sudoSessionId }) =>
-    manager.withSftp(source(caller, fileSessionId, sudoSessionId), "sudo.list", path, (channel) => list(channel, path), { signal, elevated: true }),
-  ));
-  api.defineCapability(bindCapability(read, ({ caller, signal }, { fileSessionId, path, sudoSessionId }) => {
-    source(caller, fileSessionId);
-    return files.readDocument(fileSessionId, path, signal, { sudoSessionId });
-  }));
-  api.defineCapability(bindCapability(save, ({ caller, signal }, { fileSessionId, path, text, expectedVersion, sudoSessionId }) => {
-    source(caller, fileSessionId);
-    return files.writeDocument(fileSessionId, path, text, expectedVersion, signal, undefined, { sudoSessionId });
-  }));
-  api.defineCapability(bindCapability(properties, ({ caller, signal }, { fileSessionId, path, sudoSessionId }) => {
-    source(caller, fileSessionId);
-    return files.properties(fileSessionId, path, signal, { sudoSessionId });
-  }));
-  api.defineCapability(bindCapability(attributes, ({ caller, signal }, { fileSessionId, path, expectedRevision, change, sudoSessionId }) => {
-    source(caller, fileSessionId);
-    return files.changeProperties(fileSessionId, path, expectedRevision, change, signal, undefined, { sudoSessionId });
-  }));
-  api.defineCapability(bindCapability(move, ({ caller, signal }, { fileSessionId, path, expectedRevision, destination, sudoSessionId }) => {
-    source(caller, fileSessionId);
-    return files.moveEntry(fileSessionId, path, expectedRevision, destination, signal, undefined, { sudoSessionId });
-  }));
-  api.defineCapability(bindCapability(erase, async ({ caller, signal }, { fileSessionId, path, expectedRevision, sudoSessionId }) => {
-    await manager.withSftp(source(caller, fileSessionId, sudoSessionId), "sudo.delete", path, async (channel, active) => {
-      await assertEntryRevision(channel, path, expectedRevision);
-      await remove(channel, path, () => active.throwIfAborted());
-    }, { signal, elevated: true });
-    return { ok: true as const };
-  }));
+  api.defineCapability(
+    bindCapability(authenticate, ({ caller, signal }, input) => {
+      source(caller, input.fileSessionId);
+      const pending = files.authenticateSudo(input.fileSessionId, input.password, signal);
+      input.password = "";
+      return pending;
+    }),
+  );
+  api.defineCapability(
+    bindCapability(end, ({ caller }, { fileSessionId, sudoSessionId }) => {
+      if (caller !== "desktop") throw errors.permissionDenied("本机 SSH 文件 sudo");
+      files.closeSudo(fileSessionId, sudoSessionId);
+      return { ok: true as const };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(probe, async ({ caller, signal }, { fileSessionId }) => {
+      const session = source(caller, fileSessionId);
+      try {
+        await manager.withSftp(session, "sudo.probe", "sudo SFTP", (channel) => realpath(channel, "."), { signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]), elevated: true });
+        return { available: true };
+      } catch {
+        signal.throwIfAborted();
+        return { available: false };
+      }
+    }),
+  );
+  api.defineCapability(
+    bindCapability(browse, ({ caller, signal }, { fileSessionId, path, sudoSessionId }) => manager.withSftp(source(caller, fileSessionId, sudoSessionId), "sudo.list", path, (channel) => list(channel, path), { signal, elevated: true })),
+  );
+  api.defineCapability(
+    bindCapability(read, ({ caller, signal }, { fileSessionId, path, sudoSessionId }) => {
+      source(caller, fileSessionId);
+      return files.readDocument(fileSessionId, path, signal, { sudoSessionId });
+    }),
+  );
+  api.defineCapability(
+    bindCapability(save, ({ caller, signal }, { fileSessionId, path, text, expectedVersion, sudoSessionId }) => {
+      source(caller, fileSessionId);
+      return files.writeDocument(fileSessionId, path, text, expectedVersion, signal, undefined, { sudoSessionId });
+    }),
+  );
+  api.defineCapability(
+    bindCapability(properties, ({ caller, signal }, { fileSessionId, path, sudoSessionId }) => {
+      source(caller, fileSessionId);
+      return files.properties(fileSessionId, path, signal, { sudoSessionId });
+    }),
+  );
+  api.defineCapability(
+    bindCapability(attributes, ({ caller, signal }, { fileSessionId, path, expectedRevision, change, sudoSessionId }) => {
+      source(caller, fileSessionId);
+      return files.changeProperties(fileSessionId, path, expectedRevision, change, signal, undefined, { sudoSessionId });
+    }),
+  );
+  api.defineCapability(
+    bindCapability(move, ({ caller, signal }, { fileSessionId, path, expectedRevision, destination, sudoSessionId }) => {
+      source(caller, fileSessionId);
+      return files.moveEntry(fileSessionId, path, expectedRevision, destination, signal, undefined, { sudoSessionId });
+    }),
+  );
+  api.defineCapability(
+    bindCapability(erase, async ({ caller, signal }, { fileSessionId, path, expectedRevision, sudoSessionId }) => {
+      await manager.withSftp(
+        source(caller, fileSessionId, sudoSessionId),
+        "sudo.delete",
+        path,
+        async (channel, active) => {
+          await assertEntryRevision(channel, path, expectedRevision);
+          await remove(channel, path, () => active.throwIfAborted());
+        },
+        { signal, elevated: true },
+      );
+      return { ok: true as const };
+    }),
+  );
 }

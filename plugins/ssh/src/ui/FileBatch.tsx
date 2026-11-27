@@ -101,9 +101,13 @@ export function FileBatchProvider({ session, children }: { session: FileSession;
     }
     doc.addEventListener("lostpointercapture", cancelPointer, options);
     doc.addEventListener("pointercancel", cancelPointer, options);
-    doc.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") clearDrag();
-    }, options);
+    doc.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Escape") clearDrag();
+      },
+      options,
+    );
   }
 
   function matchingDrag(event: HandleEvent) {
@@ -137,7 +141,9 @@ export function FileBatchProvider({ session, children }: { session: FileSession;
     <Context.Provider value={{ locations, showDirectory, over, press, move, release, submit, report: setError, busy }}>
       {note && <p role="status">{note}</p>}
       {error && <p role="alert">{error}</p>}
-      <div className="ssh-file-columns" ref={columns}>{children}</div>
+      <div className="ssh-file-columns" ref={columns}>
+        {children}
+      </div>
     </Context.Provider>
   );
 }

@@ -19,11 +19,17 @@ async function derive(algorithm: Argon2Algorithm, options: { message: string; no
     if (!(error instanceof Error) || !/not supported/iu.test(error.message)) throw error;
   }
   const output = await portableArgon2[algorithm](options.message, options.nonce, {
-    t: options.passes, m: options.memory, p: options.parallelism, dkLen: options.tagLength, maxmem: options.memory * 1024 + 1024 * 1024,
+    t: options.passes,
+    m: options.memory,
+    p: options.parallelism,
+    dkLen: options.tagLength,
+    maxmem: options.memory * 1024 + 1024 * 1024,
   });
   return Buffer.from(output);
 }
-const invalid = (): never => { throw errors.invalidInput("无法读取 PuTTY 私钥，请核对格式、算法与口令"); };
+const invalid = (): never => {
+  throw errors.invalidInput("无法读取 PuTTY 私钥，请核对格式、算法与口令");
+};
 const nativeV2 = /^PuTTY-User-Key-File-2: ssh-(?:rsa|dss)(?:\r?\n)/u;
 const prefix = "PuTTY-User-Key-File-";
 const defaultCipher = "aes256-cbc";
@@ -82,7 +88,10 @@ function opensshKey(algorithm: string, publicBlob: Buffer, privateBlob: Buffer, 
   const key = Buffer.concat([uint32(1), uint32(1), field(algorithm), ...parameters.map(field), field(comment)]);
   const pad = Buffer.from(Array.from({ length: 8 - (key.length % 8) }, (_, index) => index + 1));
   const envelope = Buffer.concat([Buffer.from("openssh-key-v1\0"), field("none"), field("none"), uint32(0), uint32(1), field(publicBlob), field(Buffer.concat([key, pad]))]);
-  const armored = `-----BEGIN OPENSSH PRIVATE KEY-----\n${envelope.toString("base64").match(/.{1,70}/gu)!.join("\n")}\n-----END OPENSSH PRIVATE KEY-----`;
+  const armored = `-----BEGIN OPENSSH PRIVATE KEY-----\n${envelope
+    .toString("base64")
+    .match(/.{1,70}/gu)!
+    .join("\n")}\n-----END OPENSSH PRIVATE KEY-----`;
   const parsed = ssh2.utils.parseKey(armored);
   if (parsed instanceof Error || Array.isArray(parsed) || !parsed.isPrivateKey() || !parsed.getPublicSSH().equals(publicBlob)) return invalid();
   const check = Buffer.from("HUHU PuTTY key validation");
@@ -156,7 +165,8 @@ export async function prepareSshPrivateKey(privateKey: string, passphrase?: stri
     })();
     const supplied = Buffer.from(mac, "hex");
     const expected = createHmac(version === "3" ? "sha256" : "sha1", macKey)
-      .update(Buffer.concat([algorithm, encryption, comment, publicBlob, decoded].map(field))).digest();
+      .update(Buffer.concat([algorithm, encryption, comment, publicBlob, decoded].map(field)))
+      .digest();
     if (mac.length !== expected.length * 2 || !timingSafeEqual(supplied, expected)) return invalid();
     return { privateKey: opensshKey(algorithm, publicBlob, decoded, comment), encrypted };
   } catch (error) {

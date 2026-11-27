@@ -326,9 +326,12 @@ export class CodexDispatch {
           if (!helper) return false;
           process.kill(helper.pid, 0);
           if (process.platform === "linux" && statSync(`/proc/${helper.pid}`, { bigint: true }).ino.toString() !== helper.processStart) return false;
-          return launchHash(entryOf(this.settings(), "codex")) === providerSettings &&
-            stamp(plan.command) === plan.binaryStamp && stamp(plan.helper) === plan.helperStamp &&
-            (statSync(path.join(plan.home, "config.toml"), { throwIfNoEntry: false }) ? stamp(path.join(plan.home, "config.toml")) : null) === plan.configStamp;
+          return (
+            launchHash(entryOf(this.settings(), "codex")) === providerSettings &&
+            stamp(plan.command) === plan.binaryStamp &&
+            stamp(plan.helper) === plan.helperStamp &&
+            (statSync(path.join(plan.home, "config.toml"), { throwIfNoEntry: false }) ? stamp(path.join(plan.home, "config.toml")) : null) === plan.configStamp
+          );
         },
         submitted: () => !!signedFile(control, "task-mcp-submitted", activeHelper),
         cleanup: () => rmSync(tokenFile, { force: true }),

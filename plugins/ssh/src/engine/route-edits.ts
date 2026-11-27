@@ -17,7 +17,10 @@ export const EditHostRoutes = z.strictObject({
 export type EditHostRoutes = z.infer<typeof EditHostRoutes>;
 export const EditOwnedRoutes = EditHostRoutes.extend({
   intentKey: CapabilityIntentKeySchema,
-  bindings: z.array(RouteBinding).min(1).max(2 * maxRouteEditTargets),
+  bindings: z
+    .array(RouteBinding)
+    .min(1)
+    .max(2 * maxRouteEditTargets),
 });
 
 export const HostRouteEditResult = z.strictObject({ updated: z.array(OwnedHostId), skipped: z.array(OwnedHostId) });

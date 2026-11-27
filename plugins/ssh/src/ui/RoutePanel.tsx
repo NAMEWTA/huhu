@@ -36,7 +36,13 @@ function jumpIssue(graph: ReadonlyMap<string, ManagedHost>, candidate: Host, tar
   }
 }
 
-export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, onChanged }: {
+export function RoutePanel({
+  hosts,
+  connections,
+  defaultTargets = [],
+  onBack,
+  onChanged,
+}: {
   hosts: readonly Host[];
   connections: ConnectionStatus[];
   defaultTargets?: readonly string[] | undefined;
@@ -54,7 +60,12 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
   const [draftRelays, setDraftRelays] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState(() => {
     const targets = new Set(defaultTargets);
-    return new Map(hosts.filter(isManagedHost).filter(({ id }) => targets.has(id)).map(({ id, name, revision }) => [id, { name, revision }]));
+    return new Map(
+      hosts
+        .filter(isManagedHost)
+        .filter(({ id }) => targets.has(id))
+        .map(({ id, name, revision }) => [id, { name, revision }]),
+    );
   });
   const [jumpQuery, setJumpQuery] = useState("");
   const [batchJump, setBatchJump] = useState("");
@@ -296,10 +307,14 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
                   {currentJump ? (
                     <label className="row">
                       中继方式
-                      <select value={viaShell ? "shell" : "tcp"} disabled={Boolean(saving)} onChange={(event) => {
-                        const shell = event.currentTarget.value === "shell";
-                        setDraftRelays((current) => ({ ...current, [host.id]: shell }));
-                      }}>
+                      <select
+                        value={viaShell ? "shell" : "tcp"}
+                        disabled={Boolean(saving)}
+                        onChange={(event) => {
+                          const shell = event.currentTarget.value === "shell";
+                          setDraftRelays((current) => ({ ...current, [host.id]: shell }));
+                        }}
+                      >
                         <option value="tcp">SSH TCP 转发</option>
                         <option value="shell">ViaShell（跳板需要 nc）</option>
                       </select>
@@ -316,7 +331,9 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
                       </Button>
                     )
                   )}
-                  <Button type="button" disabled={Boolean(saving)} onClick={() => setCommandHost(host.id)}>本机 ProxyCommand</Button>
+                  <Button type="button" disabled={Boolean(saving)} onClick={() => setCommandHost(host.id)}>
+                    本机 ProxyCommand
+                  </Button>
                 </div>
               </article>
             );

@@ -231,16 +231,24 @@ test.skipIf(!bin)(
 
       await expect.poll(() => existsSync(path.join(ackGate, "held.json")), { timeout: 10_000 }).toBe(true);
       writeFileSync(path.join(ackGate, "release"), "");
-      await expect.poll(async () => Promise.all(projections.map(async ({ phase, id }) => {
-        const [runs, task] = await Promise.all([call(engine, "tasks.runs", { id }), call<TaskDto>(engine, "tasks.read", { id })]);
-        return { phase, runs, comments: task.comments.filter(({ event }) => event === "failed" || event === "result").map(({ body }) => body), taskStatus: task.status };
-      })), { timeout: 10_000 }).toMatchObject([
-        { phase: "natural-before", runs: [{ state: "unknown", finishedAt: expect.any(String) }], taskStatus: "in_progress" },
-        { phase: "allowed-without-result", runs: [{ state: "succeeded", finishedAt: expect.any(String), result: { kind: "no_update", delivery: "delivered" } }], comments: [], taskStatus: "in_progress" },
-        { phase: "failed-before", runs: [{ state: "failed", finishedAt: expect.any(String) }], comments: ["原生执行失败，未提供原因"], taskStatus: "in_progress" },
-        { phase: "failed-with-error", runs: [{ state: "failed", finishedAt: expect.any(String) }], comments: ["Synthetic structured provider reason"], taskStatus: "in_progress" },
-        { phase: "external-interrupt", runs: [{ state: "interrupted", finishedAt: expect.any(String) }], taskStatus: "in_progress" },
-      ]);
+      await expect
+        .poll(
+          async () =>
+            Promise.all(
+              projections.map(async ({ phase, id }) => {
+                const [runs, task] = await Promise.all([call(engine, "tasks.runs", { id }), call<TaskDto>(engine, "tasks.read", { id })]);
+                return { phase, runs, comments: task.comments.filter(({ event }) => event === "failed" || event === "result").map(({ body }) => body), taskStatus: task.status };
+              }),
+            ),
+          { timeout: 10_000 },
+        )
+        .toMatchObject([
+          { phase: "natural-before", runs: [{ state: "unknown", finishedAt: expect.any(String) }], taskStatus: "in_progress" },
+          { phase: "allowed-without-result", runs: [{ state: "succeeded", finishedAt: expect.any(String), result: { kind: "no_update", delivery: "delivered" } }], comments: [], taskStatus: "in_progress" },
+          { phase: "failed-before", runs: [{ state: "failed", finishedAt: expect.any(String) }], comments: ["原生执行失败，未提供原因"], taskStatus: "in_progress" },
+          { phase: "failed-with-error", runs: [{ state: "failed", finishedAt: expect.any(String) }], comments: ["Synthetic structured provider reason"], taskStatus: "in_progress" },
+          { phase: "external-interrupt", runs: [{ state: "interrupted", finishedAt: expect.any(String) }], taskStatus: "in_progress" },
+        ]);
       const originalAck = JSON.parse(readFileSync(path.join(ackGate, "held.json"), "utf8")) as { receipt: { receiptId: string } };
       const receipts = path.join(fixture.root, "agent-receipts");
       await expect.poll(() => existsSync(path.join(receipts, launchHash(originalAck.receipt.receiptId) + ".json.tasks-ack")), { timeout: 10_000 }).toBe(true);
@@ -293,8 +301,8 @@ test.skipIf(!bin)(
         } finally {
           connectSpy.mockRestore();
           coreSpy.mockRestore();
-      detect.mockRestore();
-      resultContract.mockRestore();
+          detect.mockRestore();
+          resultContract.mockRestore();
           vi.unstubAllEnvs();
           if (path.dirname(sandbox) === realpathSync(tmpdir()) && path.basename(sandbox).startsWith("huhu-native-stop-")) rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
         }

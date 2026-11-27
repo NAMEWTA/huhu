@@ -151,7 +151,9 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
       const opened: string[] = [];
       Reflect.set(globalThis, "githubDeliveryOpened", opened);
       dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
-      shell.openExternal = async (url) => { opened.push(url); };
+      shell.openExternal = async (url) => {
+        opened.push(url);
+      };
     });
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -222,7 +224,8 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
       expect(accepted).toMatchObject({ followUpId: followUp.followUpId, runId, state: "accepted", scheduledFor });
       const readOccurrence = (occurrenceId: string) => desktop<PlanOccurrence>("automations.plans.readOccurrence", { occurrenceId });
       expect(await readOccurrence(followUp.followUpId)).toMatchObject({
-        plan: { planId: followUp.planId }, timing: { trigger: "scheduled", scheduledFor },
+        plan: { planId: followUp.planId },
+        timing: { trigger: "scheduled", scheduledFor },
         effects: [{ effectId: runId, kind: "task-run", target: { kind: "task", id }, receiptId: runId }],
       });
       await desktop("tasks.github.question.allow", { ...questionRef, sourceId: source.sourceId, issueId: githubIssue.id });
@@ -236,9 +239,7 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
       await expect.poll(getRuns, { timeout: 45_000 }).toMatchObject([{ id: runId, result: { delivery: "delivered" } }]);
       inbound.push(githubCommentEvent("20122", answer));
       expect(await scan()).toMatchObject([{ taskId: id, state: "reply-rejected" }]);
-      expect((await desktop<TaskDto>("tasks.read", { id })).comments.filter(({ event }) => event === "answer")).toMatchObject([
-        { run: runId, ask: requestId, author: "GitHub @issue-author", body: "Circle" },
-      ]);
+      expect((await desktop<TaskDto>("tasks.read", { id })).comments.filter(({ event }) => event === "answer")).toMatchObject([{ run: runId, ask: requestId, author: "GitHub @issue-author", body: "Circle" }]);
       expect(responses.requests[1]?.input).toContainEqual(expect.objectContaining({ call_id: responses.callId, output: expect.stringContaining("Circle") }));
     } else {
       await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
@@ -246,7 +247,8 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
     await expect.poll(getRuns, { timeout: 45_000 }).toMatchObject([{ result: { receiptId: expect.any(String), delivery: "delivered" } }]);
     const [completedRun] = await getRuns();
     const receiptId = completedRun!.result!.receiptId!;
-    const deliver = (exitCode = 0) => cli<{ deliveryId: string; state: string }>("github-task-delivery.mjs", ["--task", id, "--receipt", receiptId, "--issue-id", String(githubIssue.id), "--issue-number", String(githubIssue.number)], exitCode);
+    const deliver = (exitCode = 0) =>
+      cli<{ deliveryId: string; state: string }>("github-task-delivery.mjs", ["--task", id, "--receipt", receiptId, "--issue-id", String(githubIssue.id), "--issue-number", String(githubIssue.number)], exitCode);
     const lost = mode === "list" || mode === "echo";
     const originalDelivery = await deliver(lost ? 2 : 0);
     expect(originalDelivery).toMatchObject({ state: lost ? "unknown" : "accepted" });
@@ -303,9 +305,7 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
     const task = await desktop<TaskDto>("tasks.read", { id });
     expect(task.origin).toMatchObject({ kind: "external", github: { sourceId: source.sourceId, issueId: githubIssue.id, eventId: "20101" } });
     expect(task.comments.filter(({ event }) => event === "result")).toMatchObject([{ body: expect.stringContaining(message) }]);
-    expect(task.comments.filter(({ event }) => event === "github-comment")).toMatchObject(copied ? [
-      { author: "GitHub @issue-author", body: [copied.payload.comment.html_url, posted!.payload.comment.body].join("\n\n") },
-    ] : []);
+    expect(task.comments.filter(({ event }) => event === "github-comment")).toMatchObject(copied ? [{ author: "GitHub @issue-author", body: [copied.payload.comment.html_url, posted!.payload.comment.body].join("\n\n") }] : []);
   } finally {
     await withFixtureCleanup(async () => {}, [
       ["关闭桌面", () => app?.close()],

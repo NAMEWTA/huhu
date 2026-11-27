@@ -90,7 +90,9 @@ describe("Scheduler", () => {
     const slot = new Date("2026-11-10T09:00:00Z");
     let last = new Date("2026-11-10T06:00:00Z");
     const history = vi.fn(() => last);
-    const activate = vi.fn((_id: string, at: Date) => { last = at; });
+    const activate = vi.fn((_id: string, at: Date) => {
+      last = at;
+    });
     const start = () => new Scheduler({ activate, lastActivatedFor: history, now: () => slot });
     const first = start();
     const restarted = start();

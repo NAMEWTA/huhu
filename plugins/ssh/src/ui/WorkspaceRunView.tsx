@@ -73,8 +73,7 @@ export function WorkspaceRunView({
   const [dock, setDock] = useState<"left" | "right">("right");
   const activePane = run.panes.find(({ paneId }) => paneId === active) ?? run.panes[0];
   const activeIndex = run.panes.indexOf(activePane!);
-  const canMove = Boolean(activePane && run.panes.length > 1 && run.panes.every(({ phase, sessionId, paneId }) =>
-    phase === "ready" && sessionId && preparations[sessionId] && !locked[paneId]));
+  const canMove = Boolean(activePane && run.panes.length > 1 && run.panes.every(({ phase, sessionId, paneId }) => phase === "ready" && sessionId && preparations[sessionId] && !locked[paneId]));
   useLayoutEffect(() => {
     if (!restoreFocus || !shown || detached) return;
     root.current?.querySelector<HTMLElement>('[data-active="true"] .xterm-helper-textarea')?.focus({ preventScroll: true });
@@ -94,8 +93,12 @@ export function WorkspaceRunView({
       const prepared = await Promise.all(run.panes.map(({ sessionId }) => preparations[sessionId!]!(handoffId, run.panes.length)));
       if (prepared.some((ready) => !ready)) throw new Error("原工作区未能授权全部分栏，请重试。");
       const focus = await desktop.openSshWorkspaceWindow({
-        vaultId: engine.vaultId, runId: run.id, layoutRevision: run.layoutRevision ?? run.id,
-        focusedPaneId: activePane.paneId, maximized, handoffId,
+        vaultId: engine.vaultId,
+        runId: run.id,
+        layoutRevision: run.layoutRevision ?? run.id,
+        focusedPaneId: activePane.paneId,
+        maximized,
+        handoffId,
       });
       if (focus) setActive(focus);
     } catch (error) {
@@ -176,8 +179,20 @@ export function WorkspaceRunView({
     return [
       { label: "重命名标签", disabled: saving, run: () => setRenaming({ id: paneId, label }) },
       { label: locked[paneId] ? "解除输入锁定" : "锁定输入", disabled: pane.phase !== "ready", run: () => setLocked((current) => ({ ...current, [paneId]: !current[paneId] })) },
-      { label: "与前一标签交换", disabled: saving || !previous, run: () => { if (previous) swap(paneId, previous); } },
-      { label: "与后一标签交换", disabled: saving || !next, run: () => { if (next) swap(paneId, next); } },
+      {
+        label: "与前一标签交换",
+        disabled: saving || !previous,
+        run: () => {
+          if (previous) swap(paneId, previous);
+        },
+      },
+      {
+        label: "与后一标签交换",
+        disabled: saving || !next,
+        run: () => {
+          if (next) swap(paneId, next);
+        },
+      },
       { label: "关闭其他标签", disabled: saving || !others.length, run: () => closeOthers(others) },
       { label: tabs === "left" ? "关闭下方标签" : "关闭右侧标签", disabled: saving || !next, run: () => closeOthers(order.slice(index + 1)) },
       { label: "关闭当前标签", disabled: saving || !others.length, run: () => void apply({ action: "close", paneId }) },
@@ -188,7 +203,9 @@ export function WorkspaceRunView({
   const targetInputs = visiblePanes.map((pane) => ({ id: pane.paneId, label: pane.label, sessionId: pane.sessionId!, send: locked[pane.paneId] ? undefined : inputs[pane.sessionId!] }));
   const liveBroadcast = currentBroadcastTargets(broadcast, targetInputs);
   const broadcastLost = broadcast.length > 0 && liveBroadcast.length === 0;
-  useLayoutEffect(() => { if (broadcastLost) setBroadcast([]); }, [broadcastLost]);
+  useLayoutEffect(() => {
+    if (broadcastLost) setBroadcast([]);
+  }, [broadcastLost]);
   function inputCallback(sessionId: string) {
     let send = inputCallbacks.get(sessionId);
     if (!send) {
@@ -208,274 +225,314 @@ export function WorkspaceRunView({
     <div key="attached-files" className="ssh-workspace-attached-files">
       {activePane.phase === "ready" && activePane.sessionId ? (
         <AttachedFiles key={activePane.sessionId} hostId={activePane.hostId} shellId={activePane.sessionId} onOpen={onOpenFiles} title={`活动分栏文件 · ${activePane.label}`} followDirectory />
-      ) : <p role="status">{activePane.label}的连接尚未就绪</p>}
+      ) : (
+        <p role="status">{activePane.label}的连接尚未就绪</p>
+      )}
     </div>
   );
   return (
     <section ref={root} data-testid="ssh-workspace-run" data-run-id={run.id} data-generation={run.generation} data-layout-revision={run.layoutRevision ?? run.id} aria-label="工作区分栏" inert={!shown}>
-      {detached ? <p role="status">工作区已移至新窗口。关闭该窗口可移回。</p> : run.panes.length > 1 && (
-        desktop ? <Button type="button" disabled={!canMove || moving || saving} onClick={() => void moveWorkspace()}>将工作区移至新窗口</Button>
-          : <small>Web 端暂不支持将工作区移至新窗口。</small>
+      {detached ? (
+        <p role="status">工作区已移至新窗口。关闭该窗口可移回。</p>
+      ) : (
+        run.panes.length > 1 &&
+        (desktop ? (
+          <Button type="button" disabled={!canMove || moving || saving} onClick={() => void moveWorkspace()}>
+            将工作区移至新窗口
+          </Button>
+        ) : (
+          <small>Web 端暂不支持将工作区移至新窗口。</small>
+        ))
       )}
       <div hidden={detached} inert={moving}>
-      <p>连接代次 {run.generation}</p>
-      <div className="ssh-workspace-controls">
-        <label className="row">
-          运行布局
-          <select
-            value={run.layout.kind}
-            disabled={saving}
-            onChange={(event) => {
-              const kind = event.currentTarget.value as WorkspaceLayout["kind"];
-              relayout(kind === "custom" ? { kind, tree: splitTree(run.panes.length) } : { kind });
-            }}
-          >
-            {Object.entries(LAYOUT_LABELS).map(([kind, label]) => (
-              <option value={kind} key={kind}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {tree?.kind === "split" && (
-          <>
-            <Button disabled={saving} onClick={() => relayout({ kind: "custom", tree: { ...tree, axis: tree.axis === "row" ? "column" : "row" } })}>
-              切换分割方向
-            </Button>
-            <Button disabled={saving || tree.firstPercent <= 10} onClick={() => relayout({ kind: "custom", tree: { ...tree, firstPercent: Math.max(10, tree.firstPercent - 5) } })}>
-              缩小首个分区
-            </Button>
-            <Button disabled={saving || tree.firstPercent >= 90} onClick={() => relayout({ kind: "custom", tree: { ...tree, firstPercent: Math.min(90, tree.firstPercent + 5) } })}>
-              放大首个分区
-            </Button>
-          </>
-        )}
-        {activePane && (
-          <>
-            <Button onClick={() => setMaximized(!maximized)}>{maximized ? "还原分栏" : "最大化活动分栏"}</Button>
-            <Button disabled={saving || activeIndex < 1} onClick={() => swap(activePane.paneId, run.panes[activeIndex - 1]!.paneId)}>
-              与前一分栏交换
-            </Button>
-            <Button disabled={saving || activeIndex >= run.panes.length - 1} onClick={() => swap(activePane.paneId, run.panes[activeIndex + 1]!.paneId)}>
-              与后一分栏交换
-            </Button>
-            <Button disabled={saving || run.panes.length < 2} onClick={() => void apply({ action: "close", paneId: activePane.paneId })}>
-              关闭活动分栏
-            </Button>
-          </>
-        )}
-      </div>
-      {activePane && run.panes.length < MAX_WORKSPACE_PANES && remainingHosts.length > 0 && (
+        <p>连接代次 {run.generation}</p>
         <div className="ssh-workspace-controls">
           <label className="row">
-            新分栏主机
-            <select value={remainingHosts.some(({ hostId }) => hostId === splitHost) ? splitHost : ""} disabled={saving || activePane.phase === "reconnect"} onChange={(event) => setSplitHost(event.currentTarget.value)}>
-              <option value="">请选择主机</option>
-              {remainingHosts.map(({ hostId, name }) => <option key={hostId} value={hostId}>{name}</option>)}
+            运行布局
+            <select
+              value={run.layout.kind}
+              disabled={saving}
+              onChange={(event) => {
+                const kind = event.currentTarget.value as WorkspaceLayout["kind"];
+                relayout(kind === "custom" ? { kind, tree: splitTree(run.panes.length) } : { kind });
+              }}
+            >
+              {Object.entries(LAYOUT_LABELS).map(([kind, label]) => (
+                <option value={kind} key={kind}>
+                  {label}
+                </option>
+              ))}
             </select>
           </label>
-          <Button type="button" disabled={!canSplit} onClick={() => split("row")}>左右分割活动分栏</Button>
-          <Button type="button" disabled={!canSplit} onClick={() => split("column")}>上下分割活动分栏</Button>
+          {tree?.kind === "split" && (
+            <>
+              <Button disabled={saving} onClick={() => relayout({ kind: "custom", tree: { ...tree, axis: tree.axis === "row" ? "column" : "row" } })}>
+                切换分割方向
+              </Button>
+              <Button disabled={saving || tree.firstPercent <= 10} onClick={() => relayout({ kind: "custom", tree: { ...tree, firstPercent: Math.max(10, tree.firstPercent - 5) } })}>
+                缩小首个分区
+              </Button>
+              <Button disabled={saving || tree.firstPercent >= 90} onClick={() => relayout({ kind: "custom", tree: { ...tree, firstPercent: Math.min(90, tree.firstPercent + 5) } })}>
+                放大首个分区
+              </Button>
+            </>
+          )}
+          {activePane && (
+            <>
+              <Button onClick={() => setMaximized(!maximized)}>{maximized ? "还原分栏" : "最大化活动分栏"}</Button>
+              <Button disabled={saving || activeIndex < 1} onClick={() => swap(activePane.paneId, run.panes[activeIndex - 1]!.paneId)}>
+                与前一分栏交换
+              </Button>
+              <Button disabled={saving || activeIndex >= run.panes.length - 1} onClick={() => swap(activePane.paneId, run.panes[activeIndex + 1]!.paneId)}>
+                与后一分栏交换
+              </Button>
+              <Button disabled={saving || run.panes.length < 2} onClick={() => void apply({ action: "close", paneId: activePane.paneId })}>
+                关闭活动分栏
+              </Button>
+            </>
+          )}
         </div>
-      )}
-      {layoutError && <p role="alert">{layoutError}</p>}
-      <details className="hu-card-alt hu-stack">
-        <summary>本机布局偏好</summary>
-        <div className="ssh-workspace-controls">
-          <label className="hu-field">
-            分栏工具栏位置
-            <select value={paneTools} onChange={(event) => setDeviceLayout({ paneTools: event.currentTarget.value as DevicePreferences["paneTools"] })}>
-              <option value="top">上方</option>
-              <option value="bottom">下方</option>
-              <option value="hidden">隐藏</option>
-            </select>
-          </label>
-          <label className="hu-field">
-            工具栏顺序
-            <select value={paneToolOrder} onChange={(event) => setDeviceLayout({ paneToolOrder: event.currentTarget.value as DevicePreferences["paneToolOrder"] })}>
-              <option value="files-first">文件、监控</option>
-              <option value="monitor-first">监控、文件</option>
-            </select>
-          </label>
-          <label className="hu-field">
-            工具栏尺寸
-            <select value={paneToolSize} onChange={(event) => setDeviceLayout({ paneToolSize: event.currentTarget.value as DevicePreferences["paneToolSize"] })}>
-              <option value="small">小</option>
-              <option value="medium">中</option>
-              <option value="large">大</option>
-            </select>
-          </label>
-          <Button onClick={() => setDeviceLayout({ paneTools: deviceDefaults.paneTools, paneToolOrder: deviceDefaults.paneToolOrder, paneToolSize: deviceDefaults.paneToolSize, paneToolsMovable: deviceDefaults.paneToolsMovable }, "已恢复工具栏默认布局。")}>恢复工具栏默认布局</Button>
-        </div>
-        <div className="ssh-workspace-controls">
-          <label className="hu-field">
-            工作区标签方向
-            <select value={tabs} onChange={(event) => setDeviceLayout({ tabs: event.currentTarget.value === "left" ? "left" : "top" })}>
-              <option value="top">上方</option>
-              <option value="left">左侧</option>
-            </select>
-          </label>
-          <label className="row">
-            <input type="checkbox" checked={groupVerticalTabs} disabled={tabs !== "left"} onChange={(event) => setDeviceLayout({ groupVerticalTabs: event.currentTarget.checked })} />
-            纵向标签按同目标分组
-          </label>
-        </div>
-      </details>
-      <div role="status">{deviceNotice}</div>
-      {shown && <TerminalActions targets={targetInputs} activeTargetId={activePane?.paneId} onBroadcast={setBroadcast} />}
-      {liveBroadcast.length > 0 && <div className="ssh-workspace-controls">
-        <span role="status">键入广播中 · {liveBroadcast.map(({ label }) => label).join("、")}</span>
-        <Button type="button" onClick={() => setBroadcast([])}>停止键入广播</Button>
-      </div>}
-      <div className="ssh-workspace-file-layout" data-file-position={shown && showFiles ? paneFilePosition : "below"}>
-      {paneFilePosition === "left" && attachedFiles}
-      <div key="terminal" className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
-        <div className={showMonitor ? "ssh-monitor-terminal" : undefined}>
-          <WorkspaceCanvas
-            layout={run.layout}
-            panes={run.panes}
-            active={activePane?.paneId}
-            maximized={maximized}
-            tabs={tabs}
-            groupVerticalTabs={groupVerticalTabs}
-            collapseVerticalGroups={collapseVerticalGroups}
-            connections={connections}
-            layoutRevision={run.layoutRevision ?? run.id}
-            resizingDisabled={saving || moving}
-            onActive={setActive}
-            onSwap={swap}
-            onResize={(tree, revision) => apply({ action: "layout", layout: { kind: "custom", tree }, paneIds: run.panes.map(({ paneId }) => paneId) }, revision)}
-            tabActions={tabActions}
-            render={(pane, visible) => {
-              const prompt = pane.prompt;
-              const decidingKey = prompt ? `${prompt.attemptId}:${prompt.hop}` : "";
-              async function decide(accept: boolean) {
-                if (!prompt) return;
-                setDeciding((state) => ({ ...state, [decidingKey]: true }));
-                try {
-                  await onTrust(prompt, accept);
-                } finally {
-                  setDeciding((state) => ({ ...state, [decidingKey]: false }));
-                }
+        {activePane && run.panes.length < MAX_WORKSPACE_PANES && remainingHosts.length > 0 && (
+          <div className="ssh-workspace-controls">
+            <label className="row">
+              新分栏主机
+              <select value={remainingHosts.some(({ hostId }) => hostId === splitHost) ? splitHost : ""} disabled={saving || activePane.phase === "reconnect"} onChange={(event) => setSplitHost(event.currentTarget.value)}>
+                <option value="">请选择主机</option>
+                {remainingHosts.map(({ hostId, name }) => (
+                  <option key={hostId} value={hostId}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button type="button" disabled={!canSplit} onClick={() => split("row")}>
+              左右分割活动分栏
+            </Button>
+            <Button type="button" disabled={!canSplit} onClick={() => split("column")}>
+              上下分割活动分栏
+            </Button>
+          </div>
+        )}
+        {layoutError && <p role="alert">{layoutError}</p>}
+        <details className="hu-card-alt hu-stack">
+          <summary>本机布局偏好</summary>
+          <div className="ssh-workspace-controls">
+            <label className="hu-field">
+              分栏工具栏位置
+              <select value={paneTools} onChange={(event) => setDeviceLayout({ paneTools: event.currentTarget.value as DevicePreferences["paneTools"] })}>
+                <option value="top">上方</option>
+                <option value="bottom">下方</option>
+                <option value="hidden">隐藏</option>
+              </select>
+            </label>
+            <label className="hu-field">
+              工具栏顺序
+              <select value={paneToolOrder} onChange={(event) => setDeviceLayout({ paneToolOrder: event.currentTarget.value as DevicePreferences["paneToolOrder"] })}>
+                <option value="files-first">文件、监控</option>
+                <option value="monitor-first">监控、文件</option>
+              </select>
+            </label>
+            <label className="hu-field">
+              工具栏尺寸
+              <select value={paneToolSize} onChange={(event) => setDeviceLayout({ paneToolSize: event.currentTarget.value as DevicePreferences["paneToolSize"] })}>
+                <option value="small">小</option>
+                <option value="medium">中</option>
+                <option value="large">大</option>
+              </select>
+            </label>
+            <Button
+              onClick={() =>
+                setDeviceLayout({ paneTools: deviceDefaults.paneTools, paneToolOrder: deviceDefaults.paneToolOrder, paneToolSize: deviceDefaults.paneToolSize, paneToolsMovable: deviceDefaults.paneToolsMovable }, "已恢复工具栏默认布局。")
               }
-              return (
-                <article className="ssh-workspace-run-pane" data-testid="ssh-workspace-run-pane" data-pane-id={pane.paneId} data-session-id={pane.sessionId} data-phase={pane.phase} key={pane.paneId} aria-label={pane.label}>
-                  <header className="ssh-workspace-controls">
-                    <strong>{pane.label}</strong>
-                    <span role="status">{PHASES[pane.phase]}</span>
-                    {pane.reconnect && (
-                      <>
-                        <ReconnectSchedule progress={pane.reconnect} />
-                        <Button type="button" onClick={() => void cancelPaneReconnect(pane.paneId)}>取消自动重连</Button>
-                      </>
-                    )}
-                    {pane.phase === "ready" && (
-                      <Button aria-pressed={Boolean(locked[pane.paneId])} onClick={() => setLocked((current) => ({ ...current, [pane.paneId]: !current[pane.paneId] }))}>
-                        {locked[pane.paneId] ? "解除输入锁定" : "锁定输入"}
-                      </Button>
-                    )}
-                    {pane.phase === "ready" && pane.sessionId && <RecordTerminal shellId={pane.sessionId} />}
-                  </header>
-                  {pane.error && <p role="alert">{pane.error.message}</p>}
-                  {prompt && (
-                    <div className="ssh-workspace-trust">
-                      <p>
-                        第 {prompt.hop + 1} 跳主机密钥{" "}
-                        <code>
-                          {prompt.keyType} {prompt.fingerprint}
-                        </code>
-                      </p>
-                      <div className="ssh-workspace-controls">
-                        <Button disabled={saving || deciding[decidingKey]} onClick={() => void decide(true)}>
-                          信任并连接
-                        </Button>
-                        <Button disabled={saving || deciding[decidingKey]} onClick={() => void decide(false)}>
-                          拒绝密钥
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                  {pane.authPrompt && <Button onClick={() => setAuthentication(pane.authPrompt?.promptId)}>继续交互认证</Button>}
-                  {shown && pane.authPrompt && authentication === pane.authPrompt.promptId && (
-                    <AuthenticationDialog key={authentication} prompt={pane.authPrompt} onClose={() => setAuthentication(undefined)} onAnswered={() => setAuthentication(undefined)} />
-                  )}
-                  {pane.phase === "ready" && (
-                    <WorkspacePaneTools
-                      label={pane.label}
-                      visible={shown && visible}
-                      position={paneTools}
-                      size={paneToolSize}
-                      order={paneToolOrder}
-                      movable={paneToolsMovable}
-                      onMove={(dock) => setDeviceLayout({ paneTools: dock }, `已将工具栏移至分栏${dock === "top" ? "上方" : "下方"}。`)}
-                      onStatus={setDeviceNotice}
-                      onFiles={() => {
-                        setActive(pane.paneId);
-                        setShowFiles(true);
-                      }}
-                      onMonitor={() => {
-                        setActive(pane.paneId);
-                        setShowMonitor(true);
-                      }}
-                    >
-                      {pane.sessionId && (
-                        <div key="terminal" className="ssh-workspace-terminal">
-                          <MovableSshTerminal
-                            key={pane.sessionId}
-                            name={pane.label}
-                            visible={shown && visible}
-                            disabled={moving}
-                            attachWhenHidden={Boolean(desktop)}
-                            ariaLabel={`${pane.label} 终端`}
-                            baseUrl={endpoint.baseUrl}
-                            token={endpoint.token}
-                            sessionId={pane.sessionId}
-                            observe={Boolean(locked[pane.paneId])}
-                            onTerminalHandoff={(prepare) => setPreparations((current) =>
-                              current[pane.sessionId!] === prepare ? current : { ...current, [pane.sessionId!]: prepare })}
-                            onTerminalInput={inputCallback(pane.sessionId)}
-                            onTerminalKey={(keys) => {
-                              if (document.visibilityState === "visible") broadcastTerminalKey(liveBroadcast, pane.paneId, keys);
-                            }}
-                          />
+            >
+              恢复工具栏默认布局
+            </Button>
+          </div>
+          <div className="ssh-workspace-controls">
+            <label className="hu-field">
+              工作区标签方向
+              <select value={tabs} onChange={(event) => setDeviceLayout({ tabs: event.currentTarget.value === "left" ? "left" : "top" })}>
+                <option value="top">上方</option>
+                <option value="left">左侧</option>
+              </select>
+            </label>
+            <label className="row">
+              <input type="checkbox" checked={groupVerticalTabs} disabled={tabs !== "left"} onChange={(event) => setDeviceLayout({ groupVerticalTabs: event.currentTarget.checked })} />
+              纵向标签按同目标分组
+            </label>
+          </div>
+        </details>
+        <div role="status">{deviceNotice}</div>
+        {shown && <TerminalActions targets={targetInputs} activeTargetId={activePane?.paneId} onBroadcast={setBroadcast} />}
+        {liveBroadcast.length > 0 && (
+          <div className="ssh-workspace-controls">
+            <span role="status">键入广播中 · {liveBroadcast.map(({ label }) => label).join("、")}</span>
+            <Button type="button" onClick={() => setBroadcast([])}>
+              停止键入广播
+            </Button>
+          </div>
+        )}
+        <div className="ssh-workspace-file-layout" data-file-position={shown && showFiles ? paneFilePosition : "below"}>
+          {paneFilePosition === "left" && attachedFiles}
+          <div key="terminal" className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
+            <div className={showMonitor ? "ssh-monitor-terminal" : undefined}>
+              <WorkspaceCanvas
+                layout={run.layout}
+                panes={run.panes}
+                active={activePane?.paneId}
+                maximized={maximized}
+                tabs={tabs}
+                groupVerticalTabs={groupVerticalTabs}
+                collapseVerticalGroups={collapseVerticalGroups}
+                connections={connections}
+                layoutRevision={run.layoutRevision ?? run.id}
+                resizingDisabled={saving || moving}
+                onActive={setActive}
+                onSwap={swap}
+                onResize={(tree, revision) => apply({ action: "layout", layout: { kind: "custom", tree }, paneIds: run.panes.map(({ paneId }) => paneId) }, revision)}
+                tabActions={tabActions}
+                render={(pane, visible) => {
+                  const prompt = pane.prompt;
+                  const decidingKey = prompt ? `${prompt.attemptId}:${prompt.hop}` : "";
+                  async function decide(accept: boolean) {
+                    if (!prompt) return;
+                    setDeciding((state) => ({ ...state, [decidingKey]: true }));
+                    try {
+                      await onTrust(prompt, accept);
+                    } finally {
+                      setDeciding((state) => ({ ...state, [decidingKey]: false }));
+                    }
+                  }
+                  return (
+                    <article className="ssh-workspace-run-pane" data-testid="ssh-workspace-run-pane" data-pane-id={pane.paneId} data-session-id={pane.sessionId} data-phase={pane.phase} key={pane.paneId} aria-label={pane.label}>
+                      <header className="ssh-workspace-controls">
+                        <strong>{pane.label}</strong>
+                        <span role="status">{PHASES[pane.phase]}</span>
+                        {pane.reconnect && (
+                          <>
+                            <ReconnectSchedule progress={pane.reconnect} />
+                            <Button type="button" onClick={() => void cancelPaneReconnect(pane.paneId)}>
+                              取消自动重连
+                            </Button>
+                          </>
+                        )}
+                        {pane.phase === "ready" && (
+                          <Button aria-pressed={Boolean(locked[pane.paneId])} onClick={() => setLocked((current) => ({ ...current, [pane.paneId]: !current[pane.paneId] }))}>
+                            {locked[pane.paneId] ? "解除输入锁定" : "锁定输入"}
+                          </Button>
+                        )}
+                        {pane.phase === "ready" && pane.sessionId && <RecordTerminal shellId={pane.sessionId} />}
+                      </header>
+                      {pane.error && <p role="alert">{pane.error.message}</p>}
+                      {prompt && (
+                        <div className="ssh-workspace-trust">
+                          <p>
+                            第 {prompt.hop + 1} 跳主机密钥{" "}
+                            <code>
+                              {prompt.keyType} {prompt.fingerprint}
+                            </code>
+                          </p>
+                          <div className="ssh-workspace-controls">
+                            <Button disabled={saving || deciding[decidingKey]} onClick={() => void decide(true)}>
+                              信任并连接
+                            </Button>
+                            <Button disabled={saving || deciding[decidingKey]} onClick={() => void decide(false)}>
+                              拒绝密钥
+                            </Button>
+                          </div>
                         </div>
                       )}
-                    </WorkspacePaneTools>
-                  )}
-                </article>
-              );
-            }}
-          />
+                      {pane.authPrompt && <Button onClick={() => setAuthentication(pane.authPrompt?.promptId)}>继续交互认证</Button>}
+                      {shown && pane.authPrompt && authentication === pane.authPrompt.promptId && (
+                        <AuthenticationDialog key={authentication} prompt={pane.authPrompt} onClose={() => setAuthentication(undefined)} onAnswered={() => setAuthentication(undefined)} />
+                      )}
+                      {pane.phase === "ready" && (
+                        <WorkspacePaneTools
+                          label={pane.label}
+                          visible={shown && visible}
+                          position={paneTools}
+                          size={paneToolSize}
+                          order={paneToolOrder}
+                          movable={paneToolsMovable}
+                          onMove={(dock) => setDeviceLayout({ paneTools: dock }, `已将工具栏移至分栏${dock === "top" ? "上方" : "下方"}。`)}
+                          onStatus={setDeviceNotice}
+                          onFiles={() => {
+                            setActive(pane.paneId);
+                            setShowFiles(true);
+                          }}
+                          onMonitor={() => {
+                            setActive(pane.paneId);
+                            setShowMonitor(true);
+                          }}
+                        >
+                          {pane.sessionId && (
+                            <div key="terminal" className="ssh-workspace-terminal">
+                              <MovableSshTerminal
+                                key={pane.sessionId}
+                                name={pane.label}
+                                visible={shown && visible}
+                                disabled={moving}
+                                attachWhenHidden={Boolean(desktop)}
+                                ariaLabel={`${pane.label} 终端`}
+                                baseUrl={endpoint.baseUrl}
+                                token={endpoint.token}
+                                sessionId={pane.sessionId}
+                                observe={Boolean(locked[pane.paneId])}
+                                onTerminalHandoff={(prepare) => setPreparations((current) => (current[pane.sessionId!] === prepare ? current : { ...current, [pane.sessionId!]: prepare }))}
+                                onTerminalInput={inputCallback(pane.sessionId)}
+                                onTerminalKey={(keys) => {
+                                  if (document.visibilityState === "visible") broadcastTerminalKey(liveBroadcast, pane.paneId, keys);
+                                }}
+                              />
+                            </div>
+                          )}
+                        </WorkspacePaneTools>
+                      )}
+                    </article>
+                  );
+                }}
+              />
+            </div>
+            {showMonitor &&
+              (activePane?.phase === "ready" && activePane.sessionId ? (
+                <MonitorSidebar key={activePane.sessionId} hostId={activePane.hostId} shellId={activePane.sessionId} name={activePane.label} shown={shown} dock={dock} onDock={setDock} onClose={() => setShowMonitor(false)} />
+              ) : (
+                <aside className="ssh-monitor-side hu-stack" aria-label="活动分栏监控">
+                  <p role="status">活动分栏的原连接已关闭或尚未就绪。</p>
+                  <Button onClick={() => setShowMonitor(false)}>关闭监控</Button>
+                </aside>
+              ))}
+          </div>
+          {paneFilePosition !== "left" && attachedFiles}
         </div>
-        {showMonitor &&
-          (activePane?.phase === "ready" && activePane.sessionId ? (
-            <MonitorSidebar key={activePane.sessionId} hostId={activePane.hostId} shellId={activePane.sessionId} name={activePane.label} shown={shown} dock={dock} onDock={setDock} onClose={() => setShowMonitor(false)} />
-          ) : (
-            <aside className="ssh-monitor-side hu-stack" aria-label="活动分栏监控">
-              <p role="status">活动分栏的原连接已关闭或尚未就绪。</p>
-              <Button onClick={() => setShowMonitor(false)}>关闭监控</Button>
-            </aside>
-          ))}
-      </div>
-      {paneFilePosition !== "left" && attachedFiles}
-      </div>
-      {renaming && shown && (
-        <Dialog
-          open
-          title="重命名标签"
-          onClose={() => setRenaming(undefined)}
-          actions={<Button type="submit" form={renameForm} disabled={!renaming.label.trim() || saving}>保存名称</Button>}
-        >
-          <form id={renameForm} method="post" onSubmit={(event) => {
-            event.preventDefault();
-            if (!renaming.label.trim() || saving) return;
-            setRenaming(undefined);
-            void apply({ action: "rename", paneId: renaming.id, label: renaming.label });
-          }}>
-            <label className="hu-field">标签名称<input name="label" value={renaming.label} maxLength={100} required onChange={(event) => setRenaming({ ...renaming, label: event.currentTarget.value })} /></label>
-          </form>
-        </Dialog>
-      )}
+        {renaming && shown && (
+          <Dialog
+            open
+            title="重命名标签"
+            onClose={() => setRenaming(undefined)}
+            actions={
+              <Button type="submit" form={renameForm} disabled={!renaming.label.trim() || saving}>
+                保存名称
+              </Button>
+            }
+          >
+            <form
+              id={renameForm}
+              method="post"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!renaming.label.trim() || saving) return;
+                setRenaming(undefined);
+                void apply({ action: "rename", paneId: renaming.id, label: renaming.label });
+              }}
+            >
+              <label className="hu-field">
+                标签名称
+                <input name="label" value={renaming.label} maxLength={100} required onChange={(event) => setRenaming({ ...renaming, label: event.currentTarget.value })} />
+              </label>
+            </form>
+          </Dialog>
+        )}
       </div>
     </section>
   );

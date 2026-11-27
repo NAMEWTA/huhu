@@ -36,7 +36,8 @@ const sourceRef = (source: Source) => ({ sourceId: source.sourceId, expectedRevi
 
 async function publication(page: Page, catalog: Catalog, sourceId: string, upstreamIdentity: string, selected: boolean) {
   await fromWorkbench(page, "mcp.policy.update", {
-    expectedCatalogRevision: catalog.catalogRevision, expectedPolicyRevision: catalog.policyRevision,
+    expectedCatalogRevision: catalog.catalogRevision,
+    expectedPolicyRevision: catalog.policyRevision,
     choices: [{ sourceId, upstreamIdentity, selected }],
   });
 }
@@ -53,7 +54,10 @@ async function openClient(page: Page, token: string) {
 }
 
 function events(journal: string): { type: string; name?: string; args?: object; pid?: number; helperPid?: number }[] {
-  return readFileSync(journal, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  return readFileSync(journal, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
 }
 
 function launch(vault: string) {
@@ -149,7 +153,8 @@ test("P1 Gateway 添加本地 stdio、检查并开放 echo，重开 Vault 后公
     let page = await app.firstWindow();
     await gateway(page);
     const source = await fromWorkbench<Source>(page, "mcp.sources.create", {
-      displayName: "E2E Repo", namespace: "e2e_repo",
+      displayName: "E2E Repo",
+      namespace: "e2e_repo",
       configuration: { transport: "stdio", command: process.execPath, args: [stdioFixture, journal], environment: {} },
     });
     expect(source.enabled).toBe(false);
@@ -193,7 +198,8 @@ test("关闭发布后短检结束即回收，停插件和切库无旧连接", as
     async function add(namespace: string) {
       const journal = path.join(sandbox, namespace + ".ndjson");
       const created = await fromWorkbench<Source>(page, "mcp.sources.create", {
-        displayName: namespace, namespace,
+        displayName: namespace,
+        namespace,
         configuration: { transport: "stdio", command: process.execPath, args: [stdioFixture, journal, definition], environment: {} },
       });
       const input = sourceRef(created);
@@ -205,9 +211,16 @@ test("关闭发布后短检结束即回收，停插件和切库无旧连接", as
       const source = await fromWorkbench<Source>(page, "mcp.sources.setEnabled", { ...input, enabled: true });
       const starts = () => events(journal).filter(({ type }) => type === "start");
       return {
-        source, starts,
-        live: () => starts().flatMap(({ pid, helperPid }) => [pid, helperPid]).filter((pid): pid is number => pid !== undefined && fixtureProcessRunning(pid)),
-        calls: () => events(journal).filter(({ type }) => type === "call").map(({ args }) => args),
+        source,
+        starts,
+        live: () =>
+          starts()
+            .flatMap(({ pid, helperPid }) => [pid, helperPid])
+            .filter((pid): pid is number => pid !== undefined && fixtureProcessRunning(pid)),
+        calls: () =>
+          events(journal)
+            .filter(({ type }) => type === "call")
+            .map(({ args }) => args),
       };
     }
     const removed = await add("removed");
@@ -215,16 +228,16 @@ test("关闭发布后短检结束即回收，停插件和切库无旧连接", as
     const publishing = (enabled: boolean) => call<{ url: string }>(page, "gateway.mcp.update", { enabled });
     const status = () => call<{ mcp: { url: string } }>(page, "gateway.get", {});
     await publishing(true);
-    const { mcp: { url } } = await status();
+    const {
+      mcp: { url },
+    } = await status();
     const issue = async (name: string) => (await call<{ token: string }>(page, "gateway.tokens.create", { name })).token;
     const first = await issue("Lifecycle first");
     const second = await issue("Lifecycle peer");
     const old = await openRecoverableMcpSession(url, first);
     const peer = await openClient(page, second);
     const input = (source: string, value: string) => ({ name: source + "__echo", arguments: { value } });
-    expect((await peer("tools/list")).result.tools).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "removed__echo" }), expect.objectContaining({ name: "kept__echo" }),
-    ]));
+    expect((await peer("tools/list")).result.tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: "removed__echo" }), expect.objectContaining({ name: "kept__echo" })]));
     const failed = await mcpRequest(url, first, mcpRpc("tools/call", input("removed", "fixture-disconnect")), old.handle);
     expect((await failed.json()).error.data.code).toBe("RUN_UNKNOWN");
     const preview = await fromWorkbench<{ policyRevision: number }>(page, "mcp.sources.deletePreview", sourceRef(removed.source));
@@ -240,7 +253,9 @@ test("关闭发布后短检结束即回收，停插件和切库无旧连接", as
     expect(kept.starts()).toHaveLength(previous + 1);
     expect(kept.live()).toEqual([]);
     await publishing(true);
-    await (await openClient(page, second))("tools/list");
+    await (
+      await openClient(page, second)
+    )("tools/list");
     expect(kept.live().length).toBeGreaterThan(0);
     await call(page, "plugins.setEnabled", { id: "mcp", enabled: false });
     try {
@@ -274,8 +289,11 @@ test("关闭发布后短检结束即回收，停插件和切库无旧连接", as
     expect(removed.calls()).toEqual([{ value: "fixture-disconnect" }]);
     expect(kept.calls()).toEqual([{ value: "peer" }, { value: "fresh" }]);
   } finally {
-    try { await close(); }
-    finally { rmTree(sandbox); }
+    try {
+      await close();
+    } finally {
+      rmTree(sandbox);
+    }
   }
 });
 
@@ -285,14 +303,18 @@ test("L11 同一 MCP 目录保留外部工具，账本按授权开放、撤权�
   try {
     await gateway(page);
     const { id: bookId } = await call<{ id: string }>(page, "ledger.books.create", {
-      name: "能力目录账本", defaultCurrency: "TWD", timeZone: "Asia/Taipei", firstAccount: { name: "银行" },
+      name: "能力目录账本",
+      defaultCurrency: "TWD",
+      timeZone: "Asia/Taipei",
+      firstAccount: { name: "银行" },
     });
     const input = { bookId };
     const desktop = await call(page, "ledger.records.list", input);
 
     upstream = await localUpstream("streamable-http");
     const source = await fromWorkbench<Source>(page, "mcp.sources.create", {
-      displayName: "账本联合验收来源", namespace: "ledger_fixture",
+      displayName: "账本联合验收来源",
+      namespace: "ledger_fixture",
       configuration: { transport: "streamable-http", url: upstream.url, headers: {}, authentication: { kind: "none" } },
     });
     expect(await fromWorkbench(page, "mcp.sources.check", sourceRef(source))).toMatchObject({ state: "ready" });
@@ -324,11 +346,13 @@ test("L11 同一 MCP 目录保留外部工具，账本按授权开放、撤权�
     await call(page, "plugins.setEnabled", { id: "ledger", enabled: false });
     expect(await listed()).not.toContain(tool);
     expect((await view()).result).toMatchObject({ isError: true });
-    expect((await rpc("tools/call", { name: echo, arguments: { value: "独立来源" } })).result.structuredContent)
-      .toEqual({ value: "独立来源", transport: "streamable-http" });
+    expect((await rpc("tools/call", { name: echo, arguments: { value: "独立来源" } })).result.structuredContent).toEqual({ value: "独立来源", transport: "streamable-http" });
   } finally {
-    try { await close(); }
-    finally { await upstream?.close(); }
+    try {
+      await close();
+    } finally {
+      await upstream?.close();
+    }
   }
 });
 
@@ -352,21 +376,26 @@ test("P2 导入三个本地来源、聚合同名工具、刷新分页目录并�
     const embeddedCredentials = new URL(http.url);
     embeddedCredentials.username = "fixture";
     embeddedCredentials.password = "synthetic-p2-secret";
-    const text = JSON.stringify({ mcpServers: {
-      repo: { command: process.execPath, args: [stdioFixture, journal, definition] },
-      http_repo: { url: http.url, type: "streamable-http" },
-      sse_repo: { url: sse.url, type: "sse" },
-      blocked: { url: embeddedCredentials.href },
-    } });
+    const text = JSON.stringify({
+      mcpServers: {
+        repo: { command: process.execPath, args: [stdioFixture, journal, definition] },
+        http_repo: { url: http.url, type: "streamable-http" },
+        sse_repo: { url: sse.url, type: "sse" },
+        blocked: { url: embeddedCredentials.href },
+      },
+    });
     const preview = await fromWorkbench<{
-      previewId: string; sourcesRevision: number; entries: { entryId: string; state: string }[];
+      previewId: string;
+      sourcesRevision: number;
+      entries: { entryId: string; state: string }[];
     }>(page, "mcp.sources.importPreview", { text });
     expect(preview.entries.map(({ state }) => state)).toEqual(["ready", "ready", "ready", "blocked"]);
     expect(JSON.stringify(preview)).not.toContain("synthetic-p2-secret");
     expect(existsSync(journal)).toBe(false);
     expect(await fromWorkbench(page, "mcp.sources.list", {})).toMatchObject({ sources: [] });
     const { sources } = await fromWorkbench<{ sources: Source[] }>(page, "mcp.sources.importCommit", {
-      previewId: preview.previewId, sourcesRevision: preview.sourcesRevision,
+      previewId: preview.previewId,
+      sourcesRevision: preview.sourcesRevision,
       selections: preview.entries.slice(0, 3).map(({ entryId }) => ({ action: "create", entryId })),
     });
     expect(sources.every((source) => !source.enabled)).toBe(true);
@@ -470,9 +499,7 @@ test("P3 正式来源页面添加服务、预览发布并访问真实资源和�
     expect((await rpc("resources/templates/list")).result.resourceTemplates).toContainEqual(expect.objectContaining({ uriTemplate }));
     expect((await rpc("resources/read", { uri: expanded })).result.contents).toMatchObject([{ uri: expanded, text: "Shared resource" }]);
     expect((await rpc("prompts/list")).result.prompts).toContainEqual(expect.objectContaining({ name: "catalog_page__review" }));
-    expect((await rpc("prompts/get", { name: "catalog_page__review", arguments: { topic: "本机夹具" } })).result.messages).toMatchObject([
-      { content: { text: "本机夹具" } }, { content: { resource: { uri } } },
-    ]);
+    expect((await rpc("prompts/get", { name: "catalog_page__review", arguments: { topic: "本机夹具" } })).result.messages).toMatchObject([{ content: { text: "本机夹具" } }, { content: { resource: { uri } } }]);
   } finally {
     await app?.close().catch(() => undefined);
     rmTree(sandbox);
@@ -529,17 +556,18 @@ test("桌面与获邀 Web 窄窗和大字号下显示来源、删除影响和诊
     upstreams.push(empty);
     const incompatible = await localUpstream("streamable-http", { requires: "roots" });
     upstreams.push(incompatible);
-    const register = (namespace: string, displayName: string, url: string, authorized = false) => call<Source>(desktop, "mcp.sources.create", {
-      namespace, displayName, configuration: { transport: "streamable-http", url, headers: {}, authentication: authorized
-        ? { kind: "environment", name: "HUHU_MCP_DELETE_TEST_AUTH", header: "Authorization" } : { kind: "none" } },
-    });
+    const register = (namespace: string, displayName: string, url: string, authorized = false) =>
+      call<Source>(desktop, "mcp.sources.create", {
+        namespace,
+        displayName,
+        configuration: { transport: "streamable-http", url, headers: {}, authentication: authorized ? { kind: "environment", name: "HUHU_MCP_DELETE_TEST_AUTH", header: "Authorization" } : { kind: "none" } },
+      });
     const target = await register("remove_source", "待删除来源", upstream.url, true);
     const other = await register("keep_source", "保留来源", upstream.url, true);
     for (const source of [target, other]) {
       expect(await call(desktop, "mcp.sources.check", sourceRef(source))).toMatchObject({ state: "ready", toolCount: 1 });
       const { catalogRevision, policyRevision } = await call<Catalog>(desktop, "mcp.catalog.list", {});
-      await call(desktop, "mcp.policy.update", { expectedCatalogRevision: catalogRevision, expectedPolicyRevision: policyRevision,
-        choices: [{ sourceId: source.sourceId, upstreamIdentity: "echo", selected: true }] });
+      await call(desktop, "mcp.policy.update", { expectedCatalogRevision: catalogRevision, expectedPolicyRevision: policyRevision, choices: [{ sourceId: source.sourceId, upstreamIdentity: "echo", selected: true }] });
       await call(desktop, "mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
     }
     await register("empty_source", "无能力来源", empty.url);
@@ -548,16 +576,16 @@ test("桌面与获邀 Web 窄窗和大字号下显示来源、删除影响和诊
     await call(desktop, "gateway.mcp.update", { enabled: true });
     const { token } = await call<{ token: string }>(desktop, "gateway.tokens.create", { name: "Delete preview fixture" });
     const rpc = await openClient(desktop, token);
-    expect((await rpc("tools/list")).result.tools).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "remove_source__echo" }), expect.objectContaining({ name: "keep_source__echo" }),
-    ]));
+    expect((await rpc("tools/list")).result.tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: "remove_source__echo" }), expect.objectContaining({ name: "keep_source__echo" })]));
     const tool = (namespace: string) => ({ name: namespace + "__echo", arguments: { value: namespace } });
     for (const source of [target, other]) {
       expect((await rpc("tools/call", tool(source.namespace))).result.structuredContent.value).toBe(source.namespace);
     }
 
     await call(desktop, "web.share.start", { mode: "local", port: 0 });
-    const { links: [invite] } = await call<{ links: string[] }>(desktop, "web.invitations.create", {});
+    const {
+      links: [invite],
+    } = await call<{ links: string[] }>(desktop, "web.invitations.create", {});
     browser = await chromium.launch();
     const web = await browser.newPage({ viewport: { width: 430, height: 680 } });
     await web.goto(invite!);
@@ -636,13 +664,17 @@ test("桌面与获邀 Web 窄窗和大字号下显示来源、删除影响和诊
   } finally {
     try {
       await browser?.close();
-      if (appearance !== undefined && !desktop.isClosed()) await desktop.evaluate((cached) => {
-        if (cached === null) localStorage.removeItem("huhu.appearance");
-        else localStorage.setItem("huhu.appearance", cached);
-      }, appearance);
+      if (appearance !== undefined && !desktop.isClosed())
+        await desktop.evaluate((cached) => {
+          if (cached === null) localStorage.removeItem("huhu.appearance");
+          else localStorage.setItem("huhu.appearance", cached);
+        }, appearance);
     } finally {
-      try { await close(); }
-      finally { await Promise.all(upstreams.map((upstream) => upstream.close())); }
+      try {
+        await close();
+      } finally {
+        await Promise.all(upstreams.map((upstream) => upstream.close()));
+      }
     }
   }
 });
@@ -673,9 +705,13 @@ test("P4 独立 Web 工作台通过正式来源页面预览、导入并读取脱
     const panel = page.getByTestId("gateway-mcp-sources");
     await panel.getByRole("button", { name: "导入 JSON" }).click();
     const importer = page.getByRole("dialog", { name: "导入 MCP 配置" });
-    await importer.getByLabel("mcpServers JSON").fill(JSON.stringify({ mcpServers: {
-      web_demo: { command: "huhu-unused-fixture", args: ["serve"], env: { FIXTURE: "${HUHU_TEST_REFERENCE}" } },
-    } }));
+    await importer.getByLabel("mcpServers JSON").fill(
+      JSON.stringify({
+        mcpServers: {
+          web_demo: { command: "huhu-unused-fixture", args: ["serve"], env: { FIXTURE: "${HUHU_TEST_REFERENCE}" } },
+        },
+      }),
+    );
     await importer.getByRole("button", { name: "预览导入", exact: true }).click();
     await expect(importer.getByRole("region", { name: "导入预览" })).toContainText("web_demo");
     await importer.getByRole("button", { name: "提交所选变更" }).click();

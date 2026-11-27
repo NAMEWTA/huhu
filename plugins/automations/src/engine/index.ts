@@ -51,12 +51,15 @@ function ruleWriteResult(caller: string, value: ReturnType<AutomationsService["r
 }
 
 const RuleDraftPreview = defineCapabilityDescriptor({
-  plugin: "automations", name: "automations.plans.previewRuleDraft", scope: "read", risk: "normal", exposable: false, defaultExposed: false,
-  title: "预览规则草稿", description: "使用当前条件读取未来时刻和候选，不执行动作。",
-  input: z.union([
-    z.strictObject({ trigger: Trigger }),
-    z.strictObject({ trigger: Trigger, action: Action, body: z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT) }),
-  ]),
+  plugin: "automations",
+  name: "automations.plans.previewRuleDraft",
+  scope: "read",
+  risk: "normal",
+  exposable: false,
+  defaultExposed: false,
+  title: "预览规则草稿",
+  description: "使用当前条件读取未来时刻和候选，不执行动作。",
+  input: z.union([z.strictObject({ trigger: Trigger }), z.strictObject({ trigger: Trigger, action: Action, body: z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT) })]),
   output: z.strictObject({ at: z.iso.datetime(), next: z.array(z.string()), tasksDisabled: z.boolean(), candidates: z.array(z.unknown()), skipped: z.array(z.unknown()) }),
 });
 const Id = z.object({ id: z.string() });
@@ -351,33 +354,50 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     gate.allows,
   );
   api.provide("taskFollowUps", followUps);
-  api.provide("taskScheduleAdmission", ((source, taskId) => source.kind === "follow-up"
-    ? followUps.allowsDispatch(taskId, source.followUpId, source.scheduledFor)
-    : scans.allowsDispatch(source.ruleId, source.ruleVersion, source.occurrenceId)) satisfies TaskScheduleAdmission);
+  api.provide("taskScheduleAdmission", ((source, taskId) =>
+    source.kind === "follow-up" ? followUps.allowsDispatch(taskId, source.followUpId, source.scheduledFor) : scans.allowsDispatch(source.ruleId, source.ruleVersion, source.occurrenceId)) satisfies TaskScheduleAdmission);
   const taskReminders = new TaskReminderPlans(
-    stateFiles, api.vault.vaultId, svc, () => api.service<TaskQueryLike>("taskQuery"), () => reminders, now,
+    stateFiles,
+    api.vault.vaultId,
+    svc,
+    () => api.service<TaskQueryLike>("taskQuery"),
+    () => reminders,
+    now,
     (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "updated" }),
     gate.allows,
   );
-  const periodic = new PeriodicPlans(stateFiles, { vaultId: api.vault.vaultId, machineId: mid, instance: terminalOwner }, svc,
-    ["mail", "versioning", "ssh", "ledger"], (plugin) => api.service<PeriodicPlanSource>(periodicPlanSourceService(plugin)), opts.periodicClock ?? { now: Date.now },
-    (id, sourcePlugin, kind) => api.events.publish("entity.changed", { kind, id, sourcePlugin, op: "updated" }), gate);
+  const periodic = new PeriodicPlans(
+    stateFiles,
+    { vaultId: api.vault.vaultId, machineId: mid, instance: terminalOwner },
+    svc,
+    ["mail", "versioning", "ssh", "ledger"],
+    (plugin) => api.service<PeriodicPlanSource>(periodicPlanSourceService(plugin)),
+    opts.periodicClock ?? { now: Date.now },
+    (id, sourcePlugin, kind) => api.events.publish("entity.changed", { kind, id, sourcePlugin, op: "updated" }),
+    gate,
+  );
   api.provide(PERIODIC_PLANS_SERVICE, periodic);
   type TaskObservation = { comment(taskId: string, id: string, body: string): Promise<unknown> };
   type AgentObservation = { status(id: string): Promise<ObservationStatus> };
-  const observations = new ObservationPlans(stateFiles, { vaultId: api.vault.vaultId, machineId: mid }, svc, () => reminders,
+  const observations = new ObservationPlans(
+    stateFiles,
+    { vaultId: api.vault.vaultId, machineId: mid },
+    svc,
+    () => reminders,
     async ({ kind, id }, signal) => {
-      if (kind === "agent-session") return await api.service<AgentObservation>("agentObservation")?.status(id) ?? "unknown";
+      if (kind === "agent-session") return (await api.service<AgentObservation>("agentObservation")?.status(id)) ?? "unknown";
       const task = await api.service<TaskActivityQuery>("taskActivity")?.readTaskActivity(id, signal);
       if (!task) return "unknown";
       if (task.status === "completed") return "completed";
       if (task.execution.state === "none") return task.status === "not_started" ? "not_started" : "unknown";
       return task.execution.state === "waiting-input" ? "waiting_input" : task.execution.state;
-    }, now, (id) => api.events.publish("entity.changed", { kind: "automation-activation", id, op: "updated" }),
-    ({ kind }) => kind === "task" ? !!api.service<TaskActivityQuery>("taskActivity") : !!api.service<AgentObservation>("agentObservation"), gate.allows);
-  const focus = opts.focusDeadline
-    ? new FocusDeadlinePlans(opts.focusDeadline, svc, () => reminders, api.vault.vaultId, stateFiles.readOnly, now, gate.allows)
-    : undefined;
+    },
+    now,
+    (id) => api.events.publish("entity.changed", { kind: "automation-activation", id, op: "updated" }),
+    ({ kind }) => (kind === "task" ? !!api.service<TaskActivityQuery>("taskActivity") : !!api.service<AgentObservation>("agentObservation")),
+    gate.allows,
+  );
+  const focus = opts.focusDeadline ? new FocusDeadlinePlans(opts.focusDeadline, svc, () => reminders, api.vault.vaultId, stateFiles.readOnly, now, gate.allows) : undefined;
   const reminders: ReminderDeliveries | undefined = opts.reminderNotifications
     ? new ReminderDeliveries(
         stateFiles,
@@ -405,8 +425,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         },
         focus,
         gate.allows,
-        (taskId, id, body) => taskReminders.task(taskId)?.comments.some((comment) =>
-          comment.id === id && comment.event === "observation" && comment.source === "system" && comment.body === body),
+        (taskId, id, body) => taskReminders.task(taskId)?.comments.some((comment) => comment.id === id && comment.event === "observation" && comment.source === "system" && comment.body === body),
       )
     : undefined;
   if (reminders) api.provide("automationReminderDeliveries", reminders);
@@ -582,8 +601,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     return ruleWriteResult(c.caller, r);
   });
   defineRuleTool(taskScanToolDescriptors.preview, (c, i) => svc.preview(i.id, i.expectedVersion, c.signal));
-  api.defineCapability(bindCapability(automationToolDescriptors.plansPreviewRuleDraft, (context, input) =>
-    svc.previewDraft(input.trigger, "action" in input ? input.action : undefined, "body" in input ? input.body : "", context.signal)));
+  api.defineCapability(bindCapability(automationToolDescriptors.plansPreviewRuleDraft, (context, input) => svc.previewDraft(input.trigger, "action" in input ? input.action : undefined, "body" in input ? input.body : "", context.signal)));
   api.defineCapability(
     bindCapability(automationToolDescriptors.runNow, async ({ caller, subject, signal }, { id, expectedVersion, intentId }) => {
       signal.throwIfAborted();
@@ -631,11 +649,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       });
     }),
   );
-  api.defineCapability(
-    bindCapability(automationToolDescriptors.activations, () =>
-      activations().sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.activationId.localeCompare(a.activationId)),
-    ),
-  );
+  api.defineCapability(bindCapability(automationToolDescriptors.activations, () => activations().sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.activationId.localeCompare(a.activationId))));
   defineRuleTool(taskScanToolDescriptors.dispatches, (_c, { ruleId, activationId }) => ({ dispatches: scans.dispatches(ruleId, activationId) }));
   api.defineCapability(bindCapability(automationToolDescriptors.runsList, (_c, i) => svc.runs(i.limit)));
   api.defineCapability(

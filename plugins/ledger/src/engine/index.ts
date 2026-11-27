@@ -4,9 +4,29 @@ import type { OpStep } from "@huhu/vault";
 import { z } from "zod";
 import { BookList, BookName, BookRef, BookVersion, CreateBook, RemovalPreview } from "../shared/books.js";
 import {
-  AccountsView, AccountState, Attachment, AttachmentRead, AttachmentRef, BasePreview, BatchPreview, ConfirmBase, ConfirmBatch,
-  CreateAccount, CreateRecord, DictionaryInput, DictionaryItem, InputBase, InputBatch,
-  RecordRef, RecordVersion, RecordsPage, RecordsQuery, RecordView, UpdateAccount, UpdateRecord, UploadAttachment,
+  AccountsView,
+  AccountState,
+  Attachment,
+  AttachmentRead,
+  AttachmentRef,
+  BasePreview,
+  BatchPreview,
+  ConfirmBase,
+  ConfirmBatch,
+  CreateAccount,
+  CreateRecord,
+  DictionaryInput,
+  DictionaryItem,
+  InputBase,
+  InputBatch,
+  RecordRef,
+  RecordVersion,
+  RecordsPage,
+  RecordsQuery,
+  RecordView,
+  UpdateAccount,
+  UpdateRecord,
+  UploadAttachment,
 } from "../shared/entries.js";
 import { account, accountsView, addBase, createAccount, previewBalance, requireActiveBook, saveDictionary, updateAccount } from "./accounts.js";
 import { readAttachment, uploadAttachment } from "./attachments.js";
@@ -15,8 +35,7 @@ import { LedgerStore, type BookState } from "./store.js";
 import { ConfirmImport, CsvResult, ExportCsv, ImportFile, ImportPreview, ImportReference, ImportResult, MappingList, ResolveImport, SaveMapping } from "../shared/imports.js";
 import { LedgerImports } from "./imports.js";
 import { exportCsv } from "./csv-export.js";
-import { CandidateGroups, ConfirmMerge, ConfirmOffset, DuplicateSearch, MergeInput, MergePreview, MergeResult,
-  OffsetGroupView, OffsetInput, OffsetPreview, OffsetSearch, UndoOffset } from "../shared/reconciliation.js";
+import { CandidateGroups, ConfirmMerge, ConfirmOffset, DuplicateSearch, MergeInput, MergePreview, MergeResult, OffsetGroupView, OffsetInput, OffsetPreview, OffsetSearch, UndoOffset } from "../shared/reconciliation.js";
 import { duplicateCandidates, offsetCandidates } from "./reconciliation-matches.js";
 import { addOffset, groupView, merge, previewMerge, previewOffset, undoOffset } from "./reconciliation.js";
 import { HolidayData, HolidayQuery, ReportQuery, ReportView, ReportsPreferences, SaveHolidayData, SaveReportsPreferences } from "../shared/reports.js";
@@ -30,9 +49,7 @@ import { loanSchedule } from "../domain/loans.js";
 import { confirmLoan, loanList, previewLoan, removeLoan, saveLoan } from "./loans.js";
 import { BackupPreview, BackupRef, ClearLegacyOffset, ConfirmBackup, ExportBackup, ExportedBackup, InspectBackup } from "../shared/backups.js";
 import { LedgerBackups } from "./backup/index.js";
-import {
-  OpenReference, Reference, ReferenceList, ReferenceQuery, ReferenceView, RemoveReference, ReviewDraft, ReviewNote, SaveReview, SetReference,
-} from "../shared/references.js";
+import { OpenReference, Reference, ReferenceList, ReferenceQuery, ReferenceView, RemoveReference, ReviewDraft, ReviewNote, SaveReview, SetReference } from "../shared/references.js";
 import { draftReview, LedgerReferences, referencesFor, removeReference, saveReference } from "./references.js";
 import { OverviewActivity } from "../shared/overview.js";
 export { ledgerPackageSelection, validateLedgerPackage } from "./backup/snapshot.js";
@@ -51,8 +68,13 @@ const descriptors = {
   restore: descriptor({ ...write, name: "ledger.books.restore", title: "恢复账本", description: "恢复已归档账本", input: BookVersion, output: LedgerBook }),
   previewRemoval: descriptor({ ...read, name: "ledger.books.previewRemoval", title: "预览删除账本", description: "查看删除账本的影响和当前版本", input: BookRef, output: RemovalPreview }),
   remove: descriptor({
-    ...write, risk: "high", name: "ledger.books.remove", title: "删除账本", description: "按预览的版本和名称确认删除",
-    input: BookVersion.extend({ confirmedName: z.string() }), output: z.strictObject({ ok: z.literal(true) }),
+    ...write,
+    risk: "high",
+    name: "ledger.books.remove",
+    title: "删除账本",
+    description: "按预览的版本和名称确认删除",
+    input: BookVersion.extend({ confirmedName: z.string() }),
+    output: z.strictObject({ ok: z.literal(true) }),
   }),
   accounts: descriptor({ ...read, name: "ledger.accounts.list", title: "列出账户和余额", description: "查询账户、余额基准和字典", input: BookRef, output: AccountsView }),
   report: descriptor({ ...read, name: "ledger.reports.query", title: "查询账本报表", description: "按业务日期、币种和平账口径查询收支与余额。", input: ReportQuery, output: ReportView }),
@@ -74,9 +96,27 @@ const descriptors = {
   copyBudgets: descriptor({ ...write, name: "ledger.budgets.copy", title: "复制月度预算", description: "复制固定预算到目标月份，保留已有同名项。", input: CopyBudgets, output: CopyBudgetResult }),
   recurring: descriptor({ ...read, name: "ledger.recurring.list", title: "查询固定收支", description: "读取账本规则、统一计划及原期次回执。", input: BookRef, output: RecurringList }),
   createRecurring: descriptor({ ...publicTool, scope: "write", idempotency: "handler", name: "ledger.recurring.create", title: "创建固定收支", description: "按稳定规则身份建立暂停的统一计划。", input: OpenRecurring, output: RecurringRow }),
-  ensureRecurring: descriptor({ ...publicTool, scope: "write", idempotency: "handler", name: "ledger.recurring.ensurePlan", title: "补全固定收支计划", description: "核对原规则并补全缺失的暂停计划。", input: RecurringKey, output: RecurringRow }),
+  ensureRecurring: descriptor({
+    ...publicTool,
+    scope: "write",
+    idempotency: "handler",
+    name: "ledger.recurring.ensurePlan",
+    title: "补全固定收支计划",
+    description: "核对原规则并补全缺失的暂停计划。",
+    input: RecurringKey,
+    output: RecurringRow,
+  }),
   previewRecurring: descriptor({ ...read, name: "ledger.recurring.preview", title: "预览固定收支", description: "读取原计划启用区间内的未处理期次。", input: RecurringKey, output: RecurringPreview }),
-  retryRecurring: descriptor({ ...publicTool, scope: "write", idempotency: "handler", name: "ledger.recurring.retry", title: "重试固定收支期次", description: "按原计划和期次时间重试已证失败。", input: RetryRecurring, output: RecurringPeriod }),
+  retryRecurring: descriptor({
+    ...publicTool,
+    scope: "write",
+    idempotency: "handler",
+    name: "ledger.recurring.retry",
+    title: "重试固定收支期次",
+    description: "按原计划和期次时间重试已证失败。",
+    input: RetryRecurring,
+    output: RecurringPeriod,
+  }),
   loans: descriptor({ ...read, name: "ledger.loans.list", title: "查看贷款", description: "列出当前账本的贷款和已生成期数。", input: BookRef, output: LoanList }),
   quoteLoan: descriptor({ ...read, name: "ledger.loans.quote", title: "试算还款计划", description: "按贷款条件逐期计算本金、利息和到期业务日。", input: LoanTerms, output: z.array(LoanInstallment) }),
   createLoan: descriptor({ ...write, name: "ledger.loans.create", title: "保存贷款", description: "保存试算条件，供后续预览。", input: SaveLoan, output: Loan }),
@@ -101,8 +141,13 @@ const descriptors = {
   cloneRecord: descriptor({ ...write, name: "ledger.records.clone", title: "复制流水", description: "复制一笔流水并复用其受管凭证", input: RecordVersion, output: LedgerRecord }),
   previewBatch: descriptor({ ...read, name: "ledger.records.previewBatch", title: "预览批量编辑", description: "核对整批流水的版本与影响范围", input: InputBatch, output: BatchPreview }),
   confirmBatch: descriptor({
-    ...write, risk: "high", name: "ledger.records.confirmBatch", title: "提交批量编辑", description: "按预览一次提交批量编辑或删除",
-    input: ConfirmBatch, output: z.strictObject({ count: z.int().positive() }),
+    ...write,
+    risk: "high",
+    name: "ledger.records.confirmBatch",
+    title: "提交批量编辑",
+    description: "按预览一次提交批量编辑或删除",
+    input: ConfirmBatch,
+    output: z.strictObject({ count: z.int().positive() }),
   }),
   upload: descriptor({ ...write, risk: "high", name: "ledger.attachments.upload", title: "上传流水凭证", description: "将受管凭证和流水引用一并保存", input: UploadAttachment, output: Attachment }),
   attachment: descriptor({ ...read, risk: "high", name: "ledger.attachments.read", title: "读取流水凭证", description: "按账本和凭证标识读取，或报告凭证缺失", input: AttachmentRef, output: AttachmentRead }),
@@ -122,16 +167,19 @@ const descriptors = {
   confirmOffset: descriptor({ ...write, risk: "high", name: "ledger.reconciliation.confirmOffset", title: "确认整组平账", description: "记录版本化平账组，保留原资金流水", input: ConfirmOffset, output: LedgerOffsetGroup }),
   offsetGroup: descriptor({ ...read, name: "ledger.reconciliation.offsetGroup", title: "查看平账组", description: "按组员查看整组和平账版本", input: RecordRef, output: OffsetGroupView }),
   undoOffset: descriptor({ ...write, risk: "high", name: "ledger.reconciliation.undoOffset", title: "撤销整组平账", description: "按组版本恢复成员的收支统计", input: UndoOffset, output: z.strictObject({ restored: z.int().positive() }) }),
-  clearLegacyOffset: descriptor({ ...write, name: "ledger.reconciliation.clearLegacyOffset", title: "清除旧平账标记", description: "移除迁入的报表排除标记，保留原始流水。", input: ClearLegacyOffset, output: z.strictObject({ cleared: z.boolean() }) }),
+  clearLegacyOffset: descriptor({
+    ...write,
+    name: "ledger.reconciliation.clearLegacyOffset",
+    title: "清除旧平账标记",
+    description: "移除迁入的报表排除标记，保留原始流水。",
+    input: ClearLegacyOffset,
+    output: z.strictObject({ cleared: z.boolean() }),
+  }),
 };
 
 export const ledgerCapabilityDescriptors = Object.values(descriptors);
 
-export function apply(
-  ctx: Parameters<PluginEntry["apply"]>[0],
-  api: Parameters<PluginEntry["apply"]>[1],
-  dispatcher: () => Pick<Dispatcher, "call">,
-) {
+export function apply(ctx: Parameters<PluginEntry["apply"]>[0], api: Parameters<PluginEntry["apply"]>[1], dispatcher: () => Pick<Dispatcher, "call">) {
   const store = new LedgerStore(api.vault.files, api.events);
   const imports = new LedgerImports(store);
   const references = new LedgerReferences(dispatcher);
@@ -139,8 +187,16 @@ export function apply(
   const recurring = new LedgerRecurring(store, () => api.service<PeriodicPlanControl>(PERIODIC_PLANS_SERVICE), lifetime.signal);
   const backups = new LedgerBackups(store, (state) => recurring.backupRules(state));
   api.provide(periodicPlanSourceService("ledger"), recurring.source());
-  ctx.effect(() => () => { lifetime.abort(); imports.dispose(); backups.dispose(); return store.idle(); });
-  const snapshot = async (bookId: string) => { await store.idle(); return store.snapshot(bookId); };
+  ctx.effect(() => () => {
+    lifetime.abort();
+    imports.dispose();
+    backups.dispose();
+    return store.idle();
+  });
+  const snapshot = async (bookId: string) => {
+    await store.idle();
+    return store.snapshot(bookId);
+  };
   const currentSnapshot = async ({ bookId, expectedRevision }: { bookId: string; expectedRevision: string }) => {
     const state = await snapshot(bookId);
     if (state.book.revision !== expectedRevision) throw errors.versionConflict(state.book.revision);
@@ -151,70 +207,97 @@ export function apply(
       requireActiveBook(state);
       return update(state, steps);
     });
-  api.defineCapability(bindCapability(descriptors.list, async () => { await store.idle(); return store.list(); }));
+  api.defineCapability(
+    bindCapability(descriptors.list, async () => {
+      await store.idle();
+      return store.list();
+    }),
+  );
   api.defineCapability(bindCapability(descriptors.create, (context, input) => store.create(context, input)));
   api.defineCapability(bindCapability(descriptors.open, (context, { bookId }) => store.open(context, bookId)));
   api.defineCapability(bindCapability(descriptors.update, (context, { bookId, expectedRevision, name }) => store.rename(context, bookId, expectedRevision, name)));
   api.defineCapability(bindCapability(descriptors.archive, (context, { bookId, expectedRevision }) => store.setStatus(context, bookId, expectedRevision, "archived")));
   api.defineCapability(bindCapability(descriptors.restore, (context, { bookId, expectedRevision }) => store.setStatus(context, bookId, expectedRevision, "active")));
-  api.defineCapability(bindCapability(descriptors.previewRemoval, async (_context, { bookId }) => { await store.idle(); return store.previewRemoval(bookId); }));
+  api.defineCapability(
+    bindCapability(descriptors.previewRemoval, async (_context, { bookId }) => {
+      await store.idle();
+      return store.previewRemoval(bookId);
+    }),
+  );
   api.defineCapability(bindCapability(descriptors.remove, (context, { bookId, expectedRevision, confirmedName }) => store.remove(context, bookId, expectedRevision, confirmedName)));
-  api.defineCapability(bindCapability(descriptors.accounts, async (_context, { bookId }) => {
-    const state = await snapshot(bookId);
-    return accountsView(state, store.businessDate(state.book));
-  }));
+  api.defineCapability(
+    bindCapability(descriptors.accounts, async (_context, { bookId }) => {
+      const state = await snapshot(bookId);
+      return accountsView(state, store.businessDate(state.book));
+    }),
+  );
   api.defineCapability(bindCapability(descriptors.report, async (_context, input) => report(await snapshot(input.bookId), input)));
-  api.defineCapability(bindCapability(descriptors.overviewActivity, async (_context, { bookId }) => {
-    const state = await snapshot(bookId);
-    const loans = loanList(store, state);
-    const businessDate = loans.businessDate;
-    const budgetTotals = budgetOverview(state, { bookId, year: businessDate.slice(0, 4), month: businessDate.slice(5, 7) }).totals;
-    const schedules = recurring.list(state).rows;
-    const enabled = schedules.flatMap(({ plan }) => plan?.intent === "enabled" ? [plan] : []);
-    const nextTimes = enabled.flatMap(({ availability, nextAt }) => availability.state === "ready" && nextAt ? [nextAt] : []).sort();
-    return {
-      revision: state.book.revision,
-      businessDate,
-      budgetTotals,
-      recurring: {
-        rules: schedules.length, enabled: enabled.length, nextAt: nextTimes[0] ?? null,
-        failedPeriods: schedules.reduce((count, { periods }) => count + periods.filter(({ state }) => state === "failed").length, 0),
-      },
-      loans: {
-        count: loans.rows.length,
-        installments: loans.rows.reduce((count, loan) => count + loan.definition.months, 0),
-        generated: loans.rows.reduce((count, loan) => count + loan.generated, 0),
-      },
-    };
-  }));
-  api.defineCapability(bindCapability(descriptors.references, async (context, { bookId, owner }) => {
-    const state = await snapshot(bookId);
-    return { revision: state.book.revision, rows: await references.resolve(context, referencesFor(state, owner)) };
-  }));
-  api.defineCapability(bindCapability(descriptors.openReference, async (context, { bookId, owner, referenceId }) =>
-    references.get(context, await snapshot(bookId), owner, referenceId)));
-  api.defineCapability(bindCapability(descriptors.setReference, async (context, input) => {
-    const resource = await references.select(context, input.resource);
-    return change(context, input, (state) => saveReference(state, input, resource));
-  }));
-  api.defineCapability(bindCapability(descriptors.removeReference, (context, input) =>
-    change(context, input, (state) => removeReference(state, input.owner, input.referenceId))));
+  api.defineCapability(
+    bindCapability(descriptors.overviewActivity, async (_context, { bookId }) => {
+      const state = await snapshot(bookId);
+      const loans = loanList(store, state);
+      const businessDate = loans.businessDate;
+      const budgetTotals = budgetOverview(state, { bookId, year: businessDate.slice(0, 4), month: businessDate.slice(5, 7) }).totals;
+      const schedules = recurring.list(state).rows;
+      const enabled = schedules.flatMap(({ plan }) => (plan?.intent === "enabled" ? [plan] : []));
+      const nextTimes = enabled.flatMap(({ availability, nextAt }) => (availability.state === "ready" && nextAt ? [nextAt] : [])).sort();
+      return {
+        revision: state.book.revision,
+        businessDate,
+        budgetTotals,
+        recurring: {
+          rules: schedules.length,
+          enabled: enabled.length,
+          nextAt: nextTimes[0] ?? null,
+          failedPeriods: schedules.reduce((count, { periods }) => count + periods.filter(({ state }) => state === "failed").length, 0),
+        },
+        loans: {
+          count: loans.rows.length,
+          installments: loans.rows.reduce((count, loan) => count + loan.definition.months, 0),
+          generated: loans.rows.reduce((count, loan) => count + loan.generated, 0),
+        },
+      };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(descriptors.references, async (context, { bookId, owner }) => {
+      const state = await snapshot(bookId);
+      return { revision: state.book.revision, rows: await references.resolve(context, referencesFor(state, owner)) };
+    }),
+  );
+  api.defineCapability(bindCapability(descriptors.openReference, async (context, { bookId, owner, referenceId }) => references.get(context, await snapshot(bookId), owner, referenceId)));
+  api.defineCapability(
+    bindCapability(descriptors.setReference, async (context, input) => {
+      const resource = await references.select(context, input.resource);
+      return change(context, input, (state) => saveReference(state, input, resource));
+    }),
+  );
+  api.defineCapability(bindCapability(descriptors.removeReference, (context, input) => change(context, input, (state) => removeReference(state, input.owner, input.referenceId))));
   api.defineCapability(bindCapability(descriptors.draftReview, async (_context, input) => draftReview(await snapshot(input.bookId), input)));
-  api.defineCapability(bindCapability(descriptors.saveReview, async (context, input) =>
-    references.createReview(context, await currentSnapshot(input), input)));
-  api.defineCapability(bindCapability(descriptors.reportPreferences, async (_context, { bookId }) => {
-    const state = await snapshot(bookId);
-    return { revision: state.book.revision, cards: state.reportCards };
-  }));
-  api.defineCapability(bindCapability(descriptors.saveReportPreferences, (context, input) => change(context, input, (state) => {
-    state.reportCards = input.cards;
-    return { revision: state.book.revision, cards: state.reportCards };
-  })));
+  api.defineCapability(bindCapability(descriptors.saveReview, async (context, input) => references.createReview(context, await currentSnapshot(input), input)));
+  api.defineCapability(
+    bindCapability(descriptors.reportPreferences, async (_context, { bookId }) => {
+      const state = await snapshot(bookId);
+      return { revision: state.book.revision, cards: state.reportCards };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(descriptors.saveReportPreferences, (context, input) =>
+      change(context, input, (state) => {
+        state.reportCards = input.cards;
+        return { revision: state.book.revision, cards: state.reportCards };
+      }),
+    ),
+  );
   api.defineCapability(bindCapability(descriptors.holidays, async (_context, { bookId, year }) => (await snapshot(bookId)).holidays[year] ?? null));
-  api.defineCapability(bindCapability(descriptors.saveHolidays, (context, input) => change(context, input, (state) => {
-    state.holidays[input.data.year] = input.data;
-    return input.data;
-  })));
+  api.defineCapability(
+    bindCapability(descriptors.saveHolidays, (context, input) =>
+      change(context, input, (state) => {
+        state.holidays[input.data.year] = input.data;
+        return input.data;
+      }),
+    ),
+  );
   api.defineCapability(bindCapability(descriptors.budgets, async (_context, input) => budgetOverview(await snapshot(input.bookId), input)));
   api.defineCapability(bindCapability(descriptors.budgetDetail, async (_context, input) => budgetDetail(store, await snapshot(input.bookId), input)));
   api.defineCapability(bindCapability(descriptors.saveBudgets, (context, input) => change(context, input, (state) => saveBudgets(state, input))));
@@ -223,7 +306,12 @@ export function apply(
   api.defineCapability(bindCapability(descriptors.recurring, async (_context, { bookId }) => recurring.list(await snapshot(bookId))));
   api.defineCapability(bindCapability(descriptors.createRecurring, (context, input) => recurring.create(context, input)));
   api.defineCapability(bindCapability(descriptors.ensureRecurring, (context, { bookId, ruleId }) => recurring.ensure(context, bookId, ruleId)));
-  api.defineCapability(bindCapability(descriptors.previewRecurring, async (_context, { bookId, ruleId }) => { await store.idle(); return recurring.preview(bookId, ruleId); }));
+  api.defineCapability(
+    bindCapability(descriptors.previewRecurring, async (_context, { bookId, ruleId }) => {
+      await store.idle();
+      return recurring.preview(bookId, ruleId);
+    }),
+  );
   api.defineCapability(bindCapability(descriptors.retryRecurring, (context, input) => recurring.retry(context, input)));
   api.defineCapability(bindCapability(descriptors.loans, async (_context, { bookId }) => loanList(store, await snapshot(bookId))));
   api.defineCapability(bindCapability(descriptors.quoteLoan, (_context, input) => loanSchedule(input)));
@@ -236,34 +324,42 @@ export function apply(
   api.defineCapability(bindCapability(descriptors.cancelBackup, (context, { previewId }) => backups.cancel(context, previewId)));
   api.defineCapability(bindCapability(descriptors.backupStatus, (context, { previewId }) => backups.status(context, previewId)));
   api.defineCapability(bindCapability(descriptors.confirmBackup, (context, input) => backups.confirm(context, input)));
-  api.defineCapability(bindCapability(descriptors.addAccount, (context, input) =>
-    change(context, input, (state) => createAccount(state, input.account, input.openingMinor, input.effectiveBusinessDate))));
-  api.defineCapability(bindCapability(descriptors.updateAccount, (context, input) =>
-    change(context, input, (state) => updateAccount(state, input.accountId, input.account))));
-  api.defineCapability(bindCapability(descriptors.accountState, (context, input) => change(context, input, (state) => {
-    const row = account(state, input.accountId);
-    row.status = input.status;
-    return row;
-  })));
+  api.defineCapability(bindCapability(descriptors.addAccount, (context, input) => change(context, input, (state) => createAccount(state, input.account, input.openingMinor, input.effectiveBusinessDate))));
+  api.defineCapability(bindCapability(descriptors.updateAccount, (context, input) => change(context, input, (state) => updateAccount(state, input.accountId, input.account))));
+  api.defineCapability(
+    bindCapability(descriptors.accountState, (context, input) =>
+      change(context, input, (state) => {
+        const row = account(state, input.accountId);
+        row.status = input.status;
+        return row;
+      }),
+    ),
+  );
   api.defineCapability(bindCapability(descriptors.previewBase, async (_context, input) => previewBalance(await currentSnapshot(input), input)));
-  api.defineCapability(bindCapability(descriptors.confirmBase, (context, input) => change(context, input, (state) => {
-    const preview = previewBalance(state, input);
-    if (preview.replacedRevision !== input.replacedRevision) throw errors.versionConflict(preview.replacedRevision ?? state.book.revision);
-    return addBase(state, input.accountId, input.effectiveBusinessDate, input.balanceMinor);
-  })));
+  api.defineCapability(
+    bindCapability(descriptors.confirmBase, (context, input) =>
+      change(context, input, (state) => {
+        const preview = previewBalance(state, input);
+        if (preview.replacedRevision !== input.replacedRevision) throw errors.versionConflict(preview.replacedRevision ?? state.book.revision);
+        return addBase(state, input.accountId, input.effectiveBusinessDate, input.balanceMinor);
+      }),
+    ),
+  );
   api.defineCapability(bindCapability(descriptors.dictionary, (context, input) => change(context, input, (state) => saveDictionary(state, input))));
   api.defineCapability(bindCapability(descriptors.records, async (_context, input) => recordsPage(store, await snapshot(input.bookId), input)));
   api.defineCapability(bindCapability(descriptors.record, async (_context, { bookId, recordId }) => viewRecord(store, await snapshot(bookId), recordId)));
   api.defineCapability(bindCapability(descriptors.createRecord, (context, input) => change(context, input, (state) => saveRecord(state, input.record, input.title))));
-  api.defineCapability(bindCapability(descriptors.updateRecord, (context, input) => change(context, input, (state) =>
-    saveRecord(state, input.record, input.title, findRecord(state, input.recordId, input.recordRevision)))));
-  api.defineCapability(bindCapability(descriptors.cloneRecord, (context, input) => change(context, input, (state) =>
-    duplicateRecord(state, findRecord(state, input.recordId, input.recordRevision)))));
+  api.defineCapability(bindCapability(descriptors.updateRecord, (context, input) => change(context, input, (state) => saveRecord(state, input.record, input.title, findRecord(state, input.recordId, input.recordRevision)))));
+  api.defineCapability(bindCapability(descriptors.cloneRecord, (context, input) => change(context, input, (state) => duplicateRecord(state, findRecord(state, input.recordId, input.recordRevision)))));
   api.defineCapability(bindCapability(descriptors.previewBatch, async (_context, input) => previewBatch(await currentSnapshot(input), input)));
-  api.defineCapability(bindCapability(descriptors.confirmBatch, (context, { previewId, ...input }) => change(context, input, (state) => {
-    if (previewBatch(state, input).previewId !== previewId) throw errors.invalidInput("请重新预览批量变更");
-    return applyBatch(state, input);
-  })));
+  api.defineCapability(
+    bindCapability(descriptors.confirmBatch, (context, { previewId, ...input }) =>
+      change(context, input, (state) => {
+        if (previewBatch(state, input).previewId !== previewId) throw errors.invalidInput("请重新预览批量变更");
+        return applyBatch(state, input);
+      }),
+    ),
+  );
   api.defineCapability(bindCapability(descriptors.upload, (context, input) => change(context, input, (state, steps) => uploadAttachment(state, steps, input))));
   api.defineCapability(bindCapability(descriptors.attachment, async (_context, { bookId, attachmentId }) => readAttachment(store, await snapshot(bookId), attachmentId)));
   api.defineCapability(bindCapability(descriptors.importPreview, (context, input) => imports.preview(context, input)));
@@ -271,10 +367,12 @@ export function apply(
   api.defineCapability(bindCapability(descriptors.importCancel, (context, input) => imports.cancel(context, input)));
   api.defineCapability(bindCapability(descriptors.importConfirm, (context, input) => imports.confirm(context, input)));
   api.defineCapability(bindCapability(descriptors.importStatus, (context, input) => imports.status(context, input)));
-  api.defineCapability(bindCapability(descriptors.mappings, async (_context, { bookId }) => {
-    const state = await snapshot(bookId);
-    return { revision: state.mappingRevision, rules: state.mappings };
-  }));
+  api.defineCapability(
+    bindCapability(descriptors.mappings, async (_context, { bookId }) => {
+      const state = await snapshot(bookId);
+      return { revision: state.mappingRevision, rules: state.mappings };
+    }),
+  );
   api.defineCapability(bindCapability(descriptors.saveMappings, (context, input) => imports.saveMappings(context, input)));
   api.defineCapability(bindCapability(descriptors.exportCsv, async (_context, { bookId, filters }) => exportCsv(await snapshot(bookId), filters)));
   api.defineCapability(bindCapability(descriptors.duplicates, async (_context, input) => duplicateCandidates(await snapshot(input.bookId), input)));
@@ -285,10 +383,14 @@ export function apply(
   api.defineCapability(bindCapability(descriptors.confirmOffset, (context, input) => change(context, input, (state) => addOffset(state, input))));
   api.defineCapability(bindCapability(descriptors.offsetGroup, async (_context, { bookId, recordId }) => groupView(await snapshot(bookId), recordId)));
   api.defineCapability(bindCapability(descriptors.undoOffset, (context, input) => change(context, input, (state) => undoOffset(state, input))));
-  api.defineCapability(bindCapability(descriptors.clearLegacyOffset, (context, input) => change(context, input, (state) => {
-    findRecord(state, input.recordId);
-    const cleared = state.legacyOffsetRecordIds.includes(input.recordId);
-    state.legacyOffsetRecordIds = state.legacyOffsetRecordIds.filter((id) => id !== input.recordId);
-    return { cleared };
-  })));
+  api.defineCapability(
+    bindCapability(descriptors.clearLegacyOffset, (context, input) =>
+      change(context, input, (state) => {
+        findRecord(state, input.recordId);
+        const cleared = state.legacyOffsetRecordIds.includes(input.recordId);
+        state.legacyOffsetRecordIds = state.legacyOffsetRecordIds.filter((id) => id !== input.recordId);
+        return { cleared };
+      }),
+    ),
+  );
 }

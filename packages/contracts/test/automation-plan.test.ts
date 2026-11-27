@@ -20,40 +20,61 @@ const task = { kind: "task", id: "task-fixture" };
 const source = { plugin: "tasks", object: task };
 const rule = { kind: "automation-rule", id: "rule-fixture" };
 const execution: PlanExecutionRef = {
-  vaultId: "vault-fixture", taskId: task.id, runId: "run-fixture", attempt: 2, dispatchId: "dispatch-fixture",
+  vaultId: "vault-fixture",
+  taskId: task.id,
+  runId: "run-fixture",
+  attempt: 2,
+  dispatchId: "dispatch-fixture",
   sessionBinding: { machineId: "machine-fixture", sessionId: "session-fixture", coreId: "core-fixture", processGeneration: "generation-2", provider: "fixture", nativeSessionId: "native-fixture" },
 };
 
 function example() {
   const cron = PlanSummarySchema.parse({
-    planId: "plan-cron", revision: "rule-version-a", title: "每日提醒",
+    planId: "plan-cron",
+    revision: "rule-version-a",
+    title: "每日提醒",
     source: { plugin: "automations", object: rule },
     owner: { scope: "vault", vaultId: execution.vaultId },
     action: { capability: "automations.runNow", object: rule, summary: "提醒" },
-    intent: "paused", availability: { state: "ready" },
+    intent: "paused",
+    availability: { state: "ready" },
     trigger: { kind: "cron", expression: "0 14 * * *", zone: "Asia/Taipei" },
-    createdAt: now, updatedAt: now, nextAt: null, lastOccurrence: null, actions: ["resume", "delete"],
+    createdAt: now,
+    updatedAt: now,
+    nextAt: null,
+    lastOccurrence: null,
+    actions: ["resume", "delete"],
   });
   const followUp = PlanSummarySchema.parse({
-    planId: "stable-follow-up-plan", revision: "rescheduled-b", title: "跟进任务",
+    planId: "stable-follow-up-plan",
+    revision: "rescheduled-b",
+    title: "跟进任务",
     source,
     owner: { scope: "device", vaultId: execution.vaultId, machineId: execution.sessionBinding.machineId },
     action: { capability: "tasks.dispatch", object: task, summary: "跟进当前任务" },
-    intent: "enabled", availability: { state: "blocked", reason: "connection-unavailable" },
+    intent: "enabled",
+    availability: { state: "blocked", reason: "connection-unavailable" },
     trigger: { kind: "once", scheduledFor: next },
-    createdAt: now, updatedAt: now, nextAt: next,
+    createdAt: now,
+    updatedAt: now,
+    nextAt: next,
     lastOccurrence: { occurrenceId: "original-follow-up-id", state: "unknown", at: now },
     actions: ["reschedule", "pause", "delete"],
   });
   const occurrence = PlanOccurrenceSchema.parse({
-    occurrenceId: "original-follow-up-id", plan: { planId: followUp.planId, revision: "old-follow-up-revision" },
+    occurrenceId: "original-follow-up-id",
+    plan: { planId: followUp.planId, revision: "old-follow-up-revision" },
     timing: { trigger: "scheduled", scheduledFor: now },
-    state: "unknown", acceptedAt: now,
+    state: "unknown",
+    acceptedAt: now,
     frozenInput: { revision: 1, digest: "original-task-input" },
     execution,
     effects: [{ effectId: "effect-fixture", kind: "dispatch", target: task, operationId: "operation-fixture", state: "unknown", receiptId: null }],
   });
-  const plans = new Map<string, PlanSummary>([[cron.planId, cron], [followUp.planId, followUp]]);
+  const plans = new Map<string, PlanSummary>([
+    [cron.planId, cron],
+    [followUp.planId, followUp],
+  ]);
   const activity: TaskActivityQuery = {
     async readTaskActivity(taskId) {
       if (taskId !== task.id) return null;
@@ -61,7 +82,10 @@ function example() {
     },
   };
   const stored = PlanWriteResultSchema.parse({
-    outcome: "unknown", intentId: "7707a84e-dc27-4888-a49d-fdb42f110892", operationId: "operation-fixture", occurrence,
+    outcome: "unknown",
+    intentId: "7707a84e-dc27-4888-a49d-fdb42f110892",
+    operationId: "operation-fixture",
+    occurrence,
   });
   if (stored.outcome !== "unknown") throw new Error("夹具需要未知回执");
   const directory: PlanDirectory = {
@@ -71,9 +95,15 @@ function example() {
         nextCursor: null,
       };
     },
-    async read(planId) { return plans.get(planId) ?? null; },
-    async readOccurrence(id) { return id === occurrence.occurrenceId ? occurrence : null; },
-    async readOperation(id) { return id === stored.operationId ? stored : null; },
+    async read(planId) {
+      return plans.get(planId) ?? null;
+    },
+    async readOccurrence(id) {
+      return id === occurrence.occurrenceId ? occurrence : null;
+    },
+    async readOperation(id) {
+      return id === stored.operationId ? stored : null;
+    },
     async submit(write) {
       PlanWriteSchema.parse(write);
       if (write.intentId === stored.intentId && write.planId === followUp.planId && write.change === "run-now") return stored;
@@ -104,9 +134,17 @@ test("PlanAPI #16 中心与来源共享相同计划身份，区分暂停、受�
 
 test("PlanAPI F29 旧修订零受理，已受理未知按原操作和发生查询", async () => {
   const { directory, followUp, occurrence, stored } = example();
-  const stale = PlanWriteResultSchema.parse(await directory.submit({
-    planId: followUp.planId, expectedRevision: "old-follow-up-revision", intentId: "5517c4a5-d50e-4c2b-969f-cb33dc6f62fa", change: "delete",
-  }, signal));
+  const stale = PlanWriteResultSchema.parse(
+    await directory.submit(
+      {
+        planId: followUp.planId,
+        expectedRevision: "old-follow-up-revision",
+        intentId: "5517c4a5-d50e-4c2b-969f-cb33dc6f62fa",
+        change: "delete",
+      },
+      signal,
+    ),
+  );
   expect(stale).toMatchObject({ outcome: "not-accepted", error: { code: "VERSION_CONFLICT", details: { currentVersion: followUp.revision } } });
   expect(stale).not.toHaveProperty("operationId");
   const intent = { planId: followUp.planId, expectedRevision: occurrence.plan.revision, intentId: stored.intentId, change: "run-now" } as const;

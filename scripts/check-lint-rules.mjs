@@ -31,14 +31,20 @@ const cases = [
   { file: "apps/check/src/bootstrap.ts", source: 'import value from "@huhu/plugin-tasks/ui"; export { value };' },
   { file: "plugins/tasks/src/engine/private-scan.ts", source: "export const start = (scan: () => void) => setInterval(scan, 5_000);", code: periodicTimer },
   { file: "plugins/mail/src/engine/private-schedule.cjs", source: "module.exports = (sync) => globalThis.setInterval(sync, 60_000);", code: periodicTimer },
-  { file: "plugins/mail/src/engine/aliased-timer.ts", source: 'export const { setInterval: schedule } = globalThis;', code: periodicTimer },
+  { file: "plugins/mail/src/engine/aliased-timer.ts", source: "export const { setInterval: schedule } = globalThis;", code: periodicTimer },
   { file: "plugins/tasks/src/shared/private-clock.ts", source: 'import { setInterval as every } from "node:timers/promises"; export { every };', code: periodicTimer },
   { file: "plugins/tasks/src/engine/chained-clock.ts", source: "export function poll() { setTimeout(poll, 5_000); }", code: periodicTimer },
   { file: "plugins/tasks/src/engine/reminder-fallback.ts", source: 'export const fallback = (api: { call(name: string): void }) => api.call("notifications.create");', code: directNotification },
   { file: "plugins/automations/src/engine/reminder-fallback.ts", source: "export const fallback = (sink: { notify(): void }) => sink.notify();", code: directNotification },
   { file: "plugins/mail/src/engine/fallback-event.ts", source: 'export const fallback = (events: { publish(type: string): void }) => events.publish("notification.created");', code: directNotification },
-  { file: "plugins/tasks/src/engine/technical-timeouts.ts", source: 'export function timeout(abort: () => void, acknowledge: () => void, finalize: () => void) { setTimeout(abort, 100); setTimeout(acknowledge, 200); setTimeout(finalize, 300); }' },
-  { file: "plugins/tasks/src/engine/receipt-ack.ts", source: "// oxlint-disable-next-line huhu-scheduling/no-private-periodic-timer -- 轮询原生协议回执，作用域随连接关闭。\nexport const watch = (receiveAck: () => void) => setInterval(receiveAck, 100);" },
+  {
+    file: "plugins/tasks/src/engine/technical-timeouts.ts",
+    source: "export function timeout(abort: () => void, acknowledge: () => void, finalize: () => void) { setTimeout(abort, 100); setTimeout(acknowledge, 200); setTimeout(finalize, 300); }",
+  },
+  {
+    file: "plugins/tasks/src/engine/receipt-ack.ts",
+    source: "// oxlint-disable-next-line huhu-scheduling/no-private-periodic-timer -- 轮询原生协议回执，作用域随连接关闭。\nexport const watch = (receiveAck: () => void) => setInterval(receiveAck, 100);",
+  },
   { file: "plugins/tasks/src/engine/reminder-port.ts", source: 'export const reminder = { action: { capability: "notifications.create" } };' },
   { file: "plugins/tasks/src/ui/clock.ts", source: "export const watch = (render: () => void) => setInterval(render, 1_000);" },
 ];
@@ -77,7 +83,7 @@ try {
     const { diagnostics, number_of_files: filesChecked } = JSON.parse(report);
     if (filesChecked !== cases.length) throw new Error(`lint 只检查了 ${filesChecked} 个样例，预期 ${cases.length}\n${report}`);
     const got = diagnostics.map(({ filename, code, severity }) => `${normalize(filename)} ${code} ${String(severity).toLowerCase()}`).sort();
-    const expected = expectedCases.flatMap(({ file, code }) => code ? [`${file} ${code} error`] : []).sort();
+    const expected = expectedCases.flatMap(({ file, code }) => (code ? [`${file} ${code} error`] : [])).sort();
     if (JSON.stringify(got) !== JSON.stringify(expected)) {
       const missing = expected.filter((item) => !got.includes(item));
       const unexpected = got.filter((item) => !expected.includes(item));
@@ -92,7 +98,10 @@ try {
     delete rules["huhu-scheduling/no-direct-notification-fallback"];
   }
   writeFileSync(sandboxConfig, JSON.stringify(withoutScheduling));
-  check(cases.filter(({ code }) => code !== periodicTimer && code !== directNotification), "移除调度门禁后的配置");
+  check(
+    cases.filter(({ code }) => code !== periodicTimer && code !== directNotification),
+    "移除调度门禁后的配置",
+  );
   console.log("lint 规则拦截样例及调度门禁删除反证：OK");
 } finally {
   rmSync(sandbox, { recursive: true, force: true });

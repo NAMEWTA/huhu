@@ -112,19 +112,32 @@ engineTest(
       expect(await distinct({ ...fixtureMail("Deleted latest", 46, 13, [`From: ${hidden}`, `To: ${aEmail}`]), deleted: true })).toMatchObject({ message: { uid: 45 } });
       for (const name of Object.keys(mailboxes).filter((name) => name !== "INBOX")) await refresh(a, name);
 
-      async function seedSent(subject: string, to: string[], cc: string[], bcc: string[], options: {
-        messageId?: string;
-        states?: MailSmtpResult["recipients"][number]["state"][];
-        retry?: { operationId: string; messageId: string };
-        draftId?: string;
-      } = {}) {
+      async function seedSent(
+        subject: string,
+        to: string[],
+        cc: string[],
+        bcc: string[],
+        options: {
+          messageId?: string;
+          states?: MailSmtpResult["recipients"][number]["state"][];
+          retry?: { operationId: string; messageId: string };
+          draftId?: string;
+        } = {},
+      ) {
         assert(engine);
         const outbox = new OutboxStorage(engine.vault.files);
         const { messageId = `<${randomUUID()}@huhu.local>`, states, retry } = options;
         const draftId = options.draftId ?? randomUUID();
         const revision = randomUUID();
         const addresses = [...to, ...cc, ...bcc];
-        const operationId = retry ? retryOperationIdFor(retry.operationId, draftId, revision, addresses.map((address) => retryRecipientKey(retry.operationId, address))) : operationIdFor(draftId, revision);
+        const operationId = retry
+          ? retryOperationIdFor(
+              retry.operationId,
+              draftId,
+              revision,
+              addresses.map((address) => retryRecipientKey(retry.operationId, address)),
+            )
+          : operationIdFor(draftId, revision);
         const finishedAt = "2026-11-07T00:00:00.000Z";
         await outbox.write(
           {
@@ -248,7 +261,11 @@ engineTest(
       const mixed = await seedSent("Mixed outcome", [accepted, declined], [unknown], [blind], { messageId: mixedId, states: ["accepted", "not-delivered", "unknown", "accepted"], draftId });
       const blindAccepted = await seedSent("Bcc accepted", [onlyBlind], [], [blind], { messageId: blindId, states: ["not-delivered", "accepted"] });
       const uncertain = await seedSent("Only unknown", [unknown], [], [], { messageId: uncertainId, states: ["unknown"] });
-      const results = [{ address: accepted, state: "accepted" }, { address: declined, state: "not-delivered" }, { address: unknown, state: "unknown" }];
+      const results = [
+        { address: accepted, state: "accepted" },
+        { address: declined, state: "not-delivered" },
+        { address: unknown, state: "unknown" },
+      ];
       const mixedTarget = { source: "sent", accountId: a, operationId: mixed };
       expect(await call("mail.conversations.findMessage", { target: mixedTarget })).toMatchObject({ message: { source: "sent", delivery: { recipients: results } } });
       const retry = await seedSent("Retry declined", [declined], [], [], { retry: { operationId: mixed, messageId: mixedId }, draftId });
@@ -278,7 +295,9 @@ engineTest(
 
       // Remove a valid derived index and place a malformed unrelated receipt next to it.
       // The list rebuilds just the missing metadata from its source and keeps the same groups.
-      const mailboxSource = `.huhu/cache/mail/${createHash("sha256").update(JSON.stringify([a, "INBOX"])).digest("hex")}.json`;
+      const mailboxSource = `.huhu/cache/mail/${createHash("sha256")
+        .update(JSON.stringify([a, "INBOX"]))
+        .digest("hex")}.json`;
       const artifact = `.huhu/cache/mail-projections/${createHash("sha256").update(mailboxSource).digest("hex")}.received.json`;
       const malformed = `.huhu/mail/outbox/${"f".repeat(64)}.json`;
       rmSync(engine.vault.files.abs(artifact));
@@ -307,7 +326,6 @@ engineTest(
       } finally {
         await engine.vault.files.write(mailboxSource, mailbox.bytes, { expectedVersion: badSnapshot.version });
       }
-
     } finally {
       try {
         if (engine?.moduleCredentialHost) {

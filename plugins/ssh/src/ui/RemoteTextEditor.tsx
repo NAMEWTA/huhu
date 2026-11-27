@@ -110,7 +110,8 @@ export function RemoteTextEditor({ session, initial, onClose, sudoSignal, sudoSe
       const saved = await engine.call<Omit<FileDocument, "text">>(
         sudoSignal ? "ssh.fileSessions.sudo.save" : "ssh.fileSessions.document.save",
         {
-          fileSessionId: session.fileSessionId, ...(sudoSessionId && { sudoSessionId }),
+          fileSessionId: session.fileSessionId,
+          ...(sudoSessionId && { sudoSessionId }),
           path: document.path,
           text: draft,
           expectedVersion: document.version,
@@ -133,11 +134,13 @@ export function RemoteTextEditor({ session, initial, onClose, sudoSignal, sudoSe
     setBusy(true);
     setError("");
     try {
-      setRemote(await engine.call<FileDocument>(
-        sudoSignal ? "ssh.fileSessions.sudo.read" : "ssh.fileSessions.document.open",
-        { fileSessionId: session.fileSessionId, ...(sudoSessionId && { sudoSessionId }), path: document.path },
-        sudoSignal ? { signal: sudoSignal } : {},
-      ));
+      setRemote(
+        await engine.call<FileDocument>(
+          sudoSignal ? "ssh.fileSessions.sudo.read" : "ssh.fileSessions.document.open",
+          { fileSessionId: session.fileSessionId, ...(sudoSessionId && { sudoSessionId }), path: document.path },
+          sudoSignal ? { signal: sudoSignal } : {},
+        ),
+      );
     } catch (error) {
       if (error instanceof Error) setError(error.message);
     } finally {
@@ -184,9 +187,13 @@ export function RemoteTextEditor({ session, initial, onClose, sudoSignal, sudoSe
         {external && (
           <div className="ssh-workspace-controls">
             {hasExternalCopy ? (
-              <Button type="button" disabled={busy} onClick={() => void readExternalCopy()}>读取本机副本</Button>
+              <Button type="button" disabled={busy} onClick={() => void readExternalCopy()}>
+                读取本机副本
+              </Button>
             ) : (
-              <Button type="button" disabled={busy} onClick={() => void openExternalCopy()}>保存并用外部编辑器打开</Button>
+              <Button type="button" disabled={busy} onClick={() => void openExternalCopy()}>
+                保存并用外部编辑器打开
+              </Button>
             )}
           </div>
         )}

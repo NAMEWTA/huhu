@@ -46,11 +46,21 @@ export class MonitorPlans {
     const everySeconds = interval ?? current?.everySeconds ?? panel.interval;
     if (current?.intent === intent && current.everySeconds === everySeconds && current.title === panel.name) return;
     const object = { kind: "ssh-monitor-panel", id: panel.id };
-    await service.configure([{
-      planId: prefix + panel.id, expectedRevision: current?.revision ?? null, source: { plugin: "ssh", object },
-      title: panel.name, action: { capability: "ssh.monitor.panels.run", object, summary: "采样已启动的 SSH 监控面板" },
-      everySeconds, bounds: { min: 2, max: 60, step: 1, allowed: [...PANEL_INTERVALS] }, intent,
-    }], signal);
+    await service.configure(
+      [
+        {
+          planId: prefix + panel.id,
+          expectedRevision: current?.revision ?? null,
+          source: { plugin: "ssh", object },
+          title: panel.name,
+          action: { capability: "ssh.monitor.panels.run", object, summary: "采样已启动的 SSH 监控面板" },
+          everySeconds,
+          bounds: { min: 2, max: 60, step: 1, allowed: [...PANEL_INTERVALS] },
+          intent,
+        },
+      ],
+      signal,
+    );
   }
 
   wake(id: string): void {

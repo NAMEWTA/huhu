@@ -65,14 +65,12 @@ export class PeriodicOccurrences {
   }
 
   claim(occurrence: PlanOccurrence): boolean {
-    const result = this.open(true)?.prepare("INSERT OR IGNORE INTO occurrences (id, plan, payload) VALUES (?, ?, ?)")
-      .run(occurrence.occurrenceId, occurrence.plan.planId, JSON.stringify(occurrence));
+    const result = this.open(true)?.prepare("INSERT OR IGNORE INTO occurrences (id, plan, payload) VALUES (?, ?, ?)").run(occurrence.occurrenceId, occurrence.plan.planId, JSON.stringify(occurrence));
     return result !== undefined && result.changes !== 0;
   }
 
   settle(occurrence: PlanOccurrence): void {
-    this.open()?.prepare("UPDATE occurrences SET payload = ? WHERE id = ?")
-      .run(JSON.stringify(occurrence), occurrence.occurrenceId);
+    this.open()?.prepare("UPDATE occurrences SET payload = ? WHERE id = ?").run(JSON.stringify(occurrence), occurrence.occurrenceId);
   }
 
   close(): void {

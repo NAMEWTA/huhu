@@ -8,31 +8,54 @@ import { validateCredentialHeaders, validateRemoteHeaders } from "./transport.js
 import { credentialReference, type McpCredentials, type McpCredentialMaterial, type SourceCredentialStage } from "./credentials.js";
 
 export const MAX_MCP_SOURCES = 32;
-export const sourceNamespace = z.string().max(32).regex(/^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/);
+export const sourceNamespace = z
+  .string()
+  .max(32)
+  .regex(/^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/);
 const displayName = z.string().trim().min(1).max(128);
 const dictionary = z.record(z.string(), z.unknown());
 const stringMap = z.record(z.string(), z.string());
 const root = z.strictObject({ mcpServers: dictionary });
-const rowInput = z.object({
-  command: z.string().optional(), args: z.array(z.string()).optional(), cwd: z.string().optional(),
-  env: stringMap.optional(), credentialEnvironment: z.strictObject({ names: z.array(z.string()).min(1) }).optional(), url: z.string().optional(), type: z.string().optional(), transport: z.string().optional(),
-  headers: stringMap.optional(), nonSecretHeaders: stringMap.optional(),
-  name: displayName.optional(), namespace: sourceNamespace.optional(),
-  authentication: z.discriminatedUnion("kind", [
-    z.strictObject({ kind: z.literal("none") }),
-    z.strictObject({ kind: z.literal("environment"), header: z.string(), name: z.string() }),
-    z.strictObject({ kind: z.literal("credential-needed"), header: z.string() }),
-    z.strictObject({ kind: z.literal("oauth") }),
-  ]).optional(),
-}).strict();
+const rowInput = z
+  .object({
+    command: z.string().optional(),
+    args: z.array(z.string()).optional(),
+    cwd: z.string().optional(),
+    env: stringMap.optional(),
+    credentialEnvironment: z.strictObject({ names: z.array(z.string()).min(1) }).optional(),
+    url: z.string().optional(),
+    type: z.string().optional(),
+    transport: z.string().optional(),
+    headers: stringMap.optional(),
+    nonSecretHeaders: stringMap.optional(),
+    name: displayName.optional(),
+    namespace: sourceNamespace.optional(),
+    authentication: z
+      .discriminatedUnion("kind", [
+        z.strictObject({ kind: z.literal("none") }),
+        z.strictObject({ kind: z.literal("environment"), header: z.string(), name: z.string() }),
+        z.strictObject({ kind: z.literal("credential-needed"), header: z.string() }),
+        z.strictObject({ kind: z.literal("oauth") }),
+      ])
+      .optional(),
+  })
+  .strict();
 
 export const mcpImportPreview = z.strictObject({
-  previewId: z.string(), sourcesRevision: z.int().nonnegative(),
-  entries: z.array(z.strictObject({
-    entryId: z.string(), namespace: sourceNamespace.nullable(), displayName: displayName.nullable(),
-    state: z.enum(["ready", "conflict", "blocked", "invalid"]), diagnostic: z.string().nullable(),
-    sourceId: z.string().optional(), sourceRevision: z.int().nonnegative().optional(), sensitive: z.boolean().optional(),
-  })),
+  previewId: z.string(),
+  sourcesRevision: z.int().nonnegative(),
+  entries: z.array(
+    z.strictObject({
+      entryId: z.string(),
+      namespace: sourceNamespace.nullable(),
+      displayName: displayName.nullable(),
+      state: z.enum(["ready", "conflict", "blocked", "invalid"]),
+      diagnostic: z.string().nullable(),
+      sourceId: z.string().optional(),
+      sourceRevision: z.int().nonnegative().optional(),
+      sensitive: z.boolean().optional(),
+    }),
+  ),
 });
 type Preview = z.infer<typeof mcpImportPreview>;
 type Entry = Preview["entries"][number];
@@ -55,7 +78,7 @@ function normalized(namespace: string, value: unknown): Draft {
   if (Boolean(row.command) === Boolean(row.url)) throw Error("配置须提供命令或 URL 之一");
   if (row.type !== undefined && row.transport !== undefined && row.type !== row.transport) throw Error("传输字段冲突");
   const explicit = row.transport ?? row.type;
-  const transport = explicit === "http" ? "streamable-http" : explicit ?? (row.command ? "stdio" : "streamable-http");
+  const transport = explicit === "http" ? "streamable-http" : (explicit ?? (row.command ? "stdio" : "streamable-http"));
   const name = row.name ?? namespace;
   let configuration: unknown;
   let material: McpCredentialMaterial | undefined;
@@ -74,8 +97,7 @@ function normalized(namespace: string, value: unknown): Draft {
     const names = [...new Set([...Object.keys(sensitive), ...(row.credentialEnvironment?.names ?? [])])].sort();
     if (Object.keys(sensitive).length && names.some((name) => !(name in sensitive))) throw needsCredentials();
     if (Object.keys(sensitive).length) material = { kind: "stdio", environment: sensitive };
-    configuration = { transport, command: row.command, args: row.args ?? [], ...(row.cwd !== undefined && { cwd: row.cwd }), environment,
-      ...(names.length && { credentialEnvironment: { names } }) };
+    configuration = { transport, command: row.command, args: row.args ?? [], ...(row.cwd !== undefined && { cwd: row.cwd }), environment, ...(names.length && { credentialEnvironment: { names } }) };
   } else {
     if (transport !== "streamable-http" && transport !== "sse") throw Error("不支持该 MCP 传输");
     if (!row.url || row.command || row.args || row.cwd || row.env || row.credentialEnvironment) throw Error("远程来源与 stdio 字段冲突");
@@ -94,7 +116,11 @@ function normalized(namespace: string, value: unknown): Draft {
     }
     if (query || Object.keys(headers).length) {
       if (authentication.kind !== "none") throw needsCredentials();
-      try { validateCredentialHeaders(headers); } catch { throw Error("认证 header 无效"); }
+      try {
+        validateCredentialHeaders(headers);
+      } catch {
+        throw Error("认证 header 无效");
+      }
       material = { kind: "remote", query, headers };
       authentication = { kind: "credential-needed", header: Object.keys(headers)[0] ?? "Authorization" };
     }
@@ -102,8 +128,11 @@ function normalized(namespace: string, value: unknown): Draft {
   }
   const valid = McpSourceConfigSchema.safeParse(configuration);
   if (!valid.success) throw Error("命令、目标 URL、环境引用或 header 无效");
-  try { validateRemoteHeaders(valid.data); }
-  catch { throw Error("header 重复或由协议保留"); }
+  try {
+    validateRemoteHeaders(valid.data);
+  } catch {
+    throw Error("header 重复或由协议保留");
+  }
   return { configuration: valid.data, namespace, displayName: name, ...(material && { material }) };
 }
 
@@ -114,7 +143,11 @@ function ownerOf(context: CapabilityContext) {
 export class McpSourceImport {
   private readonly plans = new Map<string, Plan>();
 
-  constructor(private readonly store: McpSourceStore, private readonly credentials: McpCredentials, private readonly onChanges: (sources: readonly McpSource[]) => void) {}
+  constructor(
+    private readonly store: McpSourceStore,
+    private readonly credentials: McpCredentials,
+    private readonly onChanges: (sources: readonly McpSource[]) => void,
+  ) {}
 
   private forget(id: string) {
     const plan = this.plans.get(id);
@@ -132,8 +165,11 @@ export class McpSourceImport {
     for (const [id, plan] of this.plans) if (plan.expires <= now) this.forget(id);
     if (this.plans.size >= 32) this.forget(this.plans.keys().next().value!);
     let decoded: unknown;
-    try { decoded = JSON.parse(text); }
-    catch { throw errors.invalidInput("MCP 导入 JSON 无效"); }
+    try {
+      decoded = JSON.parse(text);
+    } catch {
+      throw errors.invalidInput("MCP 导入 JSON 无效");
+    }
     const parsed = root.safeParse(decoded);
     if (!parsed.success) throw errors.invalidInput("请提供含 mcpServers 对象的配置");
     const values = Object.entries(parsed.data.mcpServers);
@@ -148,7 +184,10 @@ export class McpSourceImport {
       const ns = sourceNamespace.safeParse(override.data?.["namespace"] ?? rawNamespace);
       const entry: Entry = { entryId: randomUUID(), state: "invalid", namespace: ns.success ? ns.data : null, displayName: null, diagnostic: null };
       entries.push(entry);
-      if (!ns.success) { entry.diagnostic = "命名空间无效"; continue; }
+      if (!ns.success) {
+        entry.diagnostic = "命名空间无效";
+        continue;
+      }
       try {
         const draft = normalized(ns.data, value);
         entry.displayName = draft.displayName;
@@ -217,26 +256,35 @@ export class McpSourceImport {
     let written: Awaited<ReturnType<McpSourceStore["change"]>>;
     try {
       for (const { source, material } of choices) {
-        if (!material) { changes.push(source); continue; }
+        if (!material) {
+          changes.push(source);
+          continue;
+        }
         const prepared = await this.credentials.stage(source, source.displayName, material, context.signal, stillValid);
         staged.push(prepared);
         changes.push({ ...source, configuration: prepared.configuration });
       }
       if (!stillValid()) throw errors.versionConflict(String(this.store.read().data.revision));
-      written = await this.store.change(context, (next) => {
-        const sources = new Map(next.sources.map((source) => [source.sourceId, source]));
-        for (const source of changes) {
-          const prior = sources.get(source.sourceId);
-          if (!prior && Object.hasOwn(next.namespaces, source.namespace)) throw errors.nameConflict(source.namespace);
-          if (prior && canonicalJson(prior.configuration) !== canonicalJson(source.configuration)) {
-            next.connectionRevisions[source.sourceId] = (next.connectionRevisions[source.sourceId] ?? 0) + 1;
+      written = await this.store.change(
+        context,
+        (next) => {
+          const sources = new Map(next.sources.map((source) => [source.sourceId, source]));
+          for (const source of changes) {
+            const prior = sources.get(source.sourceId);
+            if (!prior && Object.hasOwn(next.namespaces, source.namespace)) throw errors.nameConflict(source.namespace);
+            if (prior && canonicalJson(prior.configuration) !== canonicalJson(source.configuration)) {
+              next.connectionRevisions[source.sourceId] = (next.connectionRevisions[source.sourceId] ?? 0) + 1;
+            }
+            next.namespaces[source.namespace] = source.sourceId;
+            sources.set(source.sourceId, source);
           }
-          next.namespaces[source.namespace] = source.sourceId;
-          sources.set(source.sourceId, source);
-        }
-        if (sources.size > MAX_MCP_SOURCES) throw errors.invalidInput("MCP 来源总数已达上限");
-        next.sources = [...sources.values()];
-      }, () => { if (!stillValid()) throw errors.versionConflict(String(this.store.read().data.revision)); });
+          if (sources.size > MAX_MCP_SOURCES) throw errors.invalidInput("MCP 来源总数已达上限");
+          next.sources = [...sources.values()];
+        },
+        () => {
+          if (!stillValid()) throw errors.versionConflict(String(this.store.read().data.revision));
+        },
+      );
     } catch (error) {
       await Promise.all(staged.map((item) => this.credentials.discard(item.reference, item.revision)));
       throw error;
@@ -253,16 +301,34 @@ export class McpSourceImport {
 
   export() {
     const sources = this.store.read().data.sources;
-    return { mcpServers: Object.fromEntries(sources.map((source) => {
-      const { configuration } = source;
-      const entry = configuration.transport === "stdio"
-        ? { type: configuration.transport, command: configuration.command, args: configuration.args, ...(configuration.cwd !== undefined && { cwd: configuration.cwd }),
-          env: Object.fromEntries(Object.entries(configuration.environment).map(([name, reference]) => [name, "$" + "{" + reference + "}"])),
-          ...(configuration.credentialEnvironment && { credentialEnvironment: { names: configuration.credentialEnvironment.names } }) }
-        : { type: configuration.transport, url: configuration.url, nonSecretHeaders: configuration.headers,
-          authentication: configuration.authentication.kind === "credential" ? { kind: "credential-needed", header: configuration.authentication.header }
-            : configuration.authentication.kind === "oauth" ? { kind: "oauth" } : configuration.authentication };
-      return [source.namespace, { name: source.displayName, ...entry }];
-    })) };
+    return {
+      mcpServers: Object.fromEntries(
+        sources.map((source) => {
+          const { configuration } = source;
+          const entry =
+            configuration.transport === "stdio"
+              ? {
+                  type: configuration.transport,
+                  command: configuration.command,
+                  args: configuration.args,
+                  ...(configuration.cwd !== undefined && { cwd: configuration.cwd }),
+                  env: Object.fromEntries(Object.entries(configuration.environment).map(([name, reference]) => [name, "$" + "{" + reference + "}"])),
+                  ...(configuration.credentialEnvironment && { credentialEnvironment: { names: configuration.credentialEnvironment.names } }),
+                }
+              : {
+                  type: configuration.transport,
+                  url: configuration.url,
+                  nonSecretHeaders: configuration.headers,
+                  authentication:
+                    configuration.authentication.kind === "credential"
+                      ? { kind: "credential-needed", header: configuration.authentication.header }
+                      : configuration.authentication.kind === "oauth"
+                        ? { kind: "oauth" }
+                        : configuration.authentication,
+                };
+          return [source.namespace, { name: source.displayName, ...entry }];
+        }),
+      ),
+    };
   }
 }

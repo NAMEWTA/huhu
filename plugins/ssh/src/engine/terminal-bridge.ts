@@ -134,9 +134,7 @@ export function makeSshTerminalBridge(attachShell: SshTerminalAttacher) {
           if (group.members.size !== group.size || [...group.members.values()].some(({ claim }) => !claim)) return;
           clearHandoff(group);
           const members = [...group.members];
-          if (members.some(([shell, { source: origin, claim }]) =>
-            origin.readyState !== origin.OPEN || controllers.get(shell) !== origin || claim!.socket.readyState !== claim!.socket.OPEN
-          )) {
+          if (members.some(([shell, { source: origin, claim }]) => origin.readyState !== origin.OPEN || controllers.get(shell) !== origin || claim!.socket.readyState !== claim!.socket.OPEN)) {
             for (const [, { claim }] of members) claim!.socket.close(4403, "原工作区已变更");
             return;
           }

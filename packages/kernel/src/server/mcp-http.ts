@@ -255,7 +255,8 @@ export class McpSessions {
     const externalPrincipal = (): McpSessionPrincipal => {
       const request = requestSignal.getStore();
       return {
-        identity, signal: request ? AbortSignal.any([signal, request]) : signal,
+        identity,
+        signal: request ? AbortSignal.any([signal, request]) : signal,
         ...(session.recovered && { recovered: true as const }),
         ...(task && { taskTools: task.tools, taskActive: () => this.current(session) }),
       };
@@ -280,7 +281,7 @@ export class McpSessions {
           external: {
             list: async (kind: McpEntryKind) => {
               if (!this.current(session)) return [];
-              const result = await this.deps.externalMcpTools?.()?.list(externalPrincipal(), kind) ?? [];
+              const result = (await this.deps.externalMcpTools?.()?.list(externalPrincipal(), kind)) ?? [];
               return this.current(session) ? result : [];
             },
             call: async (name, input) => {
@@ -292,8 +293,8 @@ export class McpSessions {
               }
               return upstream?.call(externalPrincipal(), name, input);
             },
-            read: async (uri: string) => this.current(session) ? this.deps.externalMcpTools?.()?.read(externalPrincipal(), uri) : undefined,
-            get: async (name: string, args: Record<string, string>) => this.current(session) ? this.deps.externalMcpTools?.()?.get(externalPrincipal(), name, args) : undefined,
+            read: async (uri: string) => (this.current(session) ? this.deps.externalMcpTools?.()?.read(externalPrincipal(), uri) : undefined),
+            get: async (name: string, args: Record<string, string>) => (this.current(session) ? this.deps.externalMcpTools?.()?.get(externalPrincipal(), name, args) : undefined),
             ownsName: (name: string) => this.deps.externalMcpTools?.()?.ownsName(name) ?? false,
           },
         }),
@@ -321,7 +322,14 @@ export class McpSessions {
         const detachEvents = this.deps.events.subscribe((event) => {
           if (event.type === "plugin.stateChanged" || (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "tool-access")) notify(MCP_ENTRY_KINDS);
         });
-        signal.addEventListener("abort", () => { detachTools?.(); detachEvents(); }, { once: true });
+        signal.addEventListener(
+          "abort",
+          () => {
+            detachTools?.();
+            detachEvents();
+          },
+          { once: true },
+        );
       };
     }
     void mcp.connect(transport).catch(session.close);

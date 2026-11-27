@@ -141,7 +141,9 @@ test("L3 独立 Web 导入四种账单、保留真实重复消费并导出筛选
       return wizard;
     };
     for (const [source, name, encoding, count] of [
-      ["alipay", "alipay.csv", "UTF-8", 2], ["jd", "jd-gbk.csv", "GBK", 1], ["wechat", "wechat.xlsx", "XLSX", 2],
+      ["alipay", "alipay.csv", "UTF-8", 2],
+      ["jd", "jd-gbk.csv", "GBK", 1],
+      ["wechat", "wechat.xlsx", "XLSX", 2],
     ] as const) {
       const pane = await selectBill(source, name);
       await expect(pane.getByRole("status")).toContainText(encoding);
@@ -207,7 +209,11 @@ test("L2 收入、支出与转账得到 95/125，带凭证流水重开后可编�
     await expect(account).toBeHidden();
     await page.getByTestId("ledger-nav-records").click();
 
-    for (const [type, title, amount] of [["income", "收入", "30"], ["expense", "支出", "10"], ["transfer", "转账", "25"]] as const) {
+    for (const [type, title, amount] of [
+      ["income", "收入", "30"],
+      ["expense", "支出", "10"],
+      ["transfer", "转账", "25"],
+    ] as const) {
       await ledger.getByRole("button", { name: "记一笔", exact: true }).click();
       const entry = page.getByRole("dialog", { name: "记一笔" });
       await entry.getByLabel("事项").fill(title);
@@ -224,7 +230,9 @@ test("L2 收入、支出与转账得到 95/125，带凭证流水重开后可编�
     await ledger.getByRole("button", { name: "凭证 支出" }).click();
     const receipts = page.getByRole("dialog", { name: "流水凭证" });
     await receipts.getByLabel("选择凭证文件").setInputFiles({
-      name: "receipt.txt", mimeType: "text/plain", buffer: Buffer.from("账本验收凭证"),
+      name: "receipt.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("账本验收凭证"),
     });
     await receipts.getByRole("button", { name: "上传凭证" }).click();
     await expect(receipts.getByRole("button", { name: "下载 receipt.txt" })).toBeVisible();
@@ -341,17 +349,28 @@ test("L5 同一业务午夜在日历和报表可下钻，离线节假日与卡�
     const accounts = await call<{ book: { id: string; revision: string; timeZone: string }; businessDate: string; accounts: { id: string }[] }>(page, "ledger.accounts.list", { bookId: activeBookId });
     const day = accounts.businessDate;
     await call(page, "ledger.records.create", {
-      bookId: activeBookId, expectedRevision: accounts.book.revision, intentKey: randomUUID(), title: "账本午夜流水",
+      bookId: activeBookId,
+      expectedRevision: accounts.book.revision,
+      intentKey: randomUUID(),
+      title: "账本午夜流水",
       record: {
-        type: "income", currency: "TWD", amountMinor: "123", accountId: accounts.accounts[0]!.id,
+        type: "income",
+        currency: "TWD",
+        amountMinor: "123",
+        accountId: accounts.accounts[0]!.id,
         occurredAt: ledgerBusinessDayRange(day, accounts.book.timeZone).from,
-        categoryId: null, tagIds: [], payee: null, memo: null, attachmentIds: [],
+        categoryId: null,
+        tagIds: [],
+        payee: null,
+        memo: null,
+        attachmentIds: [],
       },
     });
     await page.getByTestId("ledger-nav-calendar").click();
     await expect(ledger.getByText(/年节假日未配置/)).toBeVisible();
     await ledger.getByLabel("导入离线节假日 JSON").setInputFiles({
-      name: "holidays.json", mimeType: "application/json",
+      name: "holidays.json",
+      mimeType: "application/json",
       buffer: Buffer.from(JSON.stringify({ year: day.slice(0, 4), source: "本地夹具", entries: [{ date: day, name: "本地节日", isWorkday: false }] })),
     });
     await expect(ledger.getByText("本地节日", { exact: true })).toBeVisible();
@@ -394,9 +413,7 @@ test("L7 账本启用和中心暂停操作同一个固定收支计划，预览�
     await dialog.getByRole("button", { name: "创建暂停计划" }).click();
     const row = ledger.getByTestId("ledger-recurring-row");
     await expect(row).toContainText("已暂停");
-    const read = () => call<{ rows: { plan: { planId: string; revision: string; nextAt: string | null; intent: string } }[] }>(
-      page, "ledger.recurring.list", { bookId: activeBookId },
-    );
+    const read = () => call<{ rows: { plan: { planId: string; revision: string; nextAt: string | null; intent: string } }[] }>(page, "ledger.recurring.list", { bookId: activeBookId });
     const [{ plan: paused }] = (await read()).rows as [{ plan: { planId: string; revision: string } }];
     await row.getByRole("button", { name: "启用计划" }).click();
     await expect(row).toContainText(next);
@@ -437,25 +454,28 @@ test("L6 预算进度和明细同源，复制冲突在独立 Web 中可核对", 
     const version = async () => ({ ...ref, expectedRevision: (await accounts()).book.revision });
     const tags: string[] = [];
     for (const name of ["旅行", "度假"]) {
-      const tag = await call<{ id: string }>(desktop, "ledger.dictionaries.save", { ...await version(), kind: "tag", name });
+      const tag = await call<{ id: string }>(desktop, "ledger.dictionaries.save", { ...(await version()), kind: "tag", name });
       tags.push(tag.id);
     }
     const [free] = await call<{ id: string }[]>(desktop, "ledger.budgets.saveBatch", {
-      ...await version(),
+      ...(await version()),
       budgets: [
         { definition: { name: "旅行", type: "free", tagIds: tags, currency: "TWD", limitMinor: "60000" } },
         { definition: { name: "日用", type: "fixed", month: "2026-01", direction: "expense", categoryIds: [], currency: "TWD", limitMinor: "80000" } },
       ],
     });
-    const { accounts: [account] } = await accounts();
+    const {
+      accounts: [account],
+    } = await accounts();
     await call(desktop, "ledger.records.create", {
-      ...await version(), intentKey: randomUUID(), title: "旅行车票",
-      record: { type: "expense", accountId: account!.id, occurredAt: "2026-01-31T16:00:00.000Z",
-        amountMinor: "4250", currency: "TWD", tagIds: tags, categoryId: null, payee: null, memo: null, attachmentIds: [] },
+      ...(await version()),
+      intentKey: randomUUID(),
+      title: "旅行车票",
+      record: { type: "expense", accountId: account!.id, occurredAt: "2026-01-31T16:00:00.000Z", amountMinor: "4250", currency: "TWD", tagIds: tags, categoryId: null, payee: null, memo: null, attachmentIds: [] },
     });
     const copy = { source: "2026-01", targets: ["2026-02"] };
-    expect(await call(desktop, "ledger.budgets.copy", { ...await version(), ...copy })).toMatchObject({ created: 1 });
-    expect(await call(desktop, "ledger.budgets.copy", { ...await version(), ...copy })).toMatchObject({ created: 0, skipped: [{ name: "日用" }] });
+    expect(await call(desktop, "ledger.budgets.copy", { ...(await version()), ...copy })).toMatchObject({ created: 1 });
+    expect(await call(desktop, "ledger.budgets.copy", { ...(await version()), ...copy })).toMatchObject({ created: 0, skipped: [{ name: "日用" }] });
 
     const link = await inviteWorkbench(desktop);
     browser = await chromium.launch();
@@ -467,7 +487,9 @@ test("L6 预算进度和明细同源，复制冲突在独立 Web 中可核对", 
     expect(overview.budgets.find(({ id }) => id === free!.id)).toMatchObject({ actualMinor: "4250", count: 1 });
     expect(overview.budgets).toHaveLength(2);
     expect(await call(page, "ledger.budgets.detail", { ...query, budgetId: free!.id })).toMatchObject({
-      actualMinor: "4250", count: 1, rows: [{ title: "旅行车票", businessDate: "2026-02-01" }],
+      actualMinor: "4250",
+      count: 1,
+      rows: [{ title: "旅行车票", businessDate: "2026-02-01" }],
     });
   } finally {
     await browser?.close().catch(() => undefined);
@@ -492,9 +514,9 @@ test("L8 独立 Web 预览和确认所选贷款期次并打开原流水", async 
     const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
     const { book, accounts } = await call<{ book: { revision: string }; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
     const loan = await call<Loan>(desktop, "ledger.loans.create", {
-      bookId, expectedRevision: book.revision,
-      definition: { name: "设备贷款", method: "equal-principal", principalMinor: "20000",
-        currency: "TWD", annualRatePercent: "12", months: 2, startOn: "2024-01-31", accountId: accounts[0]!.id },
+      bookId,
+      expectedRevision: book.revision,
+      definition: { name: "设备贷款", method: "equal-principal", principalMinor: "20000", currency: "TWD", annualRatePercent: "12", months: 2, startOn: "2024-01-31", accountId: accounts[0]!.id },
     });
     const url = await inviteWorkbench(desktop);
     browser = await chromium.launch();
@@ -524,7 +546,8 @@ test("L8 独立 Web 预览和确认所选贷款期次并打开原流水", async 
     await expect(record).toContainText("2024-02-29");
     await expect(record.getByRole("heading", { name: loan.definition.name, exact: true })).toBeVisible();
     expect(await call(desktop, "ledger.records.list", { bookId })).toMatchObject({
-      total: 1, rows: [{ businessDate: "2024-02-29", record: { id: history.installments[0]!.recordId } }],
+      total: 1,
+      rows: [{ businessDate: "2024-02-29", record: { id: history.installments[0]!.recordId } }],
     });
   } finally {
     await browser?.close().catch(() => undefined);
@@ -544,9 +567,9 @@ test("AW4 AU16 账本与中心双向改期同一计划且删除后插件重开�
     const { book, accounts, businessDate } = await call<{ book: { revision: string }; accounts: { id: string }[]; businessDate: string }>(page, "ledger.accounts.list", { bookId });
     const startOn = new Date(Date.parse(businessDate) + 86_400_000).toISOString().slice(0, 10);
     const { plan } = await call<{ plan: { planId: string; revision: string } }>(page, "ledger.recurring.create", {
-      bookId, expectedRevision: book.revision,
-      rule: { id: randomUUID(), title: "原账本计划", type: "expense", accountId: accounts[0]!.id,
-        currency: "TWD", amountMinor: "7500", startOn, frequency: "monthly", memo: null },
+      bookId,
+      expectedRevision: book.revision,
+      rule: { id: randomUUID(), title: "原账本计划", type: "expense", accountId: accounts[0]!.id, currency: "TWD", amountMinor: "7500", startOn, frequency: "monthly", memo: null },
     });
     await ledger.getByRole("button", { name: "新建账本" }).click();
     await createBook(page, "另一个账本", "现金");
@@ -573,7 +596,8 @@ test("AW4 AU16 账本与中心双向改期同一计划且删除后插件重开�
     await calendar.getByRole("button", { name: "保存" }).click();
     await expect(calendar).toBeHidden();
     await expect.poll(read).toMatchObject({
-      planId: plan.planId, trigger: { kind: "calendar", startOn: changedStart, frequency: "weekly" },
+      planId: plan.planId,
+      trigger: { kind: "calendar", startOn: changedStart, frequency: "weekly" },
       nextAt: ledgerBusinessDayRange(changedStart, "Asia/Taipei").from,
     });
     await inspector.getByRole("button", { name: "打开账本" }).click();
@@ -611,9 +635,24 @@ test("L9 独立 Web 导出账本包并预览恢复到新账本", async () => {
     await createBook(desktop, "原账本", "银行");
     const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
     const { book, businessDate, accounts } = await call<{ book: { revision: string }; businessDate: string; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
-    const originalRecord = await call<LedgerRecord>(desktop, "ledger.records.create", { bookId, expectedRevision: book.revision, intentKey: randomUUID(), title: "备份车票",
-      record: { type: "expense", accountId: accounts[0]!.id, amountMinor: "2300", currency: "TWD",
-        occurredAt: ledgerBusinessDayRange(businessDate, "Asia/Taipei").from, categoryId: null, tagIds: [], attachmentIds: [], payee: null, memo: null } });
+    const originalRecord = await call<LedgerRecord>(desktop, "ledger.records.create", {
+      bookId,
+      expectedRevision: book.revision,
+      intentKey: randomUUID(),
+      title: "备份车票",
+      record: {
+        type: "expense",
+        accountId: accounts[0]!.id,
+        amountMinor: "2300",
+        currency: "TWD",
+        occurredAt: ledgerBusinessDayRange(businessDate, "Asia/Taipei").from,
+        categoryId: null,
+        tagIds: [],
+        attachmentIds: [],
+        payee: null,
+        memo: null,
+      },
+    });
     const url = await inviteWorkbench(desktop);
     browser = await chromium.launch();
     const page = await browser.newPage();
@@ -651,7 +690,8 @@ test("L9 独立 Web 导出账本包并预览恢复到新账本", async () => {
     expect(restoredRecords).toMatchObject({ total: 1, rows: [{ title: "备份车票", record: { amountMinor: "2300" } }] });
     expect(restoredRecords.rows[0]!.record.id).not.toBe(originalRecord.id);
     expect(await call(desktop, "ledger.records.list", { bookId })).toMatchObject({
-      total: 1, rows: [{ title: "备份车票", record: { id: originalRecord.id, amountMinor: "2300" } }],
+      total: 1,
+      rows: [{ title: "备份车票", record: { id: originalRecord.id, amountMinor: "2300" } }],
     });
   } finally {
     await browser?.close().catch(() => undefined);
@@ -678,10 +718,14 @@ test("L10 独立 Web 关联财务笔记并保存期间复盘，桌面可读取�
     const { book } = await call<{ book: { revision: string } }>(page, "ledger.accounts.list", { bookId });
     expect(await call(page, "notes.list", {})).toContainEqual(expect.objectContaining(note));
     const link = await call<{ id: string }>(page, "ledger.references.link", {
-      bookId, expectedRevision: book.revision, owner, resource: { kind: "note", path: note.path },
+      bookId,
+      expectedRevision: book.revision,
+      owner,
+      resource: { kind: "note", path: note.path },
     });
     expect(await call(page, "ledger.references.open", { bookId, owner, referenceId: link.id })).toMatchObject({
-      status: "available", resource: { path: note.path, documentId: note.id },
+      status: "available",
+      resource: { path: note.path, documentId: note.id },
     });
     const query = { bookId, from: "2026-02-01", to: "2026-02-28", currency: "TWD" };
     const draft = await call<{ revision: string; markdown: string }>(page, "ledger.references.previewReview", query);
@@ -724,8 +768,11 @@ test("L11 桌面切换 Vault 后使用各自的账本身份，回到原库仍可
     expect(await call<BookList>(page, "ledger.books.list", {})).toEqual(original);
     await expect(ledger.getByLabel("当前账本")).toHaveValue(original.activeBookId!);
   } finally {
-    try { await close(); }
-    finally { rmTree(second); }
+    try {
+      await close();
+    } finally {
+      rmTree(second);
+    }
   }
 });
 
@@ -742,11 +789,33 @@ test("L9 桌面全 Vault 包恢复账本并按附件选项清理引用", async (
     const { activeBookId: bookId } = await call<{ activeBookId: string }>(page, "ledger.books.list", {});
     const accounts = () => call<{ book: { revision: string }; businessDate: string; accounts: { id: string }[] }>(page, "ledger.accounts.list", { bookId });
     const initial = await accounts();
-    const record = await call<{ id: string; revision: string }>(page, "ledger.records.create", { bookId, expectedRevision: initial.book.revision,
-      intentKey: randomUUID(), title: "含凭证流水", record: { type: "expense", accountId: initial.accounts[0]!.id, amountMinor: "1000", currency: "TWD",
-        occurredAt: ledgerBusinessDayRange(initial.businessDate, "Asia/Taipei").from, categoryId: null, tagIds: [], attachmentIds: [], payee: null, memo: null } });
-    await call(page, "ledger.attachments.upload", { bookId, expectedRevision: (await accounts()).book.revision, recordId: record.id,
-      recordRevision: record.revision, fileName: "票据.txt", mediaType: "text/plain", base64: Buffer.from("original receipt").toString("base64") });
+    const record = await call<{ id: string; revision: string }>(page, "ledger.records.create", {
+      bookId,
+      expectedRevision: initial.book.revision,
+      intentKey: randomUUID(),
+      title: "含凭证流水",
+      record: {
+        type: "expense",
+        accountId: initial.accounts[0]!.id,
+        amountMinor: "1000",
+        currency: "TWD",
+        occurredAt: ledgerBusinessDayRange(initial.businessDate, "Asia/Taipei").from,
+        categoryId: null,
+        tagIds: [],
+        attachmentIds: [],
+        payee: null,
+        memo: null,
+      },
+    });
+    await call(page, "ledger.attachments.upload", {
+      bookId,
+      expectedRevision: (await accounts()).book.revision,
+      recordId: record.id,
+      recordRevision: record.revision,
+      fileName: "票据.txt",
+      mediaType: "text/plain",
+      base64: Buffer.from("original receipt").toString("base64"),
+    });
     const dest = path.join(sandbox, "vault.zip");
     const targetDir = path.join(sandbox, "received");
     await call(page, "vault.exportPackage", { dest, includeAttachments: false });
@@ -759,7 +828,8 @@ test("L9 桌面全 Vault 包恢复账本并按附件选项清理引用", async (
     await engineReady(restored);
     await expect((await enterLedger(restored)).getByRole("heading", { name: "完整备份账本" })).toBeVisible();
     expect(await call(restored, "ledger.records.list", { bookId })).toMatchObject({
-      total: 1, rows: [{ title: "含凭证流水", attachments: [], record: { id: record.id, attachmentIds: [] } }],
+      total: 1,
+      rows: [{ title: "含凭证流水", attachments: [], record: { id: record.id, attachmentIds: [] } }],
     });
   } finally {
     await restoredApp?.close().catch(() => undefined);
@@ -781,11 +851,11 @@ test("L6 预算页依同一筛选分页、批量编辑并显示逐月复制冲�
     const version = async () => ({ bookId, expectedRevision: (await accounts()).book.revision });
     const tags: string[] = [];
     for (const name of ["物料", "工作室"]) {
-      const tag = await call<{ id: string }>(desktop, "ledger.dictionaries.save", { ...await version(), kind: "tag", name });
+      const tag = await call<{ id: string }>(desktop, "ledger.dictionaries.save", { ...(await version()), kind: "tag", name });
       tags.push(tag.id);
     }
     const [free, fixed, conflicting] = await call<{ id: string }[]>(desktop, "ledger.budgets.saveBatch", {
-      ...await version(),
+      ...(await version()),
       budgets: [
         { definition: { type: "free", name: "工作室物料", currency: "TWD", limitMinor: "15000", tagIds: tags, from: "2026-02-01", to: "2026-02-28" } },
         { definition: { type: "fixed", name: "日常支出", currency: "TWD", limitMinor: "20000", direction: "expense", month: "2026-02", categoryIds: [] } },
@@ -796,10 +866,21 @@ test("L6 预算页依同一筛选分页、批量编辑并显示逐月复制冲�
     const accountId = (await accounts()).accounts[0]!.id;
     for (let day = 1; day <= 11; day++) {
       await call(desktop, "ledger.records.create", {
-        ...await version(), intentKey: randomUUID(), title: day === 1 ? "双标签纸笔" : `物料支出 ${day}`,
-        record: { type: "expense", accountId, occurredAt: `2026-02-${String(day).padStart(2, "0")}T04:00:00.000Z`,
-          amountMinor: "100", currency: "TWD", tagIds: day === 1 ? tags : tags.slice(0, 1),
-          categoryId: null, payee: null, memo: null, attachmentIds: [] },
+        ...(await version()),
+        intentKey: randomUUID(),
+        title: day === 1 ? "双标签纸笔" : `物料支出 ${day}`,
+        record: {
+          type: "expense",
+          accountId,
+          occurredAt: `2026-02-${String(day).padStart(2, "0")}T04:00:00.000Z`,
+          amountMinor: "100",
+          currency: "TWD",
+          tagIds: day === 1 ? tags : tags.slice(0, 1),
+          categoryId: null,
+          payee: null,
+          memo: null,
+          attachmentIds: [],
+        },
       });
     }
     await desktop.getByTestId("ledger-nav-budgets").click();
@@ -846,7 +927,10 @@ test("L6 预算页依同一筛选分页、批量编辑并显示逐月复制冲�
     await expect(fixedRow).toContainText("TWD 11.00 / TWD 250.00");
 
     const copy = page.getByRole("dialog", { name: "跨月复制固定预算" });
-    for (const [created, skipped] of [[3, 1], [0, 4]]) {
+    for (const [created, skipped] of [
+      [3, 1],
+      [0, 4],
+    ]) {
       await webLedger.getByRole("button", { name: "跨月复制" }).click();
       await copy.getByLabel("目标月份", { exact: true }).fill("2026-03");
       await copy.getByRole("button", { name: "添加目标月" }).click();
@@ -877,22 +961,29 @@ test("L10 财务笔记可关联、打开和修复，Notes 停用时仍可记账�
     const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
     const accounts = () => call<{ businessDate: string; book: { revision: string }; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
     const version = async () => ({ bookId, expectedRevision: (await accounts()).book.revision });
-    const { businessDate, accounts: [account] } = await accounts();
+    const {
+      businessDate,
+      accounts: [account],
+    } = await accounts();
     const note = await call<{ path: string }>(desktop, "notes.create", { name: "财务采购说明", body: "# 财务采购说明" });
     const missing = await call<{ path: string }>(desktop, "notes.create", { name: "旧纸笔凭据", body: "# 旧纸笔凭据" });
     await call(desktop, "archives.types.save", { name: "采购档案", fields: [{ name: "负责人", type: "text" }] });
     const archive = await call<{ path: string }>(desktop, "archives.create", { type: "采购档案", name: "工作室报销档案", fields: { 负责人: "林川" } });
-    const [budget] = await call<{ id: string }[]>(desktop, "ledger.budgets.saveBatch", { ...await version(),
-      budgets: [{ definition: { name: "纸笔预算", type: "fixed", month: businessDate.slice(0, 7),
-        currency: "TWD", limitMinor: "15000", direction: "expense", categoryIds: [] } }] });
+    const [budget] = await call<{ id: string }[]>(desktop, "ledger.budgets.saveBatch", {
+      ...(await version()),
+      budgets: [{ definition: { name: "纸笔预算", type: "fixed", month: businessDate.slice(0, 7), currency: "TWD", limitMinor: "15000", direction: "expense", categoryIds: [] } }],
+    });
     const record = await call<LedgerRecord>(desktop, "ledger.records.create", {
-      ...await version(), title: "购置纸笔", intentKey: randomUUID(),
-      record: { type: "expense", accountId: account!.id, occurredAt: `${businessDate}T03:00:00.000Z`, amountMinor: "2100",
-        currency: "TWD", categoryId: null, tagIds: [], payee: null, memo: null, attachmentIds: [] },
+      ...(await version()),
+      title: "购置纸笔",
+      intentKey: randomUUID(),
+      record: { type: "expense", accountId: account!.id, occurredAt: `${businessDate}T03:00:00.000Z`, amountMinor: "2100", currency: "TWD", categoryId: null, tagIds: [], payee: null, memo: null, attachmentIds: [] },
     });
     const owner = { kind: "record", id: record.id };
     const broken = await call<{ id: string }>(desktop, "ledger.references.link", {
-      ...await version(), owner, resource: { kind: "note", path: missing.path },
+      ...(await version()),
+      owner,
+      resource: { kind: "note", path: missing.path },
     });
     await call(desktop, "notes.trash", { path: missing.path });
 
@@ -996,21 +1087,37 @@ test("L11 总览三张卡片定位本月预算、固定收支和贷款补记并�
     const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
     const accounts = () => call<{ businessDate: string; book: { revision: string }; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
     const version = async () => ({ bookId, expectedRevision: (await accounts()).book.revision });
-    const { businessDate, accounts: [account] } = await accounts();
+    const {
+      businessDate,
+      accounts: [account],
+    } = await accounts();
     const currentMonth = businessDate.slice(0, 7);
-    await call(desktop, "ledger.budgets.saveBatch", { ...await version(), budgets: [
-      { definition: { type: "fixed", month: currentMonth, name: "当月材料", currency: "TWD", limitMinor: "35000", direction: "expense", categoryIds: [] } },
-      { definition: { type: "fixed", month: currentMonth, name: "美元收入", currency: "USD", limitMinor: "22000", direction: "income", categoryIds: [] } },
-    ] });
-    await call(desktop, "ledger.loans.create", { ...await version(),
-      definition: { name: "工位设备贷款", method: "equal-principal", principalMinor: "20000", currency: "TWD",
-        annualRatePercent: "12", months: 2, startOn: "2024-01-31", accountId: account!.id },
+    await call(desktop, "ledger.budgets.saveBatch", {
+      ...(await version()),
+      budgets: [
+        { definition: { type: "fixed", month: currentMonth, name: "当月材料", currency: "TWD", limitMinor: "35000", direction: "expense", categoryIds: [] } },
+        { definition: { type: "fixed", month: currentMonth, name: "美元收入", currency: "USD", limitMinor: "22000", direction: "income", categoryIds: [] } },
+      ],
+    });
+    await call(desktop, "ledger.loans.create", {
+      ...(await version()),
+      definition: { name: "工位设备贷款", method: "equal-principal", principalMinor: "20000", currency: "TWD", annualRatePercent: "12", months: 2, startOn: "2024-01-31", accountId: account!.id },
     });
     const nextDay = new Date(Date.parse(businessDate) + 86_400_000).toISOString().slice(0, 10);
-    await call(desktop, "ledger.recurring.create", { ...await version(), rule: {
-      id: randomUUID(), title: "工作室固定支出", type: "expense", accountId: account!.id,
-      currency: "TWD", amountMinor: "7500", startOn: nextDay, frequency: "monthly", memo: null,
-    } });
+    await call(desktop, "ledger.recurring.create", {
+      ...(await version()),
+      rule: {
+        id: randomUUID(),
+        title: "工作室固定支出",
+        type: "expense",
+        accountId: account!.id,
+        currency: "TWD",
+        amountMinor: "7500",
+        startOn: nextDay,
+        frequency: "monthly",
+        memo: null,
+      },
+    });
     await desktop.getByTestId("ledger-nav-recurring").click();
     const fixedRow = ledger.getByTestId("ledger-recurring-row").filter({ hasText: "工作室固定支出" });
     await fixedRow.getByRole("button", { name: "启用计划" }).click();
@@ -1060,7 +1167,8 @@ test("L11 总览三张卡片定位本月预算、固定收支和贷款补记并�
     await expect(loan).toContainText("已补记 1 / 2 期");
     await expect(byCard("贷款补记")).toContainText("已补记 1 / 2 期");
     expect(await call(desktop, "ledger.records.list", { bookId })).toMatchObject({
-      total: 1, rows: [{ businessDate: "2024-02-29", record: { type: "expense" } }],
+      total: 1,
+      rows: [{ businessDate: "2024-02-29", record: { type: "expense" } }],
     });
   } finally {
     await browser?.close().catch(() => undefined);

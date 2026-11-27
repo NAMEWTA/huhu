@@ -60,7 +60,22 @@ import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { errors, HuhuError, PluginManifestSchema } from "@huhu/contracts";
 import { attachTerminal, HerdrCore } from "@huhu/herdr-client";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
-import { directoryInstance, endpointRootBinding, loadDeviceDispatchBudget, machineId, OperationLog, readEngineEndpoint, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher, type DeviceDispatchBudget, type EngineEndpointRecord, type EngineMode } from "@huhu/vault";
+import {
+  directoryInstance,
+  endpointRootBinding,
+  loadDeviceDispatchBudget,
+  machineId,
+  OperationLog,
+  readEngineEndpoint,
+  SemanticRepository,
+  Trash,
+  Vault,
+  VaultIndex,
+  VaultWatcher,
+  type DeviceDispatchBudget,
+  type EngineEndpointRecord,
+  type EngineMode,
+} from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as agentGuide from "@huhu/plugin-agent-guide/engine";
 import * as automations from "@huhu/plugin-automations/engine";
@@ -183,8 +198,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registerVaultCapabilities(registry, vault, index);
   const events = new EventBus(() => vault.id);
   events.subscribe((event) => {
-    if (event.type === "plugin.stateChanged" || (event.type === "entity.changed" && "kind" in event.payload &&
-        ["task", "task-run"].includes(event.payload.kind ?? ""))) taskMcp.recheck();
+    if (event.type === "plugin.stateChanged" || (event.type === "entity.changed" && "kind" in event.payload && ["task", "task-run"].includes(event.payload.kind ?? ""))) taskMcp.recheck();
   });
   const operations = new OperationLog(vault.files, path.join(vault.stateDir, "operations"));
   const repo = new SemanticRepository(vault.files, operations);
@@ -215,41 +229,43 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     withSnapshot: async (read, signal, desktop, includeAttachments) => {
       const activeAgent = desktop && plugins.isEnabled("agent-cli") ? getService<{ core: HerdrCore }>("agentCli") : undefined;
       const workspace = desktop ? await agentCli.workspacePackageSnapshot(vault, signal, activeAgent?.core) : undefined;
-      return ledger.withLedgerSnapshot(vault.files, () => safe.withSafePackageSnapshot(vault.files, (safeFiles) =>
-        mail.withMailSnapshot(vault.files, () => {
-          signal.throwIfAborted();
-          const mailSelection = mail.mailPackageSelection(vault.files);
-          const ledgerSelection = desktop ? ledger.ledgerPackageSelection(vault.files, includeAttachments) : undefined;
-          const computedFiles = new Map(ledgerSelection?.computedFiles);
-          if (workspace) computedFiles.set(agentCli.workspacePackagePath, workspace.bytes);
-          const definitions = [mail.mailAccountPackageFile(vault.files), ...ssh.sshPortablePackageFiles(vault.files)];
-          return read(signal, {
-            computedFiles,
-            externalFiles: new Set(definitions.map(({ path }) => path)),
-            includeFile(relative) {
-              const normalized = relative.toLowerCase();
-              if (normalized === agentCli.workspacePackagePath) return relative === normalized && workspace !== undefined;
-              if (normalized.startsWith(".huhu/safe/")) return safeFiles.has(relative);
-              if (ledgerSelection?.includeFile(relative) === false) return false;
-              return mailSelection.includeFile(relative);
-            },
-            verifyFiles(files) {
-              const written = new Map(files.map(({ path, sha256 }) => [path, sha256]));
-              for (const [path, expected] of workspace?.spaceFiles ?? []) {
-                if (written.get(path) !== expected) throw new HuhuError("VERSION_CONFLICT", "备份期间工作区已变化，请重新导出", { retryable: true });
-              }
-              for (const { path, sha256 } of definitions) {
-                if ((written.get(path) ?? null) !== sha256) throw new HuhuError("VERSION_CONFLICT", "备份期间 Mail 或 SSH 定义已变化，请重新导出");
-              }
-              for (const [path, expected] of safeFiles) {
-                if (written.get(path) !== expected) throw new HuhuError("VERSION_CONFLICT", "备份所需的保险箱文件已变化或未完整收录，请重新核对后导出");
-              }
-              mailSelection.verifyFiles(written);
-              ledgerSelection?.verifyFiles(written);
-            },
-          });
-        }),
-      ));
+      return ledger.withLedgerSnapshot(vault.files, () =>
+        safe.withSafePackageSnapshot(vault.files, (safeFiles) =>
+          mail.withMailSnapshot(vault.files, () => {
+            signal.throwIfAborted();
+            const mailSelection = mail.mailPackageSelection(vault.files);
+            const ledgerSelection = desktop ? ledger.ledgerPackageSelection(vault.files, includeAttachments) : undefined;
+            const computedFiles = new Map(ledgerSelection?.computedFiles);
+            if (workspace) computedFiles.set(agentCli.workspacePackagePath, workspace.bytes);
+            const definitions = [mail.mailAccountPackageFile(vault.files), ...ssh.sshPortablePackageFiles(vault.files)];
+            return read(signal, {
+              computedFiles,
+              externalFiles: new Set(definitions.map(({ path }) => path)),
+              includeFile(relative) {
+                const normalized = relative.toLowerCase();
+                if (normalized === agentCli.workspacePackagePath) return relative === normalized && workspace !== undefined;
+                if (normalized.startsWith(".huhu/safe/")) return safeFiles.has(relative);
+                if (ledgerSelection?.includeFile(relative) === false) return false;
+                return mailSelection.includeFile(relative);
+              },
+              verifyFiles(files) {
+                const written = new Map(files.map(({ path, sha256 }) => [path, sha256]));
+                for (const [path, expected] of workspace?.spaceFiles ?? []) {
+                  if (written.get(path) !== expected) throw new HuhuError("VERSION_CONFLICT", "备份期间工作区已变化，请重新导出", { retryable: true });
+                }
+                for (const { path, sha256 } of definitions) {
+                  if ((written.get(path) ?? null) !== sha256) throw new HuhuError("VERSION_CONFLICT", "备份期间 Mail 或 SSH 定义已变化，请重新导出");
+                }
+                for (const [path, expected] of safeFiles) {
+                  if (written.get(path) !== expected) throw new HuhuError("VERSION_CONFLICT", "备份所需的保险箱文件已变化或未完整收录，请重新核对后导出");
+                }
+                mailSelection.verifyFiles(written);
+                ledgerSelection?.verifyFiles(written);
+              },
+            });
+          }),
+        ),
+      );
     },
     validateStaging(files, restored) {
       safe.validateSafePackage(files);
@@ -269,20 +285,22 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const serverRef: { current?: RunningServer } = {};
   const gatewayAudit = new GatewayAudit(path.join(runtime, "gateway-audit.ndjson"));
   const exposure = new ExposureStore(vault.files, path.join(vault.stateDir, "plugins.json"));
-  plugins.register(createMcpSourcePlugin({
-    vaultInstance: mcpVaultInstance,
-    hostId: machineId(),
-    ...(moduleCredentialHost && { credentialHost: { ...moduleCredentialHost, vault } }),
-    ...(!vault.readOnly && rootIdentity && { approvalPath: path.relative(vault.root, path.join(runtime, "mcp-source-approvals.json")) }),
-    publishSignal: () => mcpListener.enabled() && plugins.isEnabled("mcp") ? gatewayTokens.mcpSignal() : undefined,
-    endpoint: () => mcpListener.status().url,
-    isBuiltinName: (name) => registry.knownNames().some((capability) => mcpToolName(capability) === name),
-    builtinDirectory: () => {
-      const dispatcher = dispatcherRef.current;
-      return builtinMcpDirectory(dispatcher?.discover("http").map((def) => ({ name: def.name, durableIntent: dispatcher.supportsDurableIntent(def) })) ?? [], true);
-    },
-    audit: (row) => gatewayAudit.add(row),
-  }));
+  plugins.register(
+    createMcpSourcePlugin({
+      vaultInstance: mcpVaultInstance,
+      hostId: machineId(),
+      ...(moduleCredentialHost && { credentialHost: { ...moduleCredentialHost, vault } }),
+      ...(!vault.readOnly && rootIdentity && { approvalPath: path.relative(vault.root, path.join(runtime, "mcp-source-approvals.json")) }),
+      publishSignal: () => (mcpListener.enabled() && plugins.isEnabled("mcp") ? gatewayTokens.mcpSignal() : undefined),
+      endpoint: () => mcpListener.status().url,
+      isBuiltinName: (name) => registry.knownNames().some((capability) => mcpToolName(capability) === name),
+      builtinDirectory: () => {
+        const dispatcher = dispatcherRef.current;
+        return builtinMcpDirectory(dispatcher?.discover("http").map((def) => ({ name: def.name, durableIntent: dispatcher.supportsDurableIntent(def) })) ?? [], true);
+      },
+      audit: (row) => gatewayAudit.add(row),
+    }),
+  );
   // 设置里的时区实时生效：每次取“今天”时读取 settings.json（文件很小）
   const settingsFile = path.join(vault.stateDir, "settings.json");
   const settingsZone = () => readSettingsFile(settingsFile).dateTime.zone;
@@ -347,8 +365,12 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
               issue: ({ key, authorization }, runtime) => {
                 if (!server || !mcpListener.enabled() || !plugins.isEnabled("mcp")) return;
                 const generation = gatewayTokens.mcpSignal();
-                const current = () => !generation.aborted && mcpListener.enabled() && plugins.isEnabled("mcp") &&
-                  plugins.isEnabled("agent-cli") && plugins.isEnabled("tasks") &&
+                const current = () =>
+                  !generation.aborted &&
+                  mcpListener.enabled() &&
+                  plugins.isEnabled("mcp") &&
+                  plugins.isEnabled("agent-cli") &&
+                  plugins.isEnabled("tasks") &&
                   getService<(dispatchKey: typeof key, grant: typeof authorization) => boolean>("taskMcpAuthorization")?.(key, authorization) === true;
                 if (!current()) return;
                 const token = taskMcp.issue({ ...runtime, current, tools: authorization.tools });
@@ -478,19 +500,15 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   registerNotificationAndSettings(registry, notifications, settingsFile);
   const home = new HomeStore({
-    dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone,
+    dir: path.join(vault.stateDir, "home"),
+    now: () => new Date(),
+    zone: settingsZone,
     deadlineAvailable: () => !vault.readOnly && plugins.isEnabled("automations") && getService<boolean>("focusDeadlines") === true,
     focusChanged: () => events.publish("entity.changed", { kind: "home-focus", id: "focus", op: "updated" }),
   });
-  registerHomeCapabilities(
-    registry,
-    home,
-    vault,
-    [sshHostsWidget, gitHomeWidget, automationSummaryWidget, tasksHomeWidget, recentNotesHomeWidget, inboxHomeWidget, agentEntryHomeWidget],
-    () => {
-      events.publish("entity.changed", { kind: "home-dashboard", id: "home", op: "updated" });
-    },
-  );
+  registerHomeCapabilities(registry, home, vault, [sshHostsWidget, gitHomeWidget, automationSummaryWidget, tasksHomeWidget, recentNotesHomeWidget, inboxHomeWidget, agentEntryHomeWidget], () => {
+    events.publish("entity.changed", { kind: "home-dashboard", id: "home", op: "updated" });
+  });
   registerSystemCapabilities(
     registry,
     plugins,
@@ -531,7 +549,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         zone: settingsZone,
         taskScanPrincipalCurrent: (caller, subject) => (serverRef.current?.hasMcpPrincipal(caller, subject) ?? false) || (caller !== "mcp" && tokens.hasPrincipal(caller, subject)),
         ...(moduleCredentialHost && { credentialHost: { ...moduleCredentialHost, vault } }),
-        cliAvailable: (p) => cli()?.detector.cached().some((entry) => entry.id === p && entry.installed && entry.path && entry.headless) ?? false,
+        cliAvailable: (p) =>
+          cli()
+            ?.detector.cached()
+            .some((entry) => entry.id === p && entry.installed && entry.path && entry.headless) ?? false,
         refreshClis,
         spaceState: (id) => {
           const s = cli()
@@ -659,7 +680,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     server = await startEngineServer({
       taskMcp,
       mcpHttp: { enabled: () => mcpListener.enabled() && plugins.isEnabled("mcp") },
-      externalMcpTools: () => plugins.isEnabled("mcp") ? getService<ExternalMcpTools>(MCP_SOURCES_SERVICE) : undefined,
+      externalMcpTools: () => (plugins.isEnabled("mcp") ? getService<ExternalMcpTools>(MCP_SOURCES_SERVICE) : undefined),
       mcpSignal: () => gatewayTokens.mcpSignal(),
       vaultInstance: mcpVaultInstance,
       ...(!vault.files.readOnly && rootIdentity && { mcpRecovery: { directory: runtime, generation: () => gatewayTokens.mcpRecoveryGeneration() } }),
@@ -719,8 +740,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const descriptorPath = endpointPath(vault);
   const lifecycle = !vault.readOnly && process.getuid ? opts.lifecycle : undefined;
   const descriptor: EndpointDescriptor = {
-    pid: process.pid, port: server.port, vaultId: vault.id, rootBinding: endpointRootBinding(vault.root), cliToken, startedAt: new Date().toISOString(),
-    mode: lifecycle?.mode ?? "temporary", ...(lifecycle && { instance: randomUUID() }),
+    pid: process.pid,
+    port: server.port,
+    vaultId: vault.id,
+    rootBinding: endpointRootBinding(vault.root),
+    cliToken,
+    startedAt: new Date().toISOString(),
+    mode: lifecycle?.mode ?? "temporary",
+    ...(lifecycle && { instance: randomUUID() }),
   };
   let closeControl: (() => Promise<void>) | undefined;
   let published = false;

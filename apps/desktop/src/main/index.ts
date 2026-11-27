@@ -57,8 +57,7 @@ const showingRecovery = (win: BrowserWindow) => !win.isDestroyed() && recoveryPa
 function automationNotice(value: unknown) {
   if (!value || typeof value !== "object" || !("id" in value) || !("title" in value) || !("occurrence" in value)) return null;
   const { id, title, occurrence } = value;
-  if (typeof id !== "string" || !id || id.length > 256 || typeof title !== "string" || !title
-    || !occurrence || typeof occurrence !== "object" || !("planId" in occurrence) || !("occurrenceId" in occurrence)) return null;
+  if (typeof id !== "string" || !id || id.length > 256 || typeof title !== "string" || !title || !occurrence || typeof occurrence !== "object" || !("planId" in occurrence) || !("occurrenceId" in occurrence)) return null;
   const { planId, occurrenceId } = occurrence;
   if (typeof planId !== "string" || !planId || planId.length > 256 || typeof occurrenceId !== "string" || !occurrenceId || occurrenceId.length > 256) return null;
   return { id, title, occurrence: { planId, occurrenceId } };
@@ -419,8 +418,17 @@ if (!gotLock) {
       }
       return new Promise<string | undefined>((resolve) => {
         let focus: string | undefined;
-        const close = () => { if (!win.isDestroyed()) win.destroy(); };
-        workspaceWindows.set(contentsId, { address, target, returnTo(paneId) { focus = paneId; close(); } });
+        const close = () => {
+          if (!win.isDestroyed()) win.destroy();
+        };
+        workspaceWindows.set(contentsId, {
+          address,
+          target,
+          returnTo(paneId) {
+            focus = paneId;
+            close();
+          },
+        });
         win.once("closed", () => {
           workspaceWindows.delete(contentsId);
           if (!event.sender.isDestroyed()) event.sender.removeListener("destroyed", close);
@@ -436,8 +444,7 @@ if (!gotLock) {
     });
     ipcMain.handle("huhu:ssh-workspace:return", (event, handoffId: unknown, focusedPaneId: unknown) => {
       const pending = workspaceWindows.get(event.sender.id);
-      if (!pending || pending.target.handoffId !== handoffId || event.senderFrame?.url !== pending.address ||
-          typeof focusedPaneId !== "string" || !/^[a-f0-9-]{36}$/iu.test(focusedPaneId)) return;
+      if (!pending || pending.target.handoffId !== handoffId || event.senderFrame?.url !== pending.address || typeof focusedPaneId !== "string" || !/^[a-f0-9-]{36}$/iu.test(focusedPaneId)) return;
       assertSshWindow(event, pending.target.vaultId);
       pending.returnTo(focusedPaneId);
     });
@@ -708,7 +715,11 @@ if (!gotLock) {
       const owner = sshDraftOwner(event);
       const vault = current;
       if (typeof name !== "string" || typeof text !== "string") throw new Error("无法读取待编辑的文本。");
-      const base = path.basename(name).replace(/[^\p{L}\p{N}._-]/gu, "-").slice(0, 100) || "SSH";
+      const base =
+        path
+          .basename(name)
+          .replace(/[^\p{L}\p{N}._-]/gu, "-")
+          .slice(0, 100) || "SSH";
       const defaultPath = path.join(app.getPath("documents"), `${base.replace(/\.txt$/iu, "") || "SSH"}.txt`);
       const win = BrowserWindow.fromWebContents(event.sender);
       const options = { defaultPath, filters: [{ name: "UTF-8 文本", extensions: ["txt"] }] };

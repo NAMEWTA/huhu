@@ -219,8 +219,7 @@ export class VaultFiles {
           hooks.publishReplacement(stage, target, () => {
             ownsStage = false;
           });
-        }
-        else renameSync(stage, target);
+        } else renameSync(stage, target);
         ownsStage = false;
       } catch (error) {
         this.receipts.forget(rel, version);

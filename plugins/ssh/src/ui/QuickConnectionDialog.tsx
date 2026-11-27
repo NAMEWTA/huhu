@@ -9,11 +9,7 @@ import { SshTerminal } from "./SshTerminal.js";
 
 type QuickStatus = { status: ConnectionStatus; shellId?: string } | null;
 
-export function QuickConnectionDialog({ initial, onClose, onReview }: {
-  initial: string;
-  onClose(): void;
-  onReview(prompt: HostKeyPrompt): void;
-}) {
+export function QuickConnectionDialog({ initial, onClose, onReview }: { initial: string; onClose(): void; onReview(prompt: HostKeyPrompt): void }) {
   const engine = useEngine();
   const form = useId();
   const hint = useId();
@@ -34,11 +30,14 @@ export function QuickConnectionDialog({ initial, onClose, onReview }: {
   useEngineEvents((event) => {
     if (session && event.type === "ssh.connectionChanged" && "hostId" in event.payload && event.payload.hostId === session.hostId) void request.refetch();
   });
-  useEffect(() => () => {
-    const id = owner.current;
-    owner.current = undefined;
-    if (id) void engine.call("ssh.quickConnections.close", { id }, { write: true }).catch(() => undefined);
-  }, [engine]);
+  useEffect(
+    () => () => {
+      const id = owner.current;
+      owner.current = undefined;
+      if (id) void engine.call("ssh.quickConnections.close", { id }, { write: true }).catch(() => undefined);
+    },
+    [engine],
+  );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -93,9 +92,28 @@ export function QuickConnectionDialog({ initial, onClose, onReview }: {
         error={error ?? null}
         actions={
           <>
-            <Button type="button" onClick={() => void release(onClose)}>{session || busy ? "结束临时连接" : "取消"}</Button>
-            {!session ? <Button type="submit" form={form} variant="primary" loading={busy}>连接</Button> : null}
-            {failed || ended ? <Button type="button" onClick={() => void release(() => { setSession(undefined); setDismissed(undefined); setError(undefined); })}>重新输入</Button> : null}
+            <Button type="button" onClick={() => void release(onClose)}>
+              {session || busy ? "结束临时连接" : "取消"}
+            </Button>
+            {!session ? (
+              <Button type="submit" form={form} variant="primary" loading={busy}>
+                连接
+              </Button>
+            ) : null}
+            {failed || ended ? (
+              <Button
+                type="button"
+                onClick={() =>
+                  void release(() => {
+                    setSession(undefined);
+                    setDismissed(undefined);
+                    setError(undefined);
+                  })
+                }
+              >
+                重新输入
+              </Button>
+            ) : null}
           </>
         }
       >
@@ -120,24 +138,23 @@ export function QuickConnectionDialog({ initial, onClose, onReview }: {
             {request.isError ? <p role="alert">无法读取临时连接状态。</p> : null}
             {failed ? <p role="alert">{failed}</p> : null}
             {!failed && !request.isError ? <p role="status">{ended ? "临时连接已结束。" : "正在连接…"}</p> : null}
-            {prompt && prompt.promptId === dismissed ? <Button type="button" onClick={() => setDismissed(undefined)}>核对主机指纹</Button> : null}
-            {authentication && authentication.promptId === dismissed ? <Button type="button" onClick={() => setDismissed(undefined)}>回答认证提示</Button> : null}
+            {prompt && prompt.promptId === dismissed ? (
+              <Button type="button" onClick={() => setDismissed(undefined)}>
+                核对主机指纹
+              </Button>
+            ) : null}
+            {authentication && authentication.promptId === dismissed ? (
+              <Button type="button" onClick={() => setDismissed(undefined)}>
+                回答认证提示
+              </Button>
+            ) : null}
           </>
         )}
       </Dialog>
       {prompt && prompt.promptId !== dismissed ? (
-        <HostKeyDialog
-          key={prompt.promptId}
-          prompt={prompt}
-          changed={status?.state === "key-changed"}
-          onClose={() => setDismissed(prompt.promptId)}
-          onReview={() => void release(() => onReview(prompt))}
-          onRefresh={request.refetch}
-        />
+        <HostKeyDialog key={prompt.promptId} prompt={prompt} changed={status?.state === "key-changed"} onClose={() => setDismissed(prompt.promptId)} onReview={() => void release(() => onReview(prompt))} onRefresh={request.refetch} />
       ) : null}
-      {authentication && authentication.promptId !== dismissed ? (
-        <AuthenticationDialog key={authentication.promptId} prompt={authentication} onClose={() => setDismissed(authentication.promptId)} onAnswered={request.refetch} />
-      ) : null}
+      {authentication && authentication.promptId !== dismissed ? <AuthenticationDialog key={authentication.promptId} prompt={authentication} onClose={() => setDismissed(authentication.promptId)} onAnswered={request.refetch} /> : null}
     </>
   );
 }

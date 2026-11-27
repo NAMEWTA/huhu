@@ -96,10 +96,19 @@ test("saved auto-reconnect and recording preferences change subsequent transport
   const client = new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
   const write = { write: true };
   try {
-    const { hostId } = await client.call<{ hostId: string }>("ssh.hosts.configure", {
-      name: "saved policy fixture", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
-      credentials: [{ purpose: "password", action: "replace", value: "pw" }],
-    }, write);
+    const { hostId } = await client.call<{ hostId: string }>(
+      "ssh.hosts.configure",
+      {
+        name: "saved policy fixture",
+        host: "127.0.0.1",
+        port: server.port,
+        user: "fixture",
+        authKind: "password",
+        expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+      },
+      write,
+    );
     const live = async () => (await client.call<ConnectionStatus[]>("ssh.connections.status")).find((entry) => entry.hostId === hostId);
     await client.call("ssh.connect", { hostId, background: true }, write);
     await expect.poll(async () => (await live())?.state).toBe("waiting");
@@ -109,8 +118,7 @@ test("saved auto-reconnect and recording preferences change subsequent transport
     await expect.poll(async () => (await live())?.state).toBe("connected");
     const { id: shellId } = await client.call<{ id: string }>("ssh.shells.open", { hostId }, write);
     const original = await live();
-    const save = (expectedRevision: string | null, change: UpdateVaultPreferences["change"]) =>
-      client.call<VaultPreferencesSnapshot>("ssh.settings.update", { expectedRevision, change }, write);
+    const save = (expectedRevision: string | null, change: UpdateVaultPreferences["change"]) => client.call<VaultPreferencesSnapshot>("ssh.settings.update", { expectedRevision, change }, write);
     const enabled = await save(null, { section: "connection", values: { ...defaultVaultPreferences.connection, autoReconnect: true } });
     const limits = await save(enabled.revision, { section: "recording", values: { enabled: true, savedLimit: 1 } });
     for (let i = 0; i < 2; i++) {
@@ -121,10 +129,15 @@ test("saved auto-reconnect and recording preferences change subsequent transport
     await save(limits.revision, { section: "recording", values: { enabled: false, savedLimit: 1 } });
     await expect(client.call("ssh.recordings.start", { shellId }, write)).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     server.conns[0]!.end();
-    await expect.poll(async () => {
-      const current = await live();
-      return current?.state === "connected" && current.attemptId !== original?.attemptId;
-    }, { timeout: 5000 }).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const current = await live();
+          return current?.state === "connected" && current.attemptId !== original?.attemptId;
+        },
+        { timeout: 5000 },
+      )
+      .toBe(true);
     expect(server.conns).toHaveLength(2);
     expect(await client.call("ssh.shells.list", { hostId })).toContainEqual(expect.objectContaining({ id: shellId, state: "ended" }));
     await client.call("ssh.disconnect", { hostId }, write);
@@ -140,10 +153,15 @@ test("saved auto-reconnect and recording preferences change subsequent transport
     const oldFiles = await client.call<FileSession>("ssh.fileSessions.open", { hostId, shellId: oldShell }, write);
     expect(server.conns).toHaveLength(3);
     server.conns[2]!.end();
-    await expect.poll(async () => {
-      const pane = await readPane();
-      return pane?.phase === "ready" && pane.sessionId !== oldShell;
-    }, { timeout: 5000 }).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const pane = await readPane();
+          return pane?.phase === "ready" && pane.sessionId !== oldShell;
+        },
+        { timeout: 5000 },
+      )
+      .toBe(true);
     const newFiles = await client.call<FileSession>("ssh.fileSessions.open", { hostId, shellId: (await readPane())!.sessionId! }, write);
     expect(newFiles.connectionId).not.toBe(oldFiles.connectionId);
     expect(await client.call<FileSession[]>("ssh.fileSessions.list")).toContainEqual(expect.objectContaining({ fileSessionId: oldFiles.fileSessionId, state: "disconnected" }));

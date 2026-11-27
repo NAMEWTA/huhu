@@ -1,11 +1,13 @@
 import { z } from "zod";
 
 export const defaultReconnect = { attempts: 1, intervalSec: 1, maxDelaySec: 30 };
-export const ReconnectPreferences = z.strictObject({
-  attempts: z.int().min(1).max(10),
-  intervalSec: z.int().min(1).max(300),
-  maxDelaySec: z.int().min(1).max(300),
-}).refine(({ intervalSec, maxDelaySec }) => maxDelaySec >= intervalSec, "退避上限不能小于重试间隔");
+export const ReconnectPreferences = z
+  .strictObject({
+    attempts: z.int().min(1).max(10),
+    intervalSec: z.int().min(1).max(300),
+    maxDelaySec: z.int().min(1).max(300),
+  })
+  .refine(({ intervalSec, maxDelaySec }) => maxDelaySec >= intervalSec, "退避上限不能小于重试间隔");
 export type ReconnectPreferences = z.infer<typeof ReconnectPreferences>;
 export const ReconnectProgress = z.object({
   attempt: z.int().min(1),

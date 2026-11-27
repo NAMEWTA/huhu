@@ -56,16 +56,26 @@ function InboxAttention({ onNavigate }: { onNavigate: ModuleProps["onNavigate"] 
   const deliveryRows = (mail.data?.operations ?? []).filter((entry): entry is typeof entry & { state: keyof typeof DELIVERY_TEXT } => entry.state !== "accepted" && entry.state !== "sending");
   return (
     <details className="inbox-attention">
-      <summary>待处理事项 <span>{taskRows.length + deliveryRows.length}</span></summary>
-      {tasks.error || mail.error ? <p role="status" className="muted small">{tasks.error ? "暂时无法查看任务摘要。" : ""}{mail.error ? "暂时无法查看投递摘要。" : ""}</p> : null}
+      <summary>
+        待处理事项 <span>{taskRows.length + deliveryRows.length}</span>
+      </summary>
+      {tasks.error || mail.error ? (
+        <p role="status" className="muted small">
+          {tasks.error ? "暂时无法查看任务摘要。" : ""}
+          {mail.error ? "暂时无法查看投递摘要。" : ""}
+        </p>
+      ) : null}
       {taskRows.length || deliveryRows.length ? (
         <ul>
           {taskRows.map((task) => (
             <li key={`${task.taskId}:${task.questionId ?? task.runId ?? ""}`}>
-              <Button variant="ghost" onClick={() => {
-                requestOpenTask(task.taskId, task.runId ? { runId: task.runId, questionId: task.questionId } : undefined);
-                onNavigate?.("tasks");
-              }}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  requestOpenTask(task.taskId, task.runId ? { runId: task.runId, questionId: task.questionId } : undefined);
+                  onNavigate?.("tasks");
+                }}
+              >
                 <Badge>{ATTENTION_TEXT[task.state]}</Badge>
                 <span>{task.title}</span>
               </Button>
@@ -73,10 +83,13 @@ function InboxAttention({ onNavigate }: { onNavigate: ModuleProps["onNavigate"] 
           ))}
           {deliveryRows.map(({ operationId, subject, state, retained }) => (
             <li key={operationId}>
-              <Button variant="ghost" onClick={() => {
-                requestOpenMailDelivery({ vaultId: engine.vaultId, operationId });
-                onNavigate?.("mail");
-              }}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  requestOpenMailDelivery({ vaultId: engine.vaultId, operationId });
+                  onNavigate?.("mail");
+                }}
+              >
                 <Badge>{DELIVERY_TEXT[state]}</Badge>
                 <span>{retained ? "保留的投递记录" : subject || "未填写主题"}</span>
               </Button>
@@ -301,10 +314,15 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
             {cur.status === "pending" && cur.pendingConversion ? (
               <div className="hu-knowledge-dismissed-result">
                 <p role="status">转为{TARGET_TEXT[cur.pendingConversion]}的结果待核实。</p>
-                <Button variant="primary" onClick={() => {
-                  const target = cur.pendingConversion;
-                  if (target) setDialog({ kind: "convert", item: cur, target });
-                }}>核实原转换</Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    const target = cur.pendingConversion;
+                    if (target) setDialog({ kind: "convert", item: cur, target });
+                  }}
+                >
+                  核实原转换
+                </Button>
               </div>
             ) : null}
             {cur.status === "pending" && !cur.pendingConversion ? (
@@ -359,10 +377,14 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                   </p>
                   <div className="row">
                     {convertedTaskId && onNavigate ? (
-                      <Button variant="ghost" icon={ArrowUpRight} onClick={() => {
-                        requestOpenTask(convertedTaskId);
-                        onNavigate("tasks");
-                      }}>
+                      <Button
+                        variant="ghost"
+                        icon={ArrowUpRight}
+                        onClick={() => {
+                          requestOpenTask(convertedTaskId);
+                          onNavigate("tasks");
+                        }}
+                      >
                         打开原任务
                       </Button>
                     ) : null}
@@ -410,13 +432,15 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
           types={types.data ?? []}
           onClose={() => setDialog(null)}
           checking={liveConvert?.pendingConversion === dialog.target || liveConvert?.result?.kind === dialog.target}
-          onSubmit={async (fields, resume) => (await act("inbox.convert", {
-            id: dialog.item.id,
-            expectedVersion: liveConvert?.version ?? dialog.item.version,
-            target: dialog.target,
-            fields,
-            ...(resume && { resume: true }),
-          })) && (setDialog(null), true)}
+          onSubmit={async (fields, resume) =>
+            (await act("inbox.convert", {
+              id: dialog.item.id,
+              expectedVersion: liveConvert?.version ?? dialog.item.version,
+              target: dialog.target,
+              fields,
+              ...(resume && { resume: true }),
+            })) && (setDialog(null), true)
+          }
         />
       ) : null}
       {dialog?.kind === "delete" ? (
@@ -560,7 +584,9 @@ function EditDialog({ error, item, onClose, onSave }: { error: string | null; it
           <Field label="来源">
             <Select aria-label="来源" value={v.source} onChange={(e) => setV({ ...v, source: e.target.value })}>
               {Object.entries(SOURCES).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+                <option key={value} value={value}>
+                  {label}
+                </option>
               ))}
             </Select>
           </Field>
@@ -617,12 +643,7 @@ function ConvertDialog({
           <Button onClick={onClose} disabled={saving}>
             取消
           </Button>
-          <Button
-            variant="primary"
-            loading={saving}
-            disabled={!checking && !name.trim()}
-            onClick={() => void (checking ? submit("", () => onSubmit({}, true)) : submit(body, convert))}
-          >
+          <Button variant="primary" loading={saving} disabled={!checking && !name.trim()} onClick={() => void (checking ? submit("", () => onSubmit({}, true)) : submit(body, convert))}>
             {checking ? "核实原转换" : `创建${label}并完成处理`}
           </Button>
         </>
@@ -635,7 +656,13 @@ function ConvertDialog({
           </Field>
           {target === "task" ? (
             <Field label="截止日期">
-              <DateTimePicker label="截止日期" field={{ kind: "date", value: due || null }} onChange={(next) => { if (next.kind === "date") setDue(next.value ?? ""); }} />
+              <DateTimePicker
+                label="截止日期"
+                field={{ kind: "date", value: due || null }}
+                onChange={(next) => {
+                  if (next.kind === "date") setDue(next.value ?? "");
+                }}
+              />
             </Field>
           ) : null}
           {target === "archive" ? (

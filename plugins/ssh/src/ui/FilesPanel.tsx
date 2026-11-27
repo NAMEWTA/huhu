@@ -122,11 +122,13 @@ export function FilesPanel({
         setCwd(r.path);
         setEntries(r.entries);
         if (reverse) {
-          setFollowNotice({
-            applied: "",
-            skipped: "文件夹已打开。本次已跳过 Shell 同步。",
-            unknown: "文件夹已打开。无法确认 Shell 是否已同步。",
-          }[followResult]);
+          setFollowNotice(
+            {
+              applied: "",
+              skipped: "文件夹已打开。本次已跳过 Shell 同步。",
+              unknown: "文件夹已打开。无法确认 Shell 是否已同步。",
+            }[followResult],
+          );
         }
         return r.path;
       } catch (e) {
@@ -197,7 +199,7 @@ export function FilesPanel({
     const next = await load(dir, reverseNavigation());
     if (next === undefined) return;
     if (cwd && (next !== cwd || direction !== "open")) setHistory((current) => recordDirectoryMove(current, cwd, direction));
-    setPathDraft((current) => current === pathDraft ? undefined : current);
+    setPathDraft((current) => (current === pathDraft ? undefined : current));
     setFilter("");
     setLocated(name);
   }
@@ -286,10 +288,7 @@ export function FilesPanel({
         <Button disabled={!ready} onClick={() => void navigate("")}>
           {t.files.home}
         </Button>
-        <Button
-          disabled={!ready || history.back.length === 0}
-          onClick={() => void navigate(history.back.at(-1)!, undefined, "back")}
-        >
+        <Button disabled={!ready || history.back.length === 0} onClick={() => void navigate(history.back.at(-1)!, undefined, "back")}>
           返回目录
         </Button>
         <Button disabled={!ready || history.forward.length === 0} onClick={() => void navigate(history.forward.at(-1)!, undefined, "forward")}>
@@ -315,18 +314,29 @@ export function FilesPanel({
           {cwd || "…"}
         </code>
       </div>
-      {preferences.filePathMode === "breadcrumbs" ? <nav className="ssh-workspace-controls ssh-file-address" aria-label="远端路径导航">
-        {directoryAncestors(cwd).map((part) => <Button key={part} type="button" disabled={!ready} aria-current={part === cwd ? "location" : undefined} onClick={() => void navigate(part)}>
-          {part === "/" ? "根目录" : part.slice(part.lastIndexOf("/") + 1)}
-        </Button>)}
-      </nav> : <form className="ssh-workspace-controls ssh-file-address" onSubmit={(event) => {
-        event.preventDefault();
-        if (ready && pathDraft !== undefined) void navigate(pathDraft);
-      }}>
-        <label htmlFor={pathId}>远端路径</label>
-        <input id={pathId} value={pathDraft ?? cwd} maxLength={4096} disabled={!ready} onChange={(event) => setPathDraft(event.target.value)} />
-        <Button type="submit" disabled={!ready || pathDraft === undefined || !pathDraft.trim()}>转到路径</Button>
-      </form>}
+      {preferences.filePathMode === "breadcrumbs" ? (
+        <nav className="ssh-workspace-controls ssh-file-address" aria-label="远端路径导航">
+          {directoryAncestors(cwd).map((part) => (
+            <Button key={part} type="button" disabled={!ready} aria-current={part === cwd ? "location" : undefined} onClick={() => void navigate(part)}>
+              {part === "/" ? "根目录" : part.slice(part.lastIndexOf("/") + 1)}
+            </Button>
+          ))}
+        </nav>
+      ) : (
+        <form
+          className="ssh-workspace-controls ssh-file-address"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (ready && pathDraft !== undefined) void navigate(pathDraft);
+          }}
+        >
+          <label htmlFor={pathId}>远端路径</label>
+          <input id={pathId} value={pathDraft ?? cwd} maxLength={4096} disabled={!ready} onChange={(event) => setPathDraft(event.target.value)} />
+          <Button type="submit" disabled={!ready || pathDraft === undefined || !pathDraft.trim()}>
+            转到路径
+          </Button>
+        </form>
+      )}
       {ready && preferences.showFileTree && <FileDirectoryTree fileSessionId={fileSessionId} cwd={cwd} showDotFiles={preferences.showDotFiles} openPath={(path) => void navigate(path)} />}
       {session.state === "disconnected" && <p role="status">原连接已断开</p>}
       {canFollow && (

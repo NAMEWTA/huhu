@@ -26,8 +26,7 @@ export type PreparedBackup = {
   sourceBooks: BackupPreview["sourceBooks"];
   modules: BackupPreview["modules"];
 };
-const caller = (context: CapabilityContext) =>
-  digest(canonicalJson([context.caller, context.subject ?? null, ...(context.delegatedBy ? [context.delegatedBy] : [])]));
+const caller = (context: CapabilityContext) => digest(canonicalJson([context.caller, context.subject ?? null, ...(context.delegatedBy ? [context.delegatedBy] : [])]));
 
 function nativeBackup(files: FileSet, rawManifest: unknown): PreparedBackup {
   const parsed = manifestSchema.safeParse(rawManifest);
@@ -47,15 +46,16 @@ function nativeBackup(files: FileSet, rawManifest: unknown): PreparedBackup {
   validateBookRelations(state);
   const attachments = new Map(state.attachments.map((item) => [item.id, requireAttachment(files.get("attachments/" + item.id), item)]));
   if (files.size !== attachments.size + 2) throw errors.invalidInput("附件清单和账本引用不一致");
-  const warnings = state.resourceReferences.length
-    ? ["账本包保留财务笔记与档案关联。若要备份笔记正文，请使用全 Vault 备份。"]
-    : [];
+  const warnings = state.resourceReferences.length ? ["账本包保留财务笔记与档案关联。若要备份笔记正文，请使用全 Vault 备份。"] : [];
   return { state, issues: [], attachments, sourceBooks: [{ id: state.book.id, name: state.book.name }], modules, warnings };
 }
 
 export class LedgerBackups {
   private readonly previews = new Map<string, { owner: string; until: number; backup: PreparedBackup }>();
-  constructor(private readonly store: LedgerStore, private readonly recurringRules: (state: BookState) => BookState["recurring"] = (state) => state.recurring) {}
+  constructor(
+    private readonly store: LedgerStore,
+    private readonly recurringRules: (state: BookState) => BookState["recurring"] = (state) => state.recurring,
+  ) {}
 
   dispose() {
     this.previews.clear();
@@ -81,8 +81,7 @@ export class LedgerBackups {
     const entries = [...files].map(([path, bytes]) => ({ name: path, size: bytes.length, sha256: digest(bytes) }));
     files.set(manifestName, json({ format: "huhu-ledger", version: 1, modules, files: entries }));
     // eslint-disable-next-line no-control-regex -- Replace control characters that cannot appear in the download filename.
-    return { fileName: (name.replace(/[<>:"/\\|?*\u0000-\u001f]/gu, "_") || "ledger") + ".zip",
-      base64: Buffer.from(writeBoundedZip(files, limits)).toString("base64") };
+    return { fileName: (name.replace(/[<>:"/\\|?*\u0000-\u001f]/gu, "_") || "ledger") + ".zip", base64: Buffer.from(writeBoundedZip(files, limits)).toString("base64") };
   }
 
   preview(context: CapabilityContext, input: z.infer<typeof InspectBackup>): BackupPreview {
@@ -106,10 +105,17 @@ export class LedgerBackups {
     this.previews.set(previewId, { owner, until: now + 15 * 60_000, backup });
     const { state } = backup;
     return {
-      previewId, source: isNative ? "huhu" : "homibook", sourceBookId: isNative ? state.book.id : backup.sourceBooks.find((book) => book.id === input.sourceBookId)?.id ?? backup.sourceBooks[0]!.id,
-      sourceBooks: backup.sourceBooks, suggestedName: BookName.parse(state.book.name.slice(0, 90) + " · 恢复"),
-      timeZone: state.book.timeZone, currency: state.book.defaultCurrency, modules: backup.modules,
-      counts: { accounts: state.accounts.length, records: state.records.length, attachments: state.attachments.length }, issues: backup.issues, warnings: backup.warnings ?? [],
+      previewId,
+      source: isNative ? "huhu" : "homibook",
+      sourceBookId: isNative ? state.book.id : (backup.sourceBooks.find((book) => book.id === input.sourceBookId)?.id ?? backup.sourceBooks[0]!.id),
+      sourceBooks: backup.sourceBooks,
+      suggestedName: BookName.parse(state.book.name.slice(0, 90) + " · 恢复"),
+      timeZone: state.book.timeZone,
+      currency: state.book.defaultCurrency,
+      modules: backup.modules,
+      counts: { accounts: state.accounts.length, records: state.records.length, attachments: state.attachments.length },
+      issues: backup.issues,
+      warnings: backup.warnings ?? [],
     };
   }
 
@@ -137,8 +143,7 @@ export class LedgerBackups {
       if (modules.some((module) => !backup.modules.includes(module))) throw errors.invalidInput("备份不包含所选模块");
       const issues = backup.issues.filter(({ module }) => modules.includes(module));
       const byId = new Map(issues.map((issue) => [issue.id, issue]));
-      if (issues.some(({ id, choices }) => !choices.includes(decisions[id]!)) ||
-          Object.keys(decisions).some((id) => !byId.has(id))) throw errors.invalidInput("请处理所选模块中的每个待决条目");
+      if (issues.some(({ id, choices }) => !choices.includes(decisions[id]!)) || Object.keys(decisions).some((id) => !byId.has(id))) throw errors.invalidInput("请处理所选模块中的每个待决条目");
       const state = selectModules(backup.resolve?.(decisions) ?? backup.state, modules);
       validateBookRelations(state);
       const attachments = new Map(state.attachments.map(({ id }) => [id, backup.attachments.get(id)!]));

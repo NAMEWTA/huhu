@@ -158,7 +158,19 @@ function Editor({ previous, directory, error, busy, close, save }: { previous?: 
 }
 
 type Action = "start" | "stop" | "pause" | "continue";
-export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack, onReview }: { directory?: Directory | undefined; initialPanelId: string | undefined; onNavigate: ModuleProps["onNavigate"]; onBack(): void; onReview(prompt: HostKeyPrompt): void }) {
+export function MonitorDashboard({
+  directory,
+  initialPanelId,
+  onNavigate,
+  onBack,
+  onReview,
+}: {
+  directory?: Directory | undefined;
+  initialPanelId: string | undefined;
+  onNavigate: ModuleProps["onNavigate"];
+  onBack(): void;
+  onReview(prompt: HostKeyPrompt): void;
+}) {
   const engine = useEngine();
   const desktop = Boolean(desktopHost());
   const visible = useMonitorVisibility();
@@ -180,7 +192,13 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
   const hostName = (id: string) => directory?.hosts.find(({ hostId }) => id === hostId)?.name ?? "已移除的主机";
   useMonitorPoll(Boolean(visible && current && (!desktop || (run && run.state !== "stopped"))), refresh);
   useEngineEvents((event) => {
-    if (visible && event.type === "entity.changed" && "kind" in event.payload && (event.payload.kind === "ssh-monitor-panel" || (event.payload.kind === "periodic-plan" && "sourcePlugin" in event.payload && event.payload.sourcePlugin === "ssh"))) void panels.refetch();
+    if (
+      visible &&
+      event.type === "entity.changed" &&
+      "kind" in event.payload &&
+      (event.payload.kind === "ssh-monitor-panel" || (event.payload.kind === "periodic-plan" && "sourcePlugin" in event.payload && event.payload.sourcePlugin === "ssh"))
+    )
+      void panels.refetch();
     if (visible && desktop && event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "ssh-external-monitor") {
       void subscriptions.refetch();
       void externalPanels.refetch();
@@ -335,9 +353,19 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
                   <h3>{hostName(hostId)}</h3>
                   {reading ? <MonitorMetrics host={reading} details={expanded} /> : <p role="status">未开始</p>}
                   {desktop && reading && run?.state !== "stopped" && (
-                    <Button disabled={busy} aria-pressed={Boolean(reading.sudo)} onClick={() => void call("ssh.monitor.panels.sudo", {
-                      ...revision(current), hostId, sudo: !reading.sudo,
-                    })}>监控 sudo {hostName(hostId)}</Button>
+                    <Button
+                      disabled={busy}
+                      aria-pressed={Boolean(reading.sudo)}
+                      onClick={() =>
+                        void call("ssh.monitor.panels.sudo", {
+                          ...revision(current),
+                          hostId,
+                          sudo: !reading.sudo,
+                        })
+                      }
+                    >
+                      监控 sudo {hostName(hostId)}
+                    </Button>
                   )}
                   {desktop && reading?.prompt && <Button onClick={() => setTrust(hostId)}>核对主机指纹</Button>}
                   {desktop && run?.state === "running" && reading && ["disconnected", "failed", "denied", "unsupported", "missing"].includes(reading.state) && (

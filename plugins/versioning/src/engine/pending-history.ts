@@ -32,8 +32,17 @@ export class PendingHistory {
   private readonly directory: string;
   private closing = false;
 
-  constructor(private readonly files: VaultFiles, stateDir: string, private readonly history: FileHistory, private readonly debounceMs: number, private readonly notify: Failure) {
-    this.directory = path.relative(files.root, path.join(stateDir, "history", "pending")).split(path.sep).join("/");
+  constructor(
+    private readonly files: VaultFiles,
+    stateDir: string,
+    private readonly history: FileHistory,
+    private readonly debounceMs: number,
+    private readonly notify: Failure,
+  ) {
+    this.directory = path
+      .relative(files.root, path.join(stateDir, "history", "pending"))
+      .split(path.sep)
+      .join("/");
     if (!files.readOnly) this.recover();
   }
 

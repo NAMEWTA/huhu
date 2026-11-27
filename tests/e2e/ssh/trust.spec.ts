@@ -53,7 +53,12 @@ test("H3.1 缺失本机身份可重开提示并使用一次性密码，旧回复
     try {
       await openSsh(page);
       const saved = await desktopCall<{ hostId: string; revision: string }>(page, "ssh.hosts.configure", {
-        name: "缺失身份夹具", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "identity-file", expectedRevision: null,
+        name: "缺失身份夹具",
+        host: "127.0.0.1",
+        port: server.port,
+        user: "fixture",
+        authKind: "identity-file",
+        expectedRevision: null,
         credentials: [{ purpose: "identityFile", action: "replace", value: path.join(vault, "missing-fixture-identity") }],
       });
       const state = () => desktopCall<ConnectionStatus[]>(page, "ssh.connections.status").then((statuses) => statuses.find(({ hostId }) => hostId === saved.hostId));
@@ -116,11 +121,13 @@ test("A01 PuTTY v2, encrypted PuTTY v3 and OpenSSH keys connect after desktop tr
       const server = await startFakeSsh({ publicKey: key.publicKey });
       servers.push(server);
       await desktopCall(page, "ssh.hosts.configure", {
-        name, host: "127.0.0.1", port: server.port, user: "fixture", authKind: "key", expectedRevision: null,
-        credentials: [
-          { purpose: "privateKey", action: "replace", value: key.privateKey },
-          ...(passphrase ? [{ purpose: "passphrase", action: "replace", value: passphrase }] : []),
-        ],
+        name,
+        host: "127.0.0.1",
+        port: server.port,
+        user: "fixture",
+        authKind: "key",
+        expectedRevision: null,
+        credentials: [{ purpose: "privateKey", action: "replace", value: key.privateKey }, ...(passphrase ? [{ purpose: "passphrase", action: "replace", value: passphrase }] : [])],
       });
       await selectHost(page, name);
       await connect(page);
@@ -146,7 +153,13 @@ test("A01 desktop SSH agent authenticates with its isolated system socket", asyn
     const { page } = fixture;
     await openSsh(page);
     await desktopCall(page, "ssh.hosts.configure", {
-      name: "系统 Agent 回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "agent", expectedRevision: null, credentials: [],
+      name: "系统 Agent 回环",
+      host: "127.0.0.1",
+      port: server.port,
+      user: "fixture",
+      authKind: "agent",
+      expectedRevision: null,
+      credentials: [],
     });
     await selectHost(page, "系统 Agent 回环");
     await connect(page);
@@ -166,10 +179,15 @@ test("A01 desktop SSH agent authenticates with its isolated system socket", asyn
 test("A01 desktop answers a multi-question challenge and a second SSH authentication round", async () => {
   const first = randomUUID();
   const second = randomUUID();
-  const server = await startFakeSsh({ keyboardRounds: [
-    [{ text: "Fixture login", echo: true, answer: "fixture" }, { text: "First response", echo: false, answer: first }],
-    [{ text: "Second response", echo: false, answer: second }],
-  ] });
+  const server = await startFakeSsh({
+    keyboardRounds: [
+      [
+        { text: "Fixture login", echo: true, answer: "fixture" },
+        { text: "First response", echo: false, answer: first },
+      ],
+      [{ text: "Second response", echo: false, answer: second }],
+    ],
+  });
   const fixture = await openApp();
   try {
     const { page } = fixture;
@@ -211,18 +229,25 @@ test("A03 desktop approves the first-hop ProxyCommand and revokes its live conne
     const jumpId = await fixtureHost(page, "代理首跳", jump.port, password);
     const targetId = await fixtureHost(page, "代理目标", target.port, password, [jumpId]);
     const script = path.join(vault, "loopback-proxy.cjs");
-    writeFileSync(script, `
+    writeFileSync(
+      script,
+      `
       const [host, port, user] = process.argv.slice(2);
       if (host !== "127.0.0.1" || port !== "${jump.port}" || user !== "fixture") process.exit(1);
       const socket = require("node:net").connect(Number(port), host);
       socket.on("error", () => process.exit(1));
       process.stdin.pipe(socket).pipe(process.stdout);
       socket.once("close", () => process.exit(0));
-    `);
+    `,
+    );
     await openSsh(page);
     const editProxy = async () => {
       await moduleView(page).getByRole("button", { name: "跳板路由", exact: true }).click();
-      await page.getByRole("article").filter({ has: page.getByRole("checkbox", { name: "代理目标", exact: true }) }).getByRole("button", { name: "本机 ProxyCommand", exact: true }).click();
+      await page
+        .getByRole("article")
+        .filter({ has: page.getByRole("checkbox", { name: "代理目标", exact: true }) })
+        .getByRole("button", { name: "本机 ProxyCommand", exact: true })
+        .click();
       return page.getByRole("dialog", { name: "本机 ProxyCommand" });
     };
     const proxy = await editProxy();
@@ -241,10 +266,12 @@ test("A03 desktop approves the first-hop ProxyCommand and revokes its live conne
       await expect(dialog(page)).toContainText(`127.0.0.1:${port}`);
       await dialog(page).getByRole("button", { name: "信任并连接", exact: true }).click();
     }
-    await expect.poll(() => snapshot(page, targetId)).toMatchObject({
-      state: "connected",
-      route: [{ id: jumpId, outboundProxy: { source: "command" } }, { id: targetId }],
-    });
+    await expect
+      .poll(() => snapshot(page, targetId))
+      .toMatchObject({
+        state: "connected",
+        route: [{ id: jumpId, outboundProxy: { source: "command" } }, { id: targetId }],
+      });
     const revocation = await editProxy();
     await revocation.getByRole("button", { name: "撤销本机批准", exact: true }).click();
     await expect(revocation.getByRole("status")).toHaveText("本机尚未批准");
@@ -263,7 +290,10 @@ test("A03 route editor selects ViaShell and authenticates the target over the de
   const jump = await startFakeSsh({
     password,
     onInteractiveShell: relayToLoopback(target.port),
-    denyDirectTcp: () => { directAttempts++; return true; },
+    denyDirectTcp: () => {
+      directAttempts++;
+      return true;
+    },
   });
   const { page, close } = await openApp();
   try {
@@ -282,10 +312,12 @@ test("A03 route editor selects ViaShell and authenticates the target over the de
       await expect(dialog(page)).toContainText(`127.0.0.1:${port}`);
       await dialog(page).getByRole("button", { name: "信任并连接", exact: true }).click();
     }
-    await expect.poll(() => snapshot(page, targetId)).toMatchObject({
-      state: "connected",
-      route: [{ id: jumpId }, { id: targetId, viaShell: true }],
-    });
+    await expect
+      .poll(() => snapshot(page, targetId))
+      .toMatchObject({
+        state: "connected",
+        route: [{ id: jumpId }, { id: targetId, viaShell: true }],
+      });
     expect(directAttempts).toBe(0);
     await disconnect(page);
     await expect.poll(() => [jump.closed(), target.closed()]).toEqual([1, 1]);

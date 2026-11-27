@@ -1315,9 +1315,15 @@ test("UX13 能力网关 MCP：保存本机端点、复制 HTTP 客户端配置�
     expect((await call("gateway.tokens.revoke", { id })).ok).toBe(true);
     const revoked = await request();
     expect(revoked.status).toBe(401);
-    await info.attach("fixed-endpoint-client", { contentType: "application/json", body: JSON.stringify({
-      configuration, tool: "vault_info", authorizedStatus: authorized.status, revokedStatus: revoked.status,
-    }) });
+    await info.attach("fixed-endpoint-client", {
+      contentType: "application/json",
+      body: JSON.stringify({
+        configuration,
+        tool: "vault_info",
+        authorizedStatus: authorized.status,
+        revokedStatus: revoked.status,
+      }),
+    });
     await page.getByRole("button", { name: "管理所属插件" }).click();
     await expect(page.getByTestId("plugin-center")).toBeVisible();
   } finally {
@@ -1672,10 +1678,7 @@ test("终端规则在桌面配置和清除受保护环境，Safe 停用后仍可
     await expect(page.getByTestId("run-body")).toContainText("***");
     await expect(page.getByTestId("run-body")).not.toContainText(synthetic);
     await page.getByTestId("run-detail").getByRole("button", { name: "关闭", exact: true }).click();
-    await page
-      .getByRole("navigation", { name: "自动化导航" })
-      .getByRole("button", { name: "计划", exact: true })
-      .click();
+    await page.getByRole("navigation", { name: "自动化导航" }).getByRole("button", { name: "计划", exact: true }).click();
     await page.getByTestId("rule-row").filter({ hasText: "桌面规则的独立环境" }).click();
     await openApproval.click();
     await approval.getByRole("button", { name: "撤销批准" }).click();
@@ -1729,7 +1732,8 @@ test("Agent CLI 智能体设置页：列出检测状态，设置默认模型并�
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-aset-bin-"));
   const claude = path.join(bin, "claude");
   const probeLog = path.join(bin, "version-probe.log");
-  const writeVersion = (version: string) => writeFileSync(claude, `#!/bin/sh\ncase "$1" in\n  --version) echo "${version}" >> "$HUHU_E2E_AGENT_PROBE_LOG"; echo "${version} (Claude Code)" ;;\n  --help) echo '  --resume [id]' ;;\n  *) exit 1 ;;\nesac\n`, { mode: 0o755 });
+  const writeVersion = (version: string) =>
+    writeFileSync(claude, `#!/bin/sh\ncase "$1" in\n  --version) echo "${version}" >> "$HUHU_E2E_AGENT_PROBE_LOG"; echo "${version} (Claude Code)" ;;\n  --help) echo '  --resume [id]' ;;\n  *) exit 1 ;;\nesac\n`, { mode: 0o755 });
   writeVersion("2.1.0");
   const { page, vault, close } = await openApp({ PATH: `${bin}:${process.env["PATH"] ?? ""}`, HUHU_E2E_AGENT_PROBE_LOG: probeLog }, (vault) => {
     const directory = path.join(vault, ".huhu/agent-cli");
@@ -1912,9 +1916,7 @@ test("F32：桌面和两个获邀 Web 页面切离专注卡片后由 Engine 到�
       rows.push(row);
     }
     const intentId = randomUUID();
-    const reschedule = await call("automations.plans.submit", { planId, expectedRevision: revision, intentId, change: "reschedule",
-      trigger: { kind: "once", scheduledFor: new Date(Date.now() + 1_500).toISOString() },
-    }, intentId);
+    const reschedule = await call("automations.plans.submit", { planId, expectedRevision: revision, intentId, change: "reschedule", trigger: { kind: "once", scheduledFor: new Date(Date.now() + 1_500).toISOString() } }, intentId);
     expect(reschedule.data).toMatchObject({ outcome: "completed", plan: { planId } });
     await expect.poll(async () => (await call("home.focus.get")).data).toMatchObject({ running: false, completedToday: 1 });
     await expect.poll(async () => (await call("notifications.list")).data.filter(({ title }: { title: string }) => title === "专注完成").length).toBe(1);
@@ -2616,12 +2618,28 @@ test("GitPlan：完整同步与拉取在中心各有一个可修改的计划", a
     await expect(directory.locator(`[data-plan-id="${pull.planId}"]`)).toContainText("每 1 分钟");
     await expect(directory.locator(`[data-plan-id="${sync.planId}"]`)).toContainText("每 2 分钟");
     const intentId = randomUUID();
-    expect(await call("automations.plans.submit", {
-      planId: pull.planId, expectedRevision: pull.revision, intentId, change: "set-intent", intent: "paused",
-    }, intentId)).toMatchObject({ ok: true, data: { outcome: "completed" } });
-    expect(await call("sync.get")).toMatchObject({ ok: true, data: { periodics: {
-      pull: { planId: pull.planId, intent: "paused" }, sync: { planId: sync.planId, intent: "enabled" },
-    } } });
+    expect(
+      await call(
+        "automations.plans.submit",
+        {
+          planId: pull.planId,
+          expectedRevision: pull.revision,
+          intentId,
+          change: "set-intent",
+          intent: "paused",
+        },
+        intentId,
+      ),
+    ).toMatchObject({ ok: true, data: { outcome: "completed" } });
+    expect(await call("sync.get")).toMatchObject({
+      ok: true,
+      data: {
+        periodics: {
+          pull: { planId: pull.planId, intent: "paused" },
+          sync: { planId: sync.planId, intent: "enabled" },
+        },
+      },
+    });
   } finally {
     await close();
   }

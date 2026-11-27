@@ -15,23 +15,27 @@ test("L8 confirmation posts only selected due periods, retries after restart, an
   try {
     engine = await ledgerEngine(root);
     const book = await engine.call<Book>("ledger.books.create", {
-      name: "贷款夹具", defaultCurrency: "CNY", timeZone: "Asia/Taipei", firstAccount: { name: "银行" },
+      name: "贷款夹具",
+      defaultCurrency: "CNY",
+      timeZone: "Asia/Taipei",
+      firstAccount: { name: "银行" },
     });
     const ref = { bookId: book.id };
     const accounts = () => engine!.call<AccountsView>("ledger.accounts.list", ref);
     const version = async () => ({ ...ref, expectedRevision: (await accounts()).book.revision });
     const account = (await accounts()).accounts[0]!;
     const loan = await engine.call<Loan>("ledger.loans.create", {
-      ...await version(),
-      definition: { name: "设备贷款", method: "equal-principal", principalMinor: "30000", currency: "CNY",
-        annualRatePercent: "12", months: 3, startOn: "2026-01-31", accountId: account.id },
+      ...(await version()),
+      definition: { name: "设备贷款", method: "equal-principal", principalMinor: "30000", currency: "CNY", annualRatePercent: "12", months: 3, startOn: "2026-01-31", accountId: account.id },
     });
     const query = { ...ref, loanId: loan.id };
     const history = () => engine!.call<LoanHistory>("ledger.loans.previewHistory", query);
     const records = () => engine!.call<RecordsPage>("ledger.records.list", ref);
     const preview = await history();
     expect(preview.installments.map(({ date, status }) => ({ date, status }))).toEqual([
-      { date: "2026-02-28", status: "due" }, { date: "2026-03-31", status: "due" }, { date: "2026-04-30", status: "future" },
+      { date: "2026-02-28", status: "due" },
+      { date: "2026-03-31", status: "due" },
+      { date: "2026-04-30", status: "future" },
     ]);
     await engine.close();
     engine = await ledgerEngine(root);
@@ -51,7 +55,7 @@ test("L8 confirmation posts only selected due periods, retries after restart, an
     engine = await ledgerEngine(root);
     expect(await post()).toEqual(first);
     const row = (await records()).rows[0]!;
-    const input = { ...await version(), action: { kind: "delete" }, selection: [{ recordId: row.record.id, recordRevision: row.record.revision }] };
+    const input = { ...(await version()), action: { kind: "delete" }, selection: [{ recordId: row.record.id, recordRevision: row.record.revision }] };
     const removal = await engine.call<BatchPreview>("ledger.records.previewBatch", input);
     await engine.call("ledger.records.confirmBatch", { ...input, previewId: removal.previewId });
     expect((await history()).installments[1]).toMatchObject({ status: "generated", recordId: null });
@@ -59,7 +63,7 @@ test("L8 confirmation posts only selected due periods, retries after restart, an
     expect((await records()).total).toBe(0);
 
     await engine.call("ledger.loans.confirmHistory", { ...(await history()).preview, selected: [1] });
-    await engine.call("ledger.loans.remove", { ...await version(), loanId: loan.id });
+    await engine.call("ledger.loans.remove", { ...(await version()), loanId: loan.id });
     expect((await records()).rows).toMatchObject([{ businessDate: "2026-02-28", record: { amountMinor: "10300" } }]);
     expect(await engine.invoke("ledger.loans.confirmHistory", confirm)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
   } finally {

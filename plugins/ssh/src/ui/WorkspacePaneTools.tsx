@@ -76,13 +76,7 @@ export function WorkspacePaneTools({
     if (position !== dock) {
       if (!visible || !movable || !dragging) return null;
       return (
-        <div
-          ref={dropTarget}
-          className="ssh-pane-toolbar-drop"
-          data-toolbar-drop={dock}
-          data-over={over}
-          aria-hidden="true"
-        >
+        <div ref={dropTarget} className="ssh-pane-toolbar-drop" data-toolbar-drop={dock} data-over={over} aria-hidden="true">
           移至分栏{dockName[dock]}
         </div>
       );
@@ -113,54 +107,56 @@ export function WorkspacePaneTools({
           controls[next]?.focus();
         }}
       >
-        {movable && <IconButton
-          icon={GripHorizontal}
-          label={`移至分栏${dockName[other]}`}
-          className="ssh-pane-toolbar-handle"
-          data-tool="move"
-          data-pane-layout-control
-          tabIndex={nativeFocusGroup ? undefined : focused === "move" ? 0 : -1}
-          onClick={(event) => {
-            if (event.detail === 0 || !ignorePointerClick.current) move(other, event.currentTarget);
-          }}
-          onPointerDown={(event) => {
-            if (!visible || !event.isPrimary || event.button !== 0 || drag.current) return;
-            ignorePointerClick.current = false;
-            event.currentTarget.focus({ preventScroll: true });
-            event.currentTarget.setPointerCapture(event.pointerId);
-            drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, active: false };
-          }}
-          onPointerMove={(event) => {
-            const started = drag.current;
-            if (started?.id !== event.pointerId) return;
-            if (!started.active) {
-              if (Math.hypot(event.clientX - started.x, event.clientY - started.y) < dragThreshold) return;
-              started.active = true;
-              ignorePointerClick.current = true;
-              setDragging(true);
-            }
-            setOver(isOverDropTarget(event));
-          }}
-          onPointerUp={(event) => {
-            const started = drag.current;
-            if (started?.id !== event.pointerId) return;
-            if (started.active && !isOverDropTarget(event)) {
+        {movable && (
+          <IconButton
+            icon={GripHorizontal}
+            label={`移至分栏${dockName[other]}`}
+            className="ssh-pane-toolbar-handle"
+            data-tool="move"
+            data-pane-layout-control
+            tabIndex={nativeFocusGroup ? undefined : focused === "move" ? 0 : -1}
+            onClick={(event) => {
+              if (event.detail === 0 || !ignorePointerClick.current) move(other, event.currentTarget);
+            }}
+            onPointerDown={(event) => {
+              if (!visible || !event.isPrimary || event.button !== 0 || drag.current) return;
+              ignorePointerClick.current = false;
+              event.currentTarget.focus({ preventScroll: true });
+              event.currentTarget.setPointerCapture(event.pointerId);
+              drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, active: false };
+            }}
+            onPointerMove={(event) => {
+              const started = drag.current;
+              if (started?.id !== event.pointerId) return;
+              if (!started.active) {
+                if (Math.hypot(event.clientX - started.x, event.clientY - started.y) < dragThreshold) return;
+                started.active = true;
+                ignorePointerClick.current = true;
+                setDragging(true);
+              }
+              setOver(isOverDropTarget(event));
+            }}
+            onPointerUp={(event) => {
+              const started = drag.current;
+              if (started?.id !== event.pointerId) return;
+              if (started.active && !isOverDropTarget(event)) {
+                cancelDrag();
+                return;
+              }
+              clearDrag();
+              if (started.active) move(other, event.currentTarget);
+            }}
+            onLostPointerCapture={(event) => {
+              if (drag.current?.id === event.pointerId) cancelDrag();
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape" || !drag.current?.active) return;
+              event.preventDefault();
+              event.stopPropagation();
               cancelDrag();
-              return;
-            }
-            clearDrag();
-            if (started.active) move(other, event.currentTarget);
-          }}
-          onLostPointerCapture={(event) => {
-            if (drag.current?.id === event.pointerId) cancelDrag();
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Escape" || !drag.current?.active) return;
-            event.preventDefault();
-            event.stopPropagation();
-            cancelDrag();
-          }}
-        />}
+            }}
+          />
+        )}
         <div className="ssh-workspace-controls" role="group" aria-label="分栏工具">
           {actions.map((tool) => (
             <Button key={tool} data-tool={tool} tabIndex={nativeFocusGroup ? undefined : focusTarget === tool ? 0 : -1} onClick={tool === "files" ? onFiles : onMonitor}>

@@ -177,7 +177,9 @@ export class TerminalRecordings {
     this.active.delete(active.summary.shellId);
     // The record is committed above. A cleanup failure cannot change the stop result.
     try {
-      for (const id of this.saved().filter((id) => id !== content.summary.id).slice(this.preferences().savedLimit - 1)) {
+      for (const id of this.saved()
+        .filter((id) => id !== content.summary.id)
+        .slice(this.preferences().savedLimit - 1)) {
         rmSync(path.join(this.directory, id + ".json"), { force: true });
       }
     } catch {

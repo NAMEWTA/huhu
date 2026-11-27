@@ -120,26 +120,33 @@ function refreshNoteCommit(qc: QueryClient, vaultId: string, delta: NoteIndexDel
   const patched = patchIndexSnapshot(qc, vaultId, delta);
   const { path } = delta.entry;
   const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-  return waitForRefresh(refreshQueries(qc, {
-    predicate: ({ queryKey: [id, capability, input] }) => {
-      if (id !== vaultId || typeof capability !== "string") return false;
-      const parameters = input as { path?: string; dir?: string; prefix?: string } | undefined;
-      if (capability === "vault.indexSnapshot") return !patched;
-      if (capability === "vault.indexEntries") {
-        const prefix = parameters?.prefix ?? "";
-        return !prefix || path === prefix || path.startsWith(`${prefix}/`);
-      }
-      if (capability === "vault.list") return (parameters?.dir ?? "") === parent;
-      if (capability === "notes.list" || capability === "notes.tags") return delta.tagsChanged;
-      if (["notes.read", "notes.textEncoding", "notes.previewEncoding", "vault.readFile", "vault.readRange"].includes(capability)) return parameters?.path === path;
-      if (capability.startsWith("tasks.")) return path.startsWith("Tasks/");
-      if (capability.startsWith("automations.")) return path.startsWith("Automations/");
-      // A note outside Archives can add or remove a backlink to a record or attachment.
-      if (capability === "archives.read" && /\.md$/i.test(path)) return true;
-      if (capability.startsWith("archives.")) return path.startsWith("Archives/");
-      return ["notes.backlinks", "vault.search", "home.notes.recent", "home.summary", "health.run"].includes(capability);
-    },
-  }, [signal]), signal);
+  return waitForRefresh(
+    refreshQueries(
+      qc,
+      {
+        predicate: ({ queryKey: [id, capability, input] }) => {
+          if (id !== vaultId || typeof capability !== "string") return false;
+          const parameters = input as { path?: string; dir?: string; prefix?: string } | undefined;
+          if (capability === "vault.indexSnapshot") return !patched;
+          if (capability === "vault.indexEntries") {
+            const prefix = parameters?.prefix ?? "";
+            return !prefix || path === prefix || path.startsWith(`${prefix}/`);
+          }
+          if (capability === "vault.list") return (parameters?.dir ?? "") === parent;
+          if (capability === "notes.list" || capability === "notes.tags") return delta.tagsChanged;
+          if (["notes.read", "notes.textEncoding", "notes.previewEncoding", "vault.readFile", "vault.readRange"].includes(capability)) return parameters?.path === path;
+          if (capability.startsWith("tasks.")) return path.startsWith("Tasks/");
+          if (capability.startsWith("automations.")) return path.startsWith("Automations/");
+          // A note outside Archives can add or remove a backlink to a record or attachment.
+          if (capability === "archives.read" && /\.md$/i.test(path)) return true;
+          if (capability.startsWith("archives.")) return path.startsWith("Archives/");
+          return ["notes.backlinks", "vault.search", "home.notes.recent", "home.summary", "health.run"].includes(capability);
+        },
+      },
+      [signal],
+    ),
+    signal,
+  );
 }
 
 /** 事件到达时让相关查询失效。 */
@@ -180,8 +187,7 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
     else if (typeof p["id"] === "string" && Object.hasOwn(PERIODIC_SOURCE_CAPS, p["id"])) {
       prefixes.push("automations.plans.", ...PERIODIC_SOURCE_CAPS[p["id"]]!);
     }
-  }
-  else if (e.type === "sync.statusChanged") prefixes.push("sync.", "conflicts.");
+  } else if (e.type === "sync.statusChanged") prefixes.push("sync.", "conflicts.");
   else if (e.type === "notification.created") prefixes.push("notifications.");
   else if (e.type === "automation.activated" || e.type === "run.stateChanged") prefixes.push("automations.", "tasks.");
   if (prefixes.length === 0) return Promise.resolve();

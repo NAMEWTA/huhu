@@ -359,29 +359,46 @@ describe("F15 Dispatcher 取消边界", () => {
     const invoked: string[] = [];
     const registry = new CapabilityRegistry();
     for (const scope of ["read", "write", "execute", "admin"] as const) {
-      registry.register(defineCapability({
-        name: `test.${scope}`, plugin: "test", scope, input: z.object({}), output: z.string(), exposable: true,
-        defaultExposed: false, ...(scope === "write" && { idempotency: "durable" as const }),
-        handler: () => { invoked.push(scope); return scope; },
-      }));
+      registry.register(
+        defineCapability({
+          name: `test.${scope}`,
+          plugin: "test",
+          scope,
+          input: z.object({}),
+          output: z.string(),
+          exposable: true,
+          defaultExposed: false,
+          ...(scope === "write" && { idempotency: "durable" as const }),
+          handler: () => {
+            invoked.push(scope);
+            return scope;
+          },
+        }),
+      );
     }
     const legacyFile = path.join(dir, "cancelled-idem.ndjson");
     const auditFile = path.join(dir, "cancelled-audit.ndjson");
     const dispatcher = new Dispatcher({
-      registry, audit: new GatewayAudit(auditFile), idempotency: new IdempotencyStore(legacyFile),
-      operations: { vaultInstance: "fixture", ledger }, isPluginEnabled: () => true,
+      registry,
+      audit: new GatewayAudit(auditFile),
+      idempotency: new IdempotencyStore(legacyFile),
+      operations: { vaultInstance: "fixture", ledger },
+      isPluginEnabled: () => true,
       toolAccess: () => ({ state: "ready", revision: 0, choices: { "test.write": true } }),
-      pluginOrigin: () => "builtin", grantedPermissions: () => ["test.write"],
+      pluginOrigin: () => "builtin",
+      grantedPermissions: () => ["test.write"],
     });
     const signal = AbortSignal.abort();
     for (const scope of ["read", "write", "execute", "admin"]) {
       expect(await dispatcher.call("desktop", req(`test.${scope}`, {}, "legacy-key"), signal)).toMatchObject({
-        ok: false, error: { code: "INVALID_INPUT", details: { outcome: "not-accepted" } },
+        ok: false,
+        error: { code: "INVALID_INPUT", details: { outcome: "not-accepted" } },
       });
     }
     for (const caller of ["cli", "plugin:fixture"] as const) {
       expect(await dispatcher.call(caller, { ...req("test.write"), intentKey: "stable-write" }, signal)).toMatchObject({
-        ok: false, error: { details: { outcome: "not-accepted" } },
+        ok: false,
+        error: { details: { outcome: "not-accepted" } },
       });
     }
     expect(invoked).toEqual([]);
@@ -394,32 +411,46 @@ describe("F15 Dispatcher 取消边界", () => {
     const abortOnParse = new AbortController();
     const waiting = new AbortController();
     let markStarted!: () => void;
-    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
     const registry = new CapabilityRegistry();
     let executions = 0;
-    registry.register(defineCapability({
-      name: "test.write", plugin: "test", scope: "write",
-      input: z.object({ abort: z.boolean() }).transform((input) => {
-        if (input.abort) abortOnParse.abort();
-        return input;
+    registry.register(
+      defineCapability({
+        name: "test.write",
+        plugin: "test",
+        scope: "write",
+        input: z.object({ abort: z.boolean() }).transform((input) => {
+          if (input.abort) abortOnParse.abort();
+          return input;
+        }),
+        output: z.string(),
+        exposable: false,
+        defaultExposed: false,
+        idempotency: "durable",
+        handler: (context) => {
+          executions++;
+          markStarted();
+          return new Promise<string>((_resolve, reject) => {
+            context.signal.addEventListener("abort", () => reject(new HuhuError("INVALID_INPUT", "cooperative stop")), { once: true });
+          });
+        },
       }),
-      output: z.string(), exposable: false, defaultExposed: false, idempotency: "durable",
-      handler: (context) => {
-        executions++;
-        markStarted();
-        return new Promise<string>((_resolve, reject) => {
-          context.signal.addEventListener("abort", () => reject(new HuhuError("INVALID_INPUT", "cooperative stop")), { once: true });
-        });
-      },
-    }));
+    );
     const dispatcher = new Dispatcher({
-      registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(),
+      registry,
+      audit: new GatewayAudit(),
+      idempotency: new IdempotencyStore(),
       operations: { vaultInstance: "fixture", ledger: new OperationReceipts(path.join(dir, "operations.jsonl")) },
-      isPluginEnabled: () => true, toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
-      pluginOrigin: () => "builtin", grantedPermissions: () => [],
+      isPluginEnabled: () => true,
+      toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
+      pluginOrigin: () => "builtin",
+      grantedPermissions: () => [],
     });
     expect(await dispatcher.call("desktop", req("test.write", { abort: true }, "legacy-key"), abortOnParse.signal)).toMatchObject({
-      ok: false, error: { details: { outcome: "not-accepted" } },
+      ok: false,
+      error: { details: { outcome: "not-accepted" } },
     });
     expect(executions).toBe(0);
     const request = { ...req("test.write", { abort: false }), intentKey: "accepted-write" };
@@ -474,21 +505,40 @@ describe("F16 公共输出投影", () => {
   test("高频递归联合输出每次调用只处理一遍，读错误返回可重试 INTERNAL", async () => {
     type Item = { kind: "leaf"; value: number } | { kind: "branch"; children: Item[] };
     let leaves = 0;
-    const item: z.ZodType<Item> = z.lazy(() => z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("leaf"), value: z.number().refine(() => { leaves++; return true; }) }),
-      z.object({ kind: z.literal("branch"), children: z.array(item) }),
-    ]));
+    const item: z.ZodType<Item> = z.lazy(() =>
+      z.discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("leaf"),
+          value: z.number().refine(() => {
+            leaves++;
+            return true;
+          }),
+        }),
+        z.object({ kind: z.literal("branch"), children: z.array(item) }),
+      ]),
+    );
     const registry = new CapabilityRegistry();
     const children = Array.from({ length: 200 }, (_, value) => ({ kind: "leaf" as const, value, internal: true }));
-    registry.register(defineCapability({
-      name: "test.tree", plugin: "test", scope: "read", input: z.object({ invalid: z.boolean() }), output: item,
-      exposable: true, defaultExposed: false,
-      handler: (_context, { invalid }): Item => invalid ? { kind: "leaf", value: "bad" as unknown as number } : { kind: "branch", children },
-    }));
+    registry.register(
+      defineCapability({
+        name: "test.tree",
+        plugin: "test",
+        scope: "read",
+        input: z.object({ invalid: z.boolean() }),
+        output: item,
+        exposable: true,
+        defaultExposed: false,
+        handler: (_context, { invalid }): Item => (invalid ? { kind: "leaf", value: "bad" as unknown as number } : { kind: "branch", children }),
+      }),
+    );
     const dispatcher = new Dispatcher({
-      registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(),
-      isPluginEnabled: () => true, toolAccess: () => ({ state: "ready", revision: 0, choices: { "test.tree": true } }),
-      pluginOrigin: () => "builtin", grantedPermissions: () => [],
+      registry,
+      audit: new GatewayAudit(),
+      idempotency: new IdempotencyStore(),
+      isPluginEnabled: () => true,
+      toolAccess: () => ({ state: "ready", revision: 0, choices: { "test.tree": true } }),
+      pluginOrigin: () => "builtin",
+      grantedPermissions: () => [],
     });
     const started = performance.now();
     for (let run = 0; run < 100; run++) {
@@ -499,7 +549,8 @@ describe("F16 公共输出投影", () => {
     console.info(`F16 投影测量，100 次调用 / 20,000 个叶节点，${(performance.now() - started).toFixed(1)} ms`);
     expect(leaves).toBe(20_000);
     expect(await dispatcher.call("http", req("test.tree", { invalid: true }))).toMatchObject({
-      ok: false, error: { code: "INTERNAL", retryable: true, details: { verification: "invalid-output" } },
+      ok: false,
+      error: { code: "INTERNAL", retryable: true, details: { verification: "invalid-output" } },
     });
   });
 });

@@ -82,7 +82,10 @@ export async function openFixtureMcp(engine: RunningMcpEngine) {
   const session = await openMcpSession(endpoint, token);
   const rpc = (method: string, params: unknown = {}) => mcpRequest(endpoint, token, mcpRpc(method, params), session);
   return {
-    endpoint, token, session, rpc,
+    endpoint,
+    token,
+    session,
+    rpc,
     async call(capability: string, input: object = {}, intentKey?: string): Promise<CapabilityResult<unknown>> {
       const response = await rpc("tools/call", {
         name: capability.replaceAll(".", "_"),
@@ -90,10 +93,8 @@ export async function openFixtureMcp(engine: RunningMcpEngine) {
         ...(intentKey && { _meta: { "huhu.dev/intent-key": intentKey } }),
       });
       assert.equal(response.status, 200);
-      const { result } = await response.json() as { result: { isError?: boolean; content: { text: string }[]; structuredContent?: object } };
-      return CapabilityResultSchema.parse(result.isError
-        ? { ok: false, error: JSON.parse(result.content[0]!.text) }
-        : { ok: true, ...result.structuredContent });
+      const { result } = (await response.json()) as { result: { isError?: boolean; content: { text: string }[]; structuredContent?: object } };
+      return CapabilityResultSchema.parse(result.isError ? { ok: false, error: JSON.parse(result.content[0]!.text) } : { ok: true, ...result.structuredContent });
     },
   };
 }

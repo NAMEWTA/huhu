@@ -53,16 +53,29 @@ export function DashboardCatalog({ definitions, instances, allowed, unavailableR
                 <small>{sourceName(definition.owner)}</small>
               </header>
               <p>{definition.description}</p>
-              <p className="hu-dashboard-catalog-size">推荐尺寸 {definition.defaultSize.w} × {definition.defaultSize.h}</p>
+              <p className="hu-dashboard-catalog-size">
+                推荐尺寸 {definition.defaultSize.w} × {definition.defaultSize.h}
+              </p>
               {!available ? <p>{unavailableReason(type)}</p> : null}
-              {existing.length > 0 && (canAdd || hidden.length > 0) ? <p>已有 {existing.length} 个{hidden.length ? `，其中 ${hidden.length} 个隐藏` : ""}</p> : null}
+              {existing.length > 0 && (canAdd || hidden.length > 0) ? (
+                <p>
+                  已有 {existing.length} 个{hidden.length ? `，其中 ${hidden.length} 个隐藏` : ""}
+                </p>
+              ) : null}
               <footer className="hu-dashboard-catalog-actions">
-                {available && hidden.map((instance, index) => {
-                  const label = `恢复隐藏卡片 ${instance.title || definition.title}${hidden.length > 1 ? `（${index + 1}）` : ""}`;
-                  return <Button key={instance.instanceId} aria-label={label} onClick={() => onRestore(instance)}>恢复隐藏卡片</Button>;
-                })}
+                {available &&
+                  hidden.map((instance, index) => {
+                    const label = `恢复隐藏卡片 ${instance.title || definition.title}${hidden.length > 1 ? `（${index + 1}）` : ""}`;
+                    return (
+                      <Button key={instance.instanceId} aria-label={label} onClick={() => onRestore(instance)}>
+                        恢复隐藏卡片
+                      </Button>
+                    );
+                  })}
                 {(!available || canAdd || hidden.length === 0) && (
-                  <Button aria-label={`${action} ${definition.title}`} variant="primary" disabled={!available || !canAdd} onClick={() => onAdd(definition)}>{action}</Button>
+                  <Button aria-label={`${action} ${definition.title}`} variant="primary" disabled={!available || !canAdd} onClick={() => onAdd(definition)}>
+                    {action}
+                  </Button>
                 )}
               </footer>
             </article>

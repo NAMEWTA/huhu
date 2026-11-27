@@ -24,8 +24,7 @@ export function AutomaticRunControl() {
     setBusy(true);
     setError("");
     try {
-      await engine.call("automations.plans.setAutomationState", { paused: input.paused, expectedRevision: input.expectedRevision },
-        { write: true, idempotencyKey: input.key, intentKey: input.key });
+      await engine.call("automations.plans.setAutomationState", { paused: input.paused, expectedRevision: input.expectedRevision }, { write: true, idempotencyKey: input.key, intentKey: input.key });
       setChange(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "暂时无法修改自动运行设置。");
@@ -36,28 +35,58 @@ export function AutomaticRunControl() {
     }
   }
 
-  return <div className="hu-stack" data-testid="automatic-run-control">
-    {state.error ? <p role="alert">{state.error.message}</p> : null}
-    {state.data ? <>
-      <span role="status">{state.data.paused ? "自动运行已全局暂停" : "自动运行已开启"}</span>
-      {state.data.writable ? <Button variant="ghost" icon={state.data.paused ? Play : Pause} disabled={busy} onClick={() => {
-        setError("");
-        setChange({ paused: !state.data!.paused, expectedRevision: state.data!.revision, key: planIntentId() });
-      }}>{label}</Button> : null}
-    </> : null}
-    {change ? <Dialog open title={confirmLabel} onClose={() => { if (!busy) setChange(null); }} actions={<>
-      <Button disabled={busy} onClick={() => setChange(null)}>关闭</Button>
-      <Button disabled={busy || state.data?.revision !== change.expectedRevision} onClick={() => void submit(change)}>{confirmLabel}</Button>
-    </>}>
-      <p>各计划的启用设置会保留。手动运行与已经发出的动作可以继续。</p>
-      {error ? <p role="alert">{error}</p> : null}
-    </Dialog> : null}
-  </div>;
+  return (
+    <div className="hu-stack" data-testid="automatic-run-control">
+      {state.error ? <p role="alert">{state.error.message}</p> : null}
+      {state.data ? (
+        <>
+          <span role="status">{state.data.paused ? "自动运行已全局暂停" : "自动运行已开启"}</span>
+          {state.data.writable ? (
+            <Button
+              variant="ghost"
+              icon={state.data.paused ? Play : Pause}
+              disabled={busy}
+              onClick={() => {
+                setError("");
+                setChange({ paused: !state.data!.paused, expectedRevision: state.data!.revision, key: planIntentId() });
+              }}
+            >
+              {label}
+            </Button>
+          ) : null}
+        </>
+      ) : null}
+      {change ? (
+        <Dialog
+          open
+          title={confirmLabel}
+          onClose={() => {
+            if (!busy) setChange(null);
+          }}
+          actions={
+            <>
+              <Button disabled={busy} onClick={() => setChange(null)}>
+                关闭
+              </Button>
+              <Button disabled={busy || state.data?.revision !== change.expectedRevision} onClick={() => void submit(change)}>
+                {confirmLabel}
+              </Button>
+            </>
+          }
+        >
+          <p>各计划的启用设置会保留。手动运行与已经发出的动作可以继续。</p>
+          {error ? <p role="alert">{error}</p> : null}
+        </Dialog>
+      ) : null}
+    </div>
+  );
 }
 
 export function AutomaticRunSettings() {
-  return <section className="hu-settings-section hu-card-alt">
-    <h2>自动运行</h2>
-    <AutomaticRunControl />
-  </section>;
+  return (
+    <section className="hu-settings-section hu-card-alt">
+      <h2>自动运行</h2>
+      <AutomaticRunControl />
+    </section>
+  );
 }

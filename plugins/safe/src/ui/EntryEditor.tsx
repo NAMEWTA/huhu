@@ -213,8 +213,7 @@ export function EntryEditor({
         const accountId = base.kind === "account" ? base.account.accountId : undefined;
         const account = entry.accounts.find((item) => item.accountId === accountId);
         if (accountId && !account) throw new Error("Missing account");
-        const next = account ? { kind: "account" as const, entry, account }
-          : { kind: base.kind === "add-account" ? "add-account" as const : "entry" as const, entry };
+        const next = account ? { kind: "account" as const, entry, account } : { kind: base.kind === "add-account" ? ("add-account" as const) : ("entry" as const), entry };
         setBase(next);
         setFields(fieldsFor(next));
         setDirty(false);

@@ -106,7 +106,10 @@ function indexDelivery(record: OutboxRecord): VisibleDelivery | null {
   return {
     ...publicDelivery(record),
     message: {
-      source: "sent", accountId: record.draft.accountId, operationId: record.operationId, subject: record.draft.subject,
+      source: "sent",
+      accountId: record.draft.accountId,
+      operationId: record.operationId,
+      subject: record.draft.subject,
       date: record.result?.finishedAt ?? record.claimedAt,
     },
     internetId: record.messageId,

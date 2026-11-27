@@ -106,7 +106,14 @@ export const versioningTools = {
     input: z.object({ message: z.string(), expected: Repository.optional() }),
     output: Commit.partial({ subject: true }),
   }),
-  syncGet: descriptor({ name: "sync.get", title: "读取同步设置", description: "读取同步设置", ...common, risk: "normal", scope: "read", input: z.object({}),
+  syncGet: descriptor({
+    name: "sync.get",
+    title: "读取同步设置",
+    description: "读取同步设置",
+    ...common,
+    risk: "normal",
+    scope: "read",
+    input: z.object({}),
     output: SyncConfigSchema.extend({ revision: z.string().optional(), periodics: z.object({ pull: PlanSummarySchema.nullable(), sync: PlanSummarySchema.nullable() }).optional() }),
   }),
   syncAuthGet: descriptor({

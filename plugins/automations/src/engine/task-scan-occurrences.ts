@@ -179,14 +179,20 @@ export class TaskScanOccurrences {
       acceptedAt: row.startedAt,
       frozenInput: { revision: row.ruleVersion, digest: digest([JSON.stringify(row.rule), JSON.stringify(input)]) },
       execution: null,
-      effects: row.items.flatMap<PlanOccurrence["effects"][number]>((item) => item.state === "skipped" ? [] : [{
-        effectId: item.dispatchId,
-        kind: "task-dispatch",
-        target: { kind: "task", id: item.taskId },
-        operationId: null,
-        state: item.state === "accepted" ? "accepted" : "not-accepted",
-        receiptId: item.state === "accepted" ? item.eventId : null,
-      }]),
+      effects: row.items.flatMap<PlanOccurrence["effects"][number]>((item) =>
+        item.state === "skipped"
+          ? []
+          : [
+              {
+                effectId: item.dispatchId,
+                kind: "task-dispatch",
+                target: { kind: "task", id: item.taskId },
+                operationId: null,
+                state: item.state === "accepted" ? "accepted" : "not-accepted",
+                receiptId: item.state === "accepted" ? item.eventId : null,
+              },
+            ],
+      ),
     };
   }
 
@@ -454,9 +460,7 @@ export class TaskScanOccurrences {
       ...(row.maxConcurrent !== undefined && { maxConcurrent: row.maxConcurrent }),
     };
     try {
-      receipt = await this.rules.withRuleConfiguration(() => this.currentSchedule(row)
-        ? tasks.acceptRule(input, source)
-        : tasks.readAcceptedRule?.(input, source) ?? null);
+      receipt = await this.rules.withRuleConfiguration(() => (this.currentSchedule(row) ? tasks.acceptRule(input, source) : (tasks.readAcceptedRule?.(input, source) ?? null)));
     } catch (error) {
       const skipped = rejection(error);
       if (!skipped) throw error;

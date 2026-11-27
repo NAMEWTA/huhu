@@ -10,7 +10,10 @@ export class TransferRecovery {
   private readonly temporary: string;
   private warned = false;
 
-  constructor(private readonly file: string, private readonly vaultInstance: string) {
+  constructor(
+    private readonly file: string,
+    private readonly vaultInstance: string,
+  ) {
     this.temporary = `${file}.tmp`;
   }
 

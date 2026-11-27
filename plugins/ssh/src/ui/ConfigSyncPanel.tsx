@@ -111,7 +111,9 @@ export function ConfigSyncPanel({ hosts, onBack, onChanged }: { hosts: ManagedHo
                   <dt>Huhu</dt>
                   <dd>{row.huhu ?? "未设置"}</dd>
                 </dl>
-                {row.unavailable ? <p>{row.unavailable}</p> : row.change === "same" ? (
+                {row.unavailable ? (
+                  <p>{row.unavailable}</p>
+                ) : row.change === "same" ? (
                   <Button disabled={busy} onClick={() => void apply(row.field, "establish")}>
                     记录基准
                   </Button>
@@ -120,7 +122,9 @@ export function ConfigSyncPanel({ hosts, onBack, onChanged }: { hosts: ManagedHo
                     <Button disabled={busy} onClick={() => void apply(row.field, "file-to-huhu")}>
                       将文件值应用到主机
                     </Button>
-                    {row.huhuToFileUnavailable ? <p>{row.huhuToFileUnavailable}</p> : (
+                    {row.huhuToFileUnavailable ? (
+                      <p>{row.huhuToFileUnavailable}</p>
+                    ) : (
                       <Button disabled={busy} onClick={() => void apply(row.field, "huhu-to-file")}>
                         将主机值写入文件
                       </Button>
@@ -130,7 +134,13 @@ export function ConfigSyncPanel({ hosts, onBack, onChanged }: { hosts: ManagedHo
               </li>
             ))}
           </ul>
-          <Button disabled={busy} onClick={() => { setPreview(undefined); setAnnouncement(""); }}>
+          <Button
+            disabled={busy}
+            onClick={() => {
+              setPreview(undefined);
+              setAnnouncement("");
+            }}
+          >
             收起预览
           </Button>
         </section>

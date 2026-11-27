@@ -37,8 +37,9 @@ export async function startLocalControl(endpoint: EngineEndpointRecord, renderer
     server.once("error", reject);
     server.listen(socket, resolve);
   });
-  return () => new Promise((resolve) => {
-    server.close(() => resolve());
-    server.closeAllConnections();
-  });
+  return () =>
+    new Promise((resolve) => {
+      server.close(() => resolve());
+      server.closeAllConnections();
+    });
 }

@@ -18,11 +18,19 @@ export class ScheduleGate {
   private state: Store;
   private version: string | null;
 
-  constructor(private readonly files: VaultFiles, private readonly now: () => Date) {
+  constructor(
+    private readonly files: VaultFiles,
+    private readonly now: () => Date,
+  ) {
     const stored = files.read(file);
-    this.state = stored ? Store.parse(JSON.parse(stored.bytes.toString("utf8"))) : {
-      paused: false, revision: "initial", changedAt: null, pauses: [],
-    };
+    this.state = stored
+      ? Store.parse(JSON.parse(stored.bytes.toString("utf8")))
+      : {
+          paused: false,
+          revision: "initial",
+          changedAt: null,
+          pauses: [],
+        };
     this.version = stored?.version ?? null;
   }
 
@@ -61,7 +69,8 @@ export class ScheduleGate {
     else pauses[pauses.length - 1] = { ...pauses[pauses.length - 1]!, until: changedAt };
     const next = { paused, revision: randomUUID(), changedAt, pauses };
     const { version } = await this.files.write(file, Buffer.from(JSON.stringify(next) + "\n"), {
-      expectedVersion: this.version, beforeCommit: () => signal.throwIfAborted(),
+      expectedVersion: this.version,
+      beforeCommit: () => signal.throwIfAborted(),
     });
     this.state = next;
     this.version = version;

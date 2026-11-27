@@ -29,7 +29,11 @@ const remoteConfig = {
 };
 export const McpSourceConfigSchema = z.discriminatedUnion("transport", [
   z.strictObject({
-    transport: z.literal("stdio"), command: identity, args: z.array(z.string()), cwd: identity.optional(), environment: z.record(environmentName, environmentName),
+    transport: z.literal("stdio"),
+    command: identity,
+    args: z.array(z.string()),
+    cwd: identity.optional(),
+    environment: z.record(environmentName, environmentName),
     credentialEnvironment: z.strictObject({ reference: z.uuid().optional(), names: z.array(environmentName).min(1) }).optional(),
   }),
   z.strictObject({ transport: z.literal("streamable-http"), ...remoteConfig, authentication: McpAuthenticationSchema }),
@@ -39,7 +43,10 @@ export const McpSourceConfigSchema = z.discriminatedUnion("transport", [
 export const McpSourceSchema = z.strictObject({
   sourceId: identity,
   displayName: identity,
-  namespace: z.string().regex(/^[a-z][a-z0-9_-]*$/).max(32),
+  namespace: z
+    .string()
+    .regex(/^[a-z][a-z0-9_-]*$/)
+    .max(32),
   configuration: McpSourceConfigSchema,
   enabled: z.boolean(),
   revision,
@@ -58,22 +65,28 @@ export type McpAuthenticationBinding = z.infer<typeof McpAuthenticationBindingSc
 export const McpImportConfirmationSchema = z.strictObject({
   previewId: identity,
   sourcesRevision: revision,
-  selections: z.array(z.discriminatedUnion("action", [
-    z.strictObject({ entryId: identity, action: z.literal("create") }),
-    z.strictObject({ entryId: identity, action: z.literal("skip") }),
-    z.strictObject({ entryId: identity, action: z.literal("update"), sourceId: identity, sourceRevision: revision }),
-  ])),
+  selections: z.array(
+    z.discriminatedUnion("action", [
+      z.strictObject({ entryId: identity, action: z.literal("create") }),
+      z.strictObject({ entryId: identity, action: z.literal("skip") }),
+      z.strictObject({ entryId: identity, action: z.literal("update"), sourceId: identity, sourceRevision: revision }),
+    ]),
+  ),
 });
 export type McpImportConfirmation = z.infer<typeof McpImportConfirmationSchema>;
 
-export const TaskMcpToolSchema = z.strictObject({
-  sourceId: identity,
-  upstreamIdentity: identity,
-  sourceRevision: revision.nullable(),
-}).refine(({ sourceId, sourceRevision }) => (sourceId === "builtin") === (sourceRevision === null));
+export const TaskMcpToolSchema = z
+  .strictObject({
+    sourceId: identity,
+    upstreamIdentity: identity,
+    sourceRevision: revision.nullable(),
+  })
+  .refine(({ sourceId, sourceRevision }) => (sourceId === "builtin") === (sourceRevision === null));
 export type TaskMcpTool = z.infer<typeof TaskMcpToolSchema>;
-export const TaskMcpToolsSchema = z.array(TaskMcpToolSchema).max(64).refine((tools) =>
-  new Set(tools.map(({ sourceId, upstreamIdentity }) => JSON.stringify([sourceId, upstreamIdentity]))).size === tools.length);
+export const TaskMcpToolsSchema = z
+  .array(TaskMcpToolSchema)
+  .max(64)
+  .refine((tools) => new Set(tools.map(({ sourceId, upstreamIdentity }) => JSON.stringify([sourceId, upstreamIdentity]))).size === tools.length);
 export const TaskMcpAuthorizationSchema = z.strictObject({
   revision: z.uuidv4(),
   tools: TaskMcpToolsSchema.refine((tools) => tools.length > 0),
@@ -86,14 +99,16 @@ const entryKind = z.enum(MCP_ENTRY_KINDS);
 export const McpCatalogViewSchema = z.strictObject({
   catalogRevision: revision,
   policyRevision: revision,
-  entries: z.array(z.strictObject({
-    sourceId: identity,
-    kind: entryKind,
-    upstreamIdentity: identity,
-    publicKey: identity,
-    selected: z.boolean(),
-    description: z.string(),
-  })),
+  entries: z.array(
+    z.strictObject({
+      sourceId: identity,
+      kind: entryKind,
+      upstreamIdentity: identity,
+      publicKey: identity,
+      selected: z.boolean(),
+      description: z.string(),
+    }),
+  ),
 });
 export type McpCatalogView = z.infer<typeof McpCatalogViewSchema>;
 export const McpSourceDeletePreviewSchema = z.strictObject({
@@ -127,21 +142,29 @@ export const McpSourceCatalogSchema = z.strictObject({
   state: z.enum(["ready", "disabled", "offline", "stale", "auth-required", "approval-required", "incompatible"]),
   complete: z.boolean(),
   protocolVersion: identity.optional(),
-  entries: z.array(z.strictObject({
-    kind: entryKind,
-    upstreamIdentity: identity,
-    descriptor: z.record(z.string(), z.unknown()),
-  })),
+  entries: z.array(
+    z.strictObject({
+      kind: entryKind,
+      upstreamIdentity: identity,
+      descriptor: z.record(z.string(), z.unknown()),
+    }),
+  ),
 });
 export type McpSourceCatalog = z.infer<typeof McpSourceCatalogSchema>;
 
 export const McpSourceViewSchema = z.strictObject({
-  source: McpSourceSchema, state: McpSourceCatalogSchema.shape.state, approved: z.boolean(),
-  checkedAt: z.string().nullable(), diagnostic: z.string().nullable(),
+  source: McpSourceSchema,
+  state: McpSourceCatalogSchema.shape.state,
+  approved: z.boolean(),
+  checkedAt: z.string().nullable(),
+  diagnostic: z.string().nullable(),
   credential: z.strictObject({ state: z.string(), account: z.string().nullable() }),
 });
 export const McpSourcesViewSchema = z.strictObject({
-  revision, sources: z.array(McpSourceViewSchema), readOnly: z.boolean(), credentialHostAvailable: z.boolean(),
+  revision,
+  sources: z.array(McpSourceViewSchema),
+  readOnly: z.boolean(),
+  credentialHostAvailable: z.boolean(),
 });
 export type McpSourceView = z.infer<typeof McpSourceViewSchema>;
 export type McpSourcesView = z.infer<typeof McpSourcesViewSchema>;

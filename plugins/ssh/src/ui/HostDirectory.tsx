@@ -14,9 +14,7 @@ import { isManagedHost, type Host, type ManagedHost } from "./host-record.js";
 type Directory = z.output<typeof DirectoryView>;
 type Operation = z.input<typeof DirectoryUpdate>["operation"];
 type DirectoryEntry = Directory["hosts"][number];
-type DirectoryDialog = { kind: "create-group"; version: string } |
-  { kind: "move-hosts"; version: string; ids: string[] } |
-  { kind: "rename-group" | "move-group" | "delete-group"; version: string; groupId: string };
+type DirectoryDialog = { kind: "create-group"; version: string } | { kind: "move-hosts"; version: string; ids: string[] } | { kind: "rename-group" | "move-group" | "delete-group"; version: string; groupId: string };
 const sortModes = {
   "name-asc": "名称升序",
   "name-desc": "名称降序",
@@ -30,7 +28,22 @@ const dialogTitle: Record<DirectoryDialog["kind"], string> = {
   "delete-group": "删除主机分组",
 };
 
-export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onConnect, onFiles, onWorkspace, onRoute, onCreate, onImport, onHostAction, onQuickConnect, onChanged }: {
+export function HostDirectory({
+  directory,
+  hosts,
+  statuses,
+  onBack,
+  onOpen,
+  onConnect,
+  onFiles,
+  onWorkspace,
+  onRoute,
+  onCreate,
+  onImport,
+  onHostAction,
+  onQuickConnect,
+  onChanged,
+}: {
   directory: Directory | undefined;
   hosts: Host[];
   statuses: ReadonlyMap<string, ConnectionStatus>;
@@ -97,8 +110,8 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
   function open(kind: DirectoryDialog["kind"], ids = selected) {
     if (!directory) return;
     setError("");
-    setGroupName(kind === "rename-group" ? currentGroup?.name ?? "" : "");
-    setDestination(kind === "create-group" ? currentGroup?.groupId ?? "" : kind === "move-group" ? currentGroup?.parentId ?? "" : "");
+    setGroupName(kind === "rename-group" ? (currentGroup?.name ?? "") : "");
+    setDestination(kind === "create-group" ? (currentGroup?.groupId ?? "") : kind === "move-group" ? (currentGroup?.parentId ?? "") : "");
     if (kind === "move-hosts") {
       setDialog({ kind, version: directory.version, ids });
     } else if (kind === "create-group") {
@@ -127,7 +140,13 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
   }
 
   function groupOptions(excluded?: ReadonlySet<string>) {
-    return groups.filter(({ groupId }) => !excluded?.has(groupId)).map(({ groupId }) => <option key={groupId} value={groupId}>{directoryGroupPath(groupById, groupId)}</option>);
+    return groups
+      .filter(({ groupId }) => !excluded?.has(groupId))
+      .map(({ groupId }) => (
+        <option key={groupId} value={groupId}>
+          {directoryGroupPath(groupById, groupId)}
+        </option>
+      ));
   }
 
   function submit() {
@@ -135,11 +154,16 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
     const parentId = destination || null;
     const name = groupName.trim();
     switch (dialog.kind) {
-      case "create-group": return organize({ type: "group.create", parentId, name }, dialog.version);
-      case "rename-group": return organize({ type: "group.rename", groupId: dialog.groupId, name }, dialog.version);
-      case "move-group": return organize({ type: "group.move", groupId: dialog.groupId, parentId }, dialog.version);
-      case "delete-group": return organize({ type: "group.delete", groupId: dialog.groupId }, dialog.version);
-      case "move-hosts": return organize({ type: "hosts.move", hostIds: dialog.ids, groupId: parentId }, dialog.version);
+      case "create-group":
+        return organize({ type: "group.create", parentId, name }, dialog.version);
+      case "rename-group":
+        return organize({ type: "group.rename", groupId: dialog.groupId, name }, dialog.version);
+      case "move-group":
+        return organize({ type: "group.move", groupId: dialog.groupId, parentId }, dialog.version);
+      case "delete-group":
+        return organize({ type: "group.delete", groupId: dialog.groupId }, dialog.version);
+      case "move-hosts":
+        return organize({ type: "hosts.move", hostIds: dialog.ids, groupId: parentId }, dialog.version);
     }
   }
 
@@ -186,11 +210,20 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
 
   return (
     <section className="hu-view-content" aria-label="SSH 主机目录">
-      <PageHead title="主机目录" actions={<>
-        <Button onClick={onBack}>返回主机详情</Button>
-        {onImport ? <Button onClick={onImport}>导入主机</Button> : null}
-        {onCreate ? <Button variant="primary" onClick={onCreate}>新建主机</Button> : null}
-      </>} />
+      <PageHead
+        title="主机目录"
+        actions={
+          <>
+            <Button onClick={onBack}>返回主机详情</Button>
+            {onImport ? <Button onClick={onImport}>导入主机</Button> : null}
+            {onCreate ? (
+              <Button variant="primary" onClick={onCreate}>
+                新建主机
+              </Button>
+            ) : null}
+          </>
+        }
+      />
       <div className="ssh-directory-controls row">
         <SearchBox value={query} onChange={setQuery} placeholder="搜索主机名称、地址、用户或标签…" />
         {onQuickConnect ? <Button onClick={() => onQuickConnect(query)}>快速连接</Button> : null}
@@ -200,13 +233,29 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
           {groupOptions()}
         </Select>
         <Select aria-label="主机排序" value={directory?.sort ?? "name-asc"} disabled={!directory || busy} onChange={(event) => void organize({ type: "sort.set", sort: event.currentTarget.value as Directory["sort"] })}>
-          {Object.entries(sortModes).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+          {Object.entries(sortModes).map(([value, label]) => (
+            <option value={value} key={value}>
+              {label}
+            </option>
+          ))}
         </Select>
-        <Segmented<"list" | "grid"> label="主机视图" value={layout} onChange={setLayout} options={[{ value: "list", label: "列表" }, { value: "grid", label: "网格" }]} />
+        <Segmented<"list" | "grid">
+          label="主机视图"
+          value={layout}
+          onChange={setLayout}
+          options={[
+            { value: "list", label: "列表" },
+            { value: "grid", label: "网格" },
+          ]}
+        />
       </div>
       <div className="ssh-directory-controls row">
-        <span role="status">已选 {selected.length} 台{hiddenSelected ? `（其中 ${hiddenSelected} 台在筛选结果之外）` : ""}</span>
-        <Button disabled={!directory} onClick={() => open("create-group")}>新建分组</Button>
+        <span role="status">
+          已选 {selected.length} 台{hiddenSelected ? `（其中 ${hiddenSelected} 台在筛选结果之外）` : ""}
+        </span>
+        <Button disabled={!directory} onClick={() => open("create-group")}>
+          新建分组
+        </Button>
         {currentGroup ? (
           <>
             <Button onClick={() => open("rename-group")}>重命名分组</Button>
@@ -214,14 +263,28 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
             <Button onClick={() => open("delete-group")}>删除分组</Button>
           </>
         ) : null}
-        <Button disabled={!selected.length || busy} onClick={() => open("move-hosts")}>移动所选</Button>
+        <Button disabled={!selected.length || busy} onClick={() => open("move-hosts")}>
+          移动所选
+        </Button>
         <Button disabled={!selected.length || busy} onClick={() => void organize({ type: "hosts.pin", hostIds: selected, pinned: !selectedPinned })}>
           {selectedPinned ? "取消置顶所选" : "置顶所选"}
         </Button>
-        <Button disabled={!canStart} onClick={() => onWorkspace(selected, true)}>连接所选</Button>
-        <Button disabled={!canStart} onClick={() => onWorkspace(selected, false)}>从选择建立工作区</Button>
-        {onRoute ? <Button disabled={!selectedManaged || selected.length > maxRouteEditTargets} onClick={() => onRoute(selected)}>为所选关联跳板</Button> : null}
-        {onHostAction ? <Button disabled={!selectedManaged || busy} onClick={() => confirmRemoval(selected)}>删除所选</Button> : null}
+        <Button disabled={!canStart} onClick={() => onWorkspace(selected, true)}>
+          连接所选
+        </Button>
+        <Button disabled={!canStart} onClick={() => onWorkspace(selected, false)}>
+          从选择建立工作区
+        </Button>
+        {onRoute ? (
+          <Button disabled={!selectedManaged || selected.length > maxRouteEditTargets} onClick={() => onRoute(selected)}>
+            为所选关联跳板
+          </Button>
+        ) : null}
+        {onHostAction ? (
+          <Button disabled={!selectedManaged || busy} onClick={() => confirmRemoval(selected)}>
+            删除所选
+          </Button>
+        ) : null}
       </div>
       {error && !dialog && !removing ? <p role="alert">{error}</p> : null}
       {visible.length ? (
@@ -237,10 +300,18 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
             const pin = entries.some(({ hostId, pinned }) => menuIds.includes(hostId) && !pinned);
             const neighbors = canReorder ? visible.filter((candidate) => candidate.groupId === entry.groupId && candidate.pinned === entry.pinned) : [];
             const index = neighbors.indexOf(entry);
-            const menuAction = (action: () => void) => () => { setMenuHostId(undefined); action(); };
+            const menuAction = (action: () => void) => () => {
+              setMenuHostId(undefined);
+              action();
+            };
             return (
-              <li key={host.id} className="ssh-directory-host"
-                onContextMenu={(event) => { event.preventDefault(); setMenuHostId(host.id); }}
+              <li
+                key={host.id}
+                className="ssh-directory-host"
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setMenuHostId(host.id);
+                }}
                 onDragOver={(event) => {
                   const from = dragging.current?.entry;
                   if (canReorder && from && from.groupId === entry.groupId && from.pinned === entry.pinned && from.hostId !== entry.hostId) {
@@ -262,46 +333,101 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
                   {entry.pinned ? <Badge>已置顶</Badge> : null}
                   {openConnection ? <Badge>{state === "connected" ? "已连接" : reconnect ? "自动重连" : "连接待处理"}</Badge> : null}
                 </div>
-                <code>{host.user}@{hostEndpoint(host)}</code>
+                <code>
+                  {host.user}@{hostEndpoint(host)}
+                </code>
                 <div className="row">
                   <span>{directoryGroupPath(groupById, entry.groupId) || "未分组"}</span>
-                  {entry.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}
+                  {entry.tags.map((tag) => (
+                    <Badge key={tag}>{tag}</Badge>
+                  ))}
                 </div>
                 <div className="row">
-                  <Button variant="ghost" aria-label={`打开主机详情 ${host.name}`} onClick={() => onOpen(host)}>详情</Button>
-                  {!openConnection && isManagedHost(host) ? <Button variant="ghost" aria-label={`连接 ${host.name}`} onClick={() => onConnect(host)}>连接</Button> : null}
+                  <Button variant="ghost" aria-label={`打开主机详情 ${host.name}`} onClick={() => onOpen(host)}>
+                    详情
+                  </Button>
+                  {!openConnection && isManagedHost(host) ? (
+                    <Button variant="ghost" aria-label={`连接 ${host.name}`} onClick={() => onConnect(host)}>
+                      连接
+                    </Button>
+                  ) : null}
                   {neighbors.length > 1 && directory ? (
-                    <Button variant="ghost" draggable aria-label={`拖动 ${host.name}`}
+                    <Button
+                      variant="ghost"
+                      draggable
+                      aria-label={`拖动 ${host.name}`}
                       onDragStart={(event) => {
                         dragging.current = { entry, version: directory.version };
                         event.dataTransfer.effectAllowed = "move";
                         event.dataTransfer.setData("application/x-huhu-ssh-host", entry.hostId);
                       }}
-                      onDragEnd={() => { dragging.current = undefined; }}
-                    >拖动排序</Button>
+                      onDragEnd={() => {
+                        dragging.current = undefined;
+                      }}
+                    >
+                      拖动排序
+                    </Button>
                   ) : null}
-                  <Popover.Root open={menuHostId === host.id} onOpenChange={(shown) => setMenuHostId((current) => shown ? host.id : current === host.id ? undefined : current)}>
-                    <Popover.Trigger asChild><Button variant="ghost" aria-label={`更多操作 ${host.name}`}>更多操作</Button></Popover.Trigger>
+                  <Popover.Root open={menuHostId === host.id} onOpenChange={(shown) => setMenuHostId((current) => (shown ? host.id : current === host.id ? undefined : current))}>
+                    <Popover.Trigger asChild>
+                      <Button variant="ghost" aria-label={`更多操作 ${host.name}`}>
+                        更多操作
+                      </Button>
+                    </Popover.Trigger>
                     <Popover.Portal>
                       <Popover.Content className="ssh-directory-actions" align="end" sideOffset={4} collisionPadding={8} aria-label={`${host.name}的操作`}>
-                        <Button variant="ghost" disabled={!one} onClick={menuAction(() => onOpen(host))}>详情</Button>
-                        <Button variant="ghost" disabled={!one || !isManagedHost(host)} onClick={menuAction(() => onFiles(host))}>打开独立文件管理</Button>
-                        <Button variant="ghost" disabled={!menuManaged || menuIds.length > MAX_WORKSPACE_PANES || one && openConnection} onClick={menuAction(() => one ? onConnect(host) : onWorkspace(menuIds, true))}>连接</Button>
-                        <Button variant="ghost" disabled={busy} onClick={menuAction(() => open("move-hosts", menuIds))}>移动分组</Button>
-                        <Button variant="ghost" disabled={busy} onClick={menuAction(() => { void organize({ type: "hosts.pin", hostIds: menuIds, pinned: pin }); })}>
+                        <Button variant="ghost" disabled={!one} onClick={menuAction(() => onOpen(host))}>
+                          详情
+                        </Button>
+                        <Button variant="ghost" disabled={!one || !isManagedHost(host)} onClick={menuAction(() => onFiles(host))}>
+                          打开独立文件管理
+                        </Button>
+                        <Button variant="ghost" disabled={!menuManaged || menuIds.length > MAX_WORKSPACE_PANES || (one && openConnection)} onClick={menuAction(() => (one ? onConnect(host) : onWorkspace(menuIds, true)))}>
+                          连接
+                        </Button>
+                        <Button variant="ghost" disabled={busy} onClick={menuAction(() => open("move-hosts", menuIds))}>
+                          移动分组
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={menuAction(() => {
+                            void organize({ type: "hosts.pin", hostIds: menuIds, pinned: pin });
+                          })}
+                        >
                           {pin ? "置顶" : "取消置顶"}
                         </Button>
-                        <Button variant="ghost" disabled={!menuManaged || menuIds.length > MAX_WORKSPACE_PANES} onClick={menuAction(() => onWorkspace(menuIds, false))}>建立工作区</Button>
-                        {onRoute && <Button variant="ghost" disabled={!menuManaged || menuIds.length > maxRouteEditTargets} onClick={menuAction(() => onRoute(menuIds))}>关联跳板</Button>}
-                        {directory && neighbors.length > 1 && <>
-                          <Button variant="ghost" disabled={!one || index < 1} onClick={menuAction(() => reorder(entry, neighbors[index - 1]!, directory.version))}>上移</Button>
-                          <Button variant="ghost" disabled={!one || index === neighbors.length - 1} onClick={menuAction(() => reorder(entry, neighbors[index + 1]!, directory.version))}>下移</Button>
-                        </>}
-                        {onHostAction && isManagedHost(host) && <>
-                          <Button variant="ghost" disabled={!one} onClick={menuAction(() => onHostAction("edit", host))}>编辑</Button>
-                          <Button variant="ghost" disabled={!one} onClick={menuAction(() => onHostAction("copy", host))}>复制</Button>
-                          <Button variant="ghost" disabled={!menuManaged || busy} onClick={menuAction(() => one ? onHostAction("remove", host) : confirmRemoval(menuIds))}>删除</Button>
-                        </>}
+                        <Button variant="ghost" disabled={!menuManaged || menuIds.length > MAX_WORKSPACE_PANES} onClick={menuAction(() => onWorkspace(menuIds, false))}>
+                          建立工作区
+                        </Button>
+                        {onRoute && (
+                          <Button variant="ghost" disabled={!menuManaged || menuIds.length > maxRouteEditTargets} onClick={menuAction(() => onRoute(menuIds))}>
+                            关联跳板
+                          </Button>
+                        )}
+                        {directory && neighbors.length > 1 && (
+                          <>
+                            <Button variant="ghost" disabled={!one || index < 1} onClick={menuAction(() => reorder(entry, neighbors[index - 1]!, directory.version))}>
+                              上移
+                            </Button>
+                            <Button variant="ghost" disabled={!one || index === neighbors.length - 1} onClick={menuAction(() => reorder(entry, neighbors[index + 1]!, directory.version))}>
+                              下移
+                            </Button>
+                          </>
+                        )}
+                        {onHostAction && isManagedHost(host) && (
+                          <>
+                            <Button variant="ghost" disabled={!one} onClick={menuAction(() => onHostAction("edit", host))}>
+                              编辑
+                            </Button>
+                            <Button variant="ghost" disabled={!one} onClick={menuAction(() => onHostAction("copy", host))}>
+                              复制
+                            </Button>
+                            <Button variant="ghost" disabled={!menuManaged || busy} onClick={menuAction(() => (one ? onHostAction("remove", host) : confirmRemoval(menuIds)))}>
+                              删除
+                            </Button>
+                          </>
+                        )}
                       </Popover.Content>
                     </Popover.Portal>
                   </Popover.Root>
@@ -310,24 +436,40 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
             );
           })}
         </ul>
-      ) : <EmptyState icon={Server} title={directory ? "没有符合条件的主机" : "等待读取主机目录"} />}
+      ) : (
+        <EmptyState icon={Server} title={directory ? "没有符合条件的主机" : "等待读取主机目录"} />
+      )}
       {dialog ? (
         <Dialog
-          open title={dialogTitle[dialog.kind]}
+          open
+          title={dialogTitle[dialog.kind]}
           error={error}
-          onClose={() => { if (!busy) setDialog(undefined); }}
-          actions={<>
-            <Button disabled={busy} onClick={() => setDialog(undefined)}>取消</Button>
-            <Button type="submit" form={formId} loading={busy} disabled={groupNameField && !groupName.trim()}>
-              {dialog.kind === "delete-group" ? "确认删除" : "保存"}
-            </Button>
-          </>}
+          onClose={() => {
+            if (!busy) setDialog(undefined);
+          }}
+          actions={
+            <>
+              <Button disabled={busy} onClick={() => setDialog(undefined)}>
+                取消
+              </Button>
+              <Button type="submit" form={formId} loading={busy} disabled={groupNameField && !groupName.trim()}>
+                {dialog.kind === "delete-group" ? "确认删除" : "保存"}
+              </Button>
+            </>
+          }
         >
-          <form id={formId} onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}>
-            {groupNameField ? <Field label="分组名称"><input aria-label="分组名称" required value={groupName} onChange={(event) => setGroupName(event.target.value)} /></Field> : null}
+          <form
+            id={formId}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
+            }}
+          >
+            {groupNameField ? (
+              <Field label="分组名称">
+                <input aria-label="分组名称" required value={groupName} onChange={(event) => setGroupName(event.target.value)} />
+              </Field>
+            ) : null}
             {destinationField ? (
               <Field label={destinationLabel}>
                 <Select aria-label={destinationLabel} value={destination} onChange={(event) => setDestination(event.target.value)}>
@@ -341,14 +483,31 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
         </Dialog>
       ) : null}
       {removing ? (
-        <Dialog open title="删除所选主机" onClose={() => { if (!busy) setRemoving(undefined); }}
-          actions={<>
-            <Button autoFocus disabled={busy} onClick={() => setRemoving(undefined)}>取消</Button>
-            <Button variant="danger" loading={busy} onClick={() => void removeHosts()}>确认删除</Button>
-          </>}
+        <Dialog
+          open
+          title="删除所选主机"
+          onClose={() => {
+            if (!busy) setRemoving(undefined);
+          }}
+          actions={
+            <>
+              <Button autoFocus disabled={busy} onClick={() => setRemoving(undefined)}>
+                取消
+              </Button>
+              <Button variant="danger" loading={busy} onClick={() => void removeHosts()}>
+                确认删除
+              </Button>
+            </>
+          }
         >
           <p>删除以下主机配置和本机认证资料。仍被引用的主机会保留。</p>
-          <ul>{removing.map((host) => <li key={host.id}>{host.name} · {hostEndpoint(host)}</li>)}</ul>
+          <ul>
+            {removing.map((host) => (
+              <li key={host.id}>
+                {host.name} · {hostEndpoint(host)}
+              </li>
+            ))}
+          </ul>
         </Dialog>
       ) : null}
     </section>

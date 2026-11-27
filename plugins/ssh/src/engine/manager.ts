@@ -243,12 +243,12 @@ export class SshManager {
   }
 
   hasWorkbenchConnection(hostId: string): boolean {
-    return [...this.conns.values()].some((connection) => connection.hostId === hostId)
-      || [...this.connecting.values()].some(({ attempt }) => attempt.hostId === hostId);
+    return [...this.conns.values()].some((connection) => connection.hostId === hostId) || [...this.connecting.values()].some(({ attempt }) => attempt.hostId === hostId);
   }
 
   connectionStatuses(): ConnectionStatus[] {
-    return [...this.statuses].filter(([, { hostId }]) => !isQuickHost(hostId))
+    return [...this.statuses]
+      .filter(([, { hostId }]) => !isQuickHost(hostId))
       .map(([slot, status]) => {
         const reconnect = this.reconnectStatus(slot);
         return reconnect ? { ...status, reconnect } : status;
@@ -427,23 +427,27 @@ export class SshManager {
     const session: { shellId?: string } = {};
     this.quick.set(hostId, session);
     const { promise, attempt } = this.begin(hostId, AbortSignal.timeout(5 * 60_000), true, undefined, { host, auth: password ? { password } : agentAuth() });
-    void promise.then(async ({ connection }) => {
-      if (this.quick.get(hostId) !== session) return;
-      const shell = await this.openShell(hostId, undefined, connection, () => queueMicrotask(() => {
-        if (this.quick.get(hostId) === session) this.closeQuick(id);
-      }));
-      if (this.quick.get(hostId) !== session) {
-        this.closeShell(shell.id);
-        this.shells.delete(shell.id);
-        return;
-      }
-      session.shellId = shell.id;
-      this.update({ hostId, attemptId: attempt.id, state: "connected", route: connection.route });
-    }).catch((error: unknown) => {
-      if (this.quick.get(hostId) !== session || this.statuses.get(hostId)?.state !== "connected") return;
-      this.drop(hostId);
-      this.update({ hostId, attemptId: attempt.id, state: "failed", message: error instanceof HuhuError ? error.message : "无法打开临时终端" });
-    });
+    void promise
+      .then(async ({ connection }) => {
+        if (this.quick.get(hostId) !== session) return;
+        const shell = await this.openShell(hostId, undefined, connection, () =>
+          queueMicrotask(() => {
+            if (this.quick.get(hostId) === session) this.closeQuick(id);
+          }),
+        );
+        if (this.quick.get(hostId) !== session) {
+          this.closeShell(shell.id);
+          this.shells.delete(shell.id);
+          return;
+        }
+        session.shellId = shell.id;
+        this.update({ hostId, attemptId: attempt.id, state: "connected", route: connection.route });
+      })
+      .catch((error: unknown) => {
+        if (this.quick.get(hostId) !== session || this.statuses.get(hostId)?.state !== "connected") return;
+        this.drop(hostId);
+        this.update({ hostId, attemptId: attempt.id, state: "failed", message: error instanceof HuhuError ? error.message : "无法打开临时终端" });
+      });
     return { hostId };
   }
 
@@ -478,7 +482,16 @@ export class SshManager {
       return running;
     }
     const abort = new AbortController();
-    const attempt: Attempt = { id: newId("cap").replace("cap", "att"), hostId, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal, requirePromptId, ...owner, ...(expectedTarget && { expectedTarget }), ...(quick && { quick }), ...(reconnectRoute && { reconnectRoute }) };
+    const attempt: Attempt = {
+      id: newId("cap").replace("cap", "att"),
+      hostId,
+      signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal,
+      requirePromptId,
+      ...owner,
+      ...(expectedTarget && { expectedTarget }),
+      ...(quick && { quick }),
+      ...(reconnectRoute && { reconnectRoute }),
+    };
     const promise = Promise.resolve()
       .then(() => this.doConnect(attempt))
       .finally(() => {
@@ -586,7 +599,15 @@ export class SshManager {
       onHop?.(hop, host);
       if (attempt.route) {
         const proxy = hop === 0 ? (command ? { source: "command" as const } : outbound && summarizeOutboundProxy(outbound)) : undefined;
-        attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [], ...(proxy && { outboundProxy: proxy }), ...(hop > 0 && host.viaShell && { viaShell: true as const }) });
+        attempt.route.push({
+          ...describeHost(host),
+          user: host.user,
+          auth: host.keyId ? "key-library" : host.auth.kind,
+          stage: "dialing",
+          timeline: [],
+          ...(proxy && { outboundProxy: proxy }),
+          ...(hop > 0 && host.viaShell && { viaShell: true as const }),
+        });
         this.trace(attempt, hop, "dialing");
       }
       if (command && attempt.publicProbe) throw errors.permissionDenied("本机 SSH ProxyCommand");
@@ -602,11 +623,7 @@ export class SshManager {
         };
         const proxy = this.d.outbound;
         const profile = outbound?.profile;
-        const dial = device && command
-          ? (signal: AbortSignal) => device.commands.dial(command, chain, signal, validate)
-          : proxy && profile
-            ? (signal: AbortSignal) => proxy.dial(profile, host, signal, validate)
-            : undefined;
+        const dial = device && command ? (signal: AbortSignal) => device.commands.dial(command, chain, signal, validate) : proxy && profile ? (signal: AbortSignal) => proxy.dial(profile, host, signal, validate) : undefined;
         if (hop !== 0 || !dial) return this.connectHop(client, host, target, hop, attempt, auth, socket, preferences);
         this.trace(attempt, hop, "proxy");
         const deadline = AbortSignal.any([attempt.signal, AbortSignal.timeout(preferences.connectTimeoutSec * 1000)]);
@@ -626,7 +643,10 @@ export class SshManager {
       else {
         let started = false;
         try {
-          await this.d.withManagedAuth(host, (auth) => { started = true; return authenticate(auth); });
+          await this.d.withManagedAuth(host, (auth) => {
+            started = true;
+            return authenticate(auth);
+          });
         } catch (error) {
           if (started || attempt.publicProbe || attempt.report || attempt.draft || attempt.reconnectRoute || !(error instanceof HuhuError) || error.details?.reason !== "identity-file-unavailable") throw error;
           const auth = await this.recoverIdentity(attempt, target, host, hop);
@@ -661,9 +681,15 @@ export class SshManager {
   private recoverIdentity(attempt: Attempt, target: ManagedHost, host: ManagedHost, hop: number): Promise<ConnectionAuth> {
     const { id: attemptId, hostId, signal } = attempt;
     const prompt: SshAuthenticationPrompt = {
-      promptId: newId("cap").replace("cap", "prompt"), attemptId, hop, target: describeHost(target), server: describeHost(host),
-      name: "本机身份文件不可用", instructions: "可为此跳选择一次性密码或服务器交互认证。",
-      recovery: "identity-file-unavailable", questions: [{ text: "一次性密码", echo: false }],
+      promptId: newId("cap").replace("cap", "prompt"),
+      attemptId,
+      hop,
+      target: describeHost(target),
+      server: describeHost(host),
+      name: "本机身份文件不可用",
+      instructions: "可为此跳选择一次性密码或服务器交互认证。",
+      recovery: "identity-file-unavailable",
+      questions: [{ text: "一次性密码", echo: false }],
     };
     return new Promise((resolve, reject) => {
       const finish = (error?: HuhuError, auth: ConnectionAuth = {}) => {
@@ -677,10 +703,13 @@ export class SshManager {
       const timer = setTimeout(() => finish(new HuhuError("SSH_TIMEOUT", "等待替代 SSH 凭据超时", { details: { hop } })), this.d.decisionTimeoutMs ?? 120_000);
       if (signal.aborted) return abort();
       signal.addEventListener("abort", abort, { once: true });
-      attempt.authentication = { prompt, answer: (answers) => {
-        if (answers === null) return abort();
-        finish(undefined, answers[0] === "password" ? { password: answers[1]! } : {});
-      } };
+      attempt.authentication = {
+        prompt,
+        answer: (answers) => {
+          if (answers === null) return abort();
+          finish(undefined, answers[0] === "password" ? { password: answers[1]! } : {});
+        },
+      };
       this.trace(attempt, hop, "answering");
       this.update({ hostId, attemptId, state: "auth-waiting", authPrompt: prompt, ...(this.connecting.get(attempt.slot ?? hostId)?.workspaces && { workspace: true as const }) });
     });
@@ -855,7 +884,16 @@ export class SshManager {
     return dial;
   }
 
-  private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown, preferences: Pick<ConnectionPreferences, "connectTimeoutSec" | "keepaliveIntervalSec" | "keepaliveCountMax">): Promise<void> {
+  private connectHop(
+    client: Client,
+    h: HostRecord,
+    target: HostRecord,
+    hop: number,
+    attempt: Attempt,
+    auth: ConnectionAuth,
+    sock: unknown,
+    preferences: Pick<ConnectionPreferences, "connectTimeoutSec" | "keepaliveIntervalSec" | "keepaliveCountMax">,
+  ): Promise<void> {
     const { id: attemptId, hostId, signal } = attempt;
     return new Promise((resolve, reject) => {
       let timer: NodeJS.Timeout | undefined;
@@ -1179,13 +1217,13 @@ export class SshManager {
     if (!conn || conn.hostId !== hostId || this.conns.get(conn.slot) !== conn) throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
     const pty = { term: "xterm-256color", cols: size.cols, rows: size.rows };
     const integrated = integrate ? await openIntegratedShell(conn.target, pty) : undefined;
-    const channel = integrated?.channel ?? (await new Promise<ClientChannel>((resolve, reject) => {
-      const opened = (error: Error | undefined, stream: ClientChannel) => error
-        ? reject(new HuhuError("SSH_DISCONNECTED", `打开 Shell 失败：${error.message}`))
-        : resolve(stream);
-      if (command) conn.target.exec(command, { pty }, opened);
-      else conn.target.shell(pty, opened);
-    }));
+    const channel =
+      integrated?.channel ??
+      (await new Promise<ClientChannel>((resolve, reject) => {
+        const opened = (error: Error | undefined, stream: ClientChannel) => (error ? reject(new HuhuError("SSH_DISCONNECTED", `打开 Shell 失败：${error.message}`)) : resolve(stream));
+        if (command) conn.target.exec(command, { pty }, opened);
+        else conn.target.shell(pty, opened);
+      }));
     if (this.conns.get(conn.slot) !== conn) {
       channel.close();
       throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
@@ -1216,7 +1254,9 @@ export class SshManager {
     const connection = this.runningShellConnection(hostId, shellId);
     if (!parent || !connection || this.fileOrigins.get(connection)?.connectionId !== connectionId) throw new HuhuError("SSH_DISCONNECTED", "服务器工具的原分栏已关闭");
     let childId: string | undefined;
-    const closeChild = () => { if (childId) this.closeShell(childId); };
+    const closeChild = () => {
+      if (childId) this.closeShell(childId);
+    };
     const shell = await this.openShell(hostId, undefined, connection, () => parent.closers.delete(closeChild), false, command);
     childId = shell.id;
     if (parent.state !== "running" || signal.aborted) {
@@ -1548,24 +1588,30 @@ export class SshManager {
       });
       stop.catch(() => undefined);
       session = await Promise.race([
-        privileged ? (() => {
-          const previous = privileged.tail;
-          const held = new Promise<void>((release) => { unlock = release; });
-          privileged.tail = previous.then(() => held);
-          return previous.then(() => {
-            signal.throwIfAborted();
-            return privileged.channel;
-          });
-        })() : opts.elevated ? openPrivilegedSftp(target, signal) : new Promise<SFTPWrapper>((resolve, reject) =>
-          target.sftp((err, channel) => {
-            if (err) return reject(err);
-            if (signal.aborted) {
-              channel.end();
-              return reject(signal.reason);
-            }
-            resolve(channel);
-          }),
-        ),
+        privileged
+          ? (() => {
+              const previous = privileged.tail;
+              const held = new Promise<void>((release) => {
+                unlock = release;
+              });
+              privileged.tail = previous.then(() => held);
+              return previous.then(() => {
+                signal.throwIfAborted();
+                return privileged.channel;
+              });
+            })()
+          : opts.elevated
+            ? openPrivilegedSftp(target, signal)
+            : new Promise<SFTPWrapper>((resolve, reject) =>
+                target.sftp((err, channel) => {
+                  if (err) return reject(err);
+                  if (signal.aborted) {
+                    channel.end();
+                    return reject(signal.reason);
+                  }
+                  resolve(channel);
+                }),
+              ),
         stop,
       ]);
       const live = session;

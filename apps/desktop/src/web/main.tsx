@@ -31,18 +31,21 @@ function BrowserRoot() {
   const endpoint = session.status === "ready" ? session.endpoint : undefined;
   useEffect(() => (endpoint ? installBrowserDraftGuard() : undefined), [endpoint]);
 
-  const checkSession = useCallback((state: "connected" | "reconnecting") => {
-    if (state !== "reconnecting" || !endpoint) return;
-    void browserEndpoint()
-      .then((current) => {
-        if (current?.generation === endpoint.generation && current?.vaultId === endpoint.vaultId && current.browserSessionId === endpoint.browserSessionId) return;
-        switchBrowserDraftScope(null, endpoint);
-        setSession((previous) => {
-          return previous.status === "ready" && previous.endpoint === endpoint ? { status: "expired" } : previous;
-        });
-      })
-      .catch(() => undefined); // 暂时断网时由事件流重连，保留正在编辑的内容。
-  }, [endpoint]);
+  const checkSession = useCallback(
+    (state: "connected" | "reconnecting") => {
+      if (state !== "reconnecting" || !endpoint) return;
+      void browserEndpoint()
+        .then((current) => {
+          if (current?.generation === endpoint.generation && current?.vaultId === endpoint.vaultId && current.browserSessionId === endpoint.browserSessionId) return;
+          switchBrowserDraftScope(null, endpoint);
+          setSession((previous) => {
+            return previous.status === "ready" && previous.endpoint === endpoint ? { status: "expired" } : previous;
+          });
+        })
+        .catch(() => undefined); // 暂时断网时由事件流重连，保留正在编辑的内容。
+    },
+    [endpoint],
+  );
 
   if (session.status === "ready") return <WorkbenchApp key={session.endpoint.generation} endpoint={session.endpoint} state="ready" browser onConnection={checkSession} />;
   if (session.status === "loading") return <EmptyState title="正在连接工作台" />;

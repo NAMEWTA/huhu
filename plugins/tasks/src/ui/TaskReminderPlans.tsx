@@ -35,26 +35,61 @@ export function TaskReminderPlans({ task, onNavigate }: { task: TaskDto; onNavig
     <section className="hu-tw-detail-section" data-testid="detail-reminders">
       <h3>提醒</h3>
       {plans.error ? <p role="status">{plans.error.message}</p> : null}
-      {plans.data?.plans.filter(({ action, trigger }) => action.capability === "notifications.create" || action.capability === "automations.runNow" || trigger.kind === "observe").map((plan) => (
-        <div key={plan.planId} className="tasks-reminder-read" data-plan-id={plan.planId}>
-          <span>{plan.title}</span>
-          {plan.trigger.kind === "once" ? <time dateTime={plan.trigger.scheduledFor}>{new Date(plan.trigger.scheduledFor).toLocaleString()}</time>
-            : plan.trigger.kind === "cron" ? <span>{plan.trigger.expression} · {plan.trigger.zone}</span> : null}
-          <small>{plan.lastOccurrence?.state === "unknown" ? "待核实" : plan.lastOccurrence?.state === "completed" ? "已递送" : plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? "暂不可用" : "待触发"}</small>
-          {PlanScheduleControls ? <PlanScheduleControls plan={plan} changed={() => plans.refetch()} /> : null}
-          <AutomationPlanLink planId={plan.planId} onNavigate={onNavigate} label={`在中心管理 · ${plan.title}`} />
-        </div>
-      ))}
-      {!task.readOnly && task.status !== "completed" && plans.data ? <Button onClick={() => {
-        setScheduledFor(null);
-        setError("");
-        setCreating(true);
-      }}>添加提醒</Button> : null}
-      {creating ? <Dialog open title="添加任务提醒" onClose={() => { if (!busy) { setCreating(false); setPending(null); } }} error={error}
-        actions={<Button variant="primary" disabled={!scheduledFor || busy} onClick={() => void save()}>{pending ? "核对原提醒" : "保存提醒"}</Button>}>
-        <DateTimePicker label="提醒时间" field={{ kind: "instant", value: scheduledFor }} clearable={false}
-          onChange={(value) => { if (value.kind === "instant" && !pending) setScheduledFor(value.value); }} />
-      </Dialog> : null}
+      {plans.data?.plans
+        .filter(({ action, trigger }) => action.capability === "notifications.create" || action.capability === "automations.runNow" || trigger.kind === "observe")
+        .map((plan) => (
+          <div key={plan.planId} className="tasks-reminder-read" data-plan-id={plan.planId}>
+            <span>{plan.title}</span>
+            {plan.trigger.kind === "once" ? (
+              <time dateTime={plan.trigger.scheduledFor}>{new Date(plan.trigger.scheduledFor).toLocaleString()}</time>
+            ) : plan.trigger.kind === "cron" ? (
+              <span>
+                {plan.trigger.expression} · {plan.trigger.zone}
+              </span>
+            ) : null}
+            <small>{plan.lastOccurrence?.state === "unknown" ? "待核实" : plan.lastOccurrence?.state === "completed" ? "已递送" : plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? "暂不可用" : "待触发"}</small>
+            {PlanScheduleControls ? <PlanScheduleControls plan={plan} changed={() => plans.refetch()} /> : null}
+            <AutomationPlanLink planId={plan.planId} onNavigate={onNavigate} label={`在中心管理 · ${plan.title}`} />
+          </div>
+        ))}
+      {!task.readOnly && task.status !== "completed" && plans.data ? (
+        <Button
+          onClick={() => {
+            setScheduledFor(null);
+            setError("");
+            setCreating(true);
+          }}
+        >
+          添加提醒
+        </Button>
+      ) : null}
+      {creating ? (
+        <Dialog
+          open
+          title="添加任务提醒"
+          onClose={() => {
+            if (!busy) {
+              setCreating(false);
+              setPending(null);
+            }
+          }}
+          error={error}
+          actions={
+            <Button variant="primary" disabled={!scheduledFor || busy} onClick={() => void save()}>
+              {pending ? "核对原提醒" : "保存提醒"}
+            </Button>
+          }
+        >
+          <DateTimePicker
+            label="提醒时间"
+            field={{ kind: "instant", value: scheduledFor }}
+            clearable={false}
+            onChange={(value) => {
+              if (value.kind === "instant" && !pending) setScheduledFor(value.value);
+            }}
+          />
+        </Dialog>
+      ) : null}
     </section>
   );
 }

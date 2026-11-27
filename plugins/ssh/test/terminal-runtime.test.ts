@@ -134,7 +134,9 @@ test("原生窗口交接绑定原控制者和 shell，失败保留输入，关�
 test("工作区全部 Shell 就绪后才交接，缺少分栏保留原控制，目标关闭交回全部", async () => {
   const write = vi.fn();
   const attach = makeSshTerminalBridge((shell) => ({
-    write: (bytes) => write(shell, bytes.toString()), resize: vi.fn(), detach: vi.fn(),
+    write: (bytes) => write(shell, bytes.toString()),
+    resize: vi.fn(),
+    detach: vi.fn(),
   }));
   const ids = ["ssh-left", "ssh-right"];
   const sources = ids.map(() => new ViewSocket());
@@ -170,8 +172,11 @@ test("工作区全部 Shell 就绪后才交接，缺少分栏保留原控制，�
   input(sources[0]!, "restored left");
   input(sources[1]!, "restored right");
   expect(write.mock.calls).toEqual([
-    ["ssh-left", "unchanged"], ["ssh-left", "moved left"], ["ssh-right", "moved right"],
-    ["ssh-left", "restored left"], ["ssh-right", "restored right"],
+    ["ssh-left", "unchanged"],
+    ["ssh-left", "moved left"],
+    ["ssh-right", "moved right"],
+    ["ssh-left", "restored left"],
+    ["ssh-right", "restored right"],
   ]);
 });
 

@@ -136,14 +136,7 @@ export function NoteExplorer(p: ExplorerProps) {
         </div>
       ) : null}
       {!p.archivesActive && p.section === "daily" ? (
-        <MonthCalendar
-          value={p.calendarDate}
-          today={p.calendarToday}
-          language={p.calendarLanguage}
-          weekStartsOn={p.calendarWeekStart}
-          availableDates={p.calendarAvailableDates}
-          onChange={p.onOpenDaily}
-        />
+        <MonthCalendar value={p.calendarDate} today={p.calendarToday} language={p.calendarLanguage} weekStartsOn={p.calendarWeekStart} availableDates={p.calendarAvailableDates} onChange={p.onOpenDaily} />
       ) : null}
       {!p.archivesActive && p.section === "tags" ? (
         <div className="notes-tag-cloud">

@@ -2,15 +2,16 @@ const { appendFileSync, readFileSync } = require("node:fs");
 const { createInterface } = require("node:readline");
 const { spawn } = require("node:child_process");
 const [journal, definition] = process.argv.slice(2);
-const config = () => definition ? JSON.parse(readFileSync(definition, "utf8")) : {};
+const config = () => (definition ? JSON.parse(readFileSync(definition, "utf8")) : {});
 const resourceUri = "fixture://note/1";
 const write = (event) => appendFileSync(journal, JSON.stringify(event) + "\n");
 const input = createInterface({ input: process.stdin });
 const helper = config().helper && spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-if (helper) process.on("SIGTERM", () => {
-  if (helper.exitCode !== null || helper.signalCode !== null) process.exit(0);
-  helper.once("exit", () => process.exit(0));
-});
+if (helper)
+  process.on("SIGTERM", () => {
+    if (helper.exitCode !== null || helper.signalCode !== null) process.exit(0);
+    helper.once("exit", () => process.exit(0));
+  });
 write({ type: "start", pid: process.pid, ...(helper && { helperPid: helper.pid }) });
 input.on("line", (line) => {
   const request = JSON.parse(line);
@@ -32,7 +33,9 @@ input.on("line", (line) => {
     const next = (page + 1) * size < names.length ? String(settings.repeatCursor ? 1 : page + 1) : undefined;
     reply({
       tools: names.slice(page * size, (page + 1) * size).map((name) => ({
-        name, description: settings.description ?? "Echo fixture", inputSchema: { type: "object", properties: { value: { type: "string" } } },
+        name,
+        description: settings.description ?? "Echo fixture",
+        inputSchema: { type: "object", properties: { value: { type: "string" } } },
         outputSchema: { type: "object", required: ["value"], properties: { value: { type: "string", ...(settings.minLength && { minLength: settings.minLength }) } } },
         annotations: { readOnlyHint: true },
       })),
@@ -43,7 +46,10 @@ input.on("line", (line) => {
     write({ type: "call", name, args, keys: Object.keys(request.params).sort() });
     if (args.value === "fixture-disconnect") process.exit(1);
     reply({
-      content: [{ type: "text", text: args.value }, { type: "resource_link", name: "Fixture", uri: "fixture://note/1" }],
+      content: [
+        { type: "text", text: args.value },
+        { type: "resource_link", name: "Fixture", uri: "fixture://note/1" },
+      ],
       structuredContent: { value: args.value },
       ...(args.value === "fixture-error" && { isError: true }),
     });
@@ -60,9 +66,11 @@ input.on("line", (line) => {
     reply({ prompts: [{ name: "review", arguments: [{ name: "topic", required: true }] }] });
   } else if (request.method === "prompts/get") {
     write({ type: "prompt", args: request.params.arguments });
-    reply({ messages: [
-      { role: "assistant", content: { type: "text", text: request.params.arguments.topic } },
-      { role: "user", content: { type: "resource", resource: { uri: resourceUri, text: config().label ?? "resource" } } },
-    ] });
+    reply({
+      messages: [
+        { role: "assistant", content: { type: "text", text: request.params.arguments.topic } },
+        { role: "user", content: { type: "resource", resource: { uri: resourceUri, text: config().label ?? "resource" } } },
+      ],
+    });
   } else if (request.method === "ping") reply({});
 });

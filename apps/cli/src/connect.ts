@@ -51,7 +51,11 @@ function defaultDesktopUserData(): string | undefined {
   return path.join(appData, (productName ?? name).trim());
 }
 
-interface StartOptions { engineEntry?: string; timeoutMs?: number; idleExitMs?: number }
+interface StartOptions {
+  engineEntry?: string;
+  timeoutMs?: number;
+  idleExitMs?: number;
+}
 
 async function findOrStart(root: string, opts: StartOptions, expected?: EngineMode): Promise<EngineEndpointRecord> {
   const mode = expected ?? "temporary";
@@ -68,8 +72,12 @@ async function findOrStart(root: string, opts: StartOptions, expected?: EngineMo
     });
     let exit: number | null | undefined;
     let spawnFailure: Error | undefined;
-    child.once("exit", (code) => { exit = code; });
-    child.once("error", (error) => { spawnFailure = error; });
+    child.once("exit", (code) => {
+      exit = code;
+    });
+    child.once("error", (error) => {
+      spawnFailure = error;
+    });
     child.unref();
     const deadline = Date.now() + (opts.timeoutMs ?? 15_000);
     while (!d && Date.now() < deadline) {

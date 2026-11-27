@@ -3,11 +3,7 @@ import { BookRef, BookVersion } from "./books.js";
 import { EntryId } from "./entries.js";
 import { ReportQuery } from "./reports.js";
 
-const owner = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("book") }),
-  z.strictObject({ kind: z.literal("budget"), id: EntryId }),
-  z.strictObject({ kind: z.literal("record"), id: EntryId }),
-]);
+const owner = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("book") }), z.strictObject({ kind: z.literal("budget"), id: EntryId }), z.strictObject({ kind: z.literal("record"), id: EntryId })]);
 const resource = z.strictObject({ kind: z.enum(["note", "archive"]), path: z.string().min(1).max(4096) });
 const documentRef = resource.extend({ documentId: z.string().min(1).max(256).nullable() });
 

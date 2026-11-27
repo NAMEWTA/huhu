@@ -55,7 +55,6 @@ export function removeMailProjections(files: Files, source: string, kinds: reado
   }
 }
 
-
 export function clearMailSearchProjections(files: Files): void {
   try {
     for (const name of readdirSync(files.abs(directory))) {

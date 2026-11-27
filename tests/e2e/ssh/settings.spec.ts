@@ -76,10 +76,13 @@ test("H5.4 Linux 本地终端在停用 Agent 后用原 Shell 重连", async () =
   } finally {
     try {
       if (previous !== undefined) {
-        await page.evaluate(({ key, value }) => {
-          if (value === null) localStorage.removeItem(key);
-          else localStorage.setItem(key, value);
-        }, { key: preferenceKey, value: previous });
+        await page.evaluate(
+          ({ key, value }) => {
+            if (value === null) localStorage.removeItem(key);
+            else localStorage.setItem(key, value);
+          },
+          { key: preferenceKey, value: previous },
+        );
       }
     } finally {
       await fixture.close();
@@ -100,13 +103,18 @@ test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效"
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
       originalPreferences = await page.evaluate(async () => {
         const { vaultId } = await window.huhuHost.engine();
-        return ["huhu.ssh.device-preferences.v1", `huhu.ssh.startup.v1.${vaultId}`]
-          .map((key): [string, string | null] => [key, localStorage.getItem(key)]);
+        return ["huhu.ssh.device-preferences.v1", `huhu.ssh.startup.v1.${vaultId}`].map((key): [string, string | null] => [key, localStorage.getItem(key)]);
       });
-      const configure = (name: string, port: number) => call<{ hostId: string }>("ssh.hosts.configure", {
-        name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
-        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
-      });
+      const configure = (name: string, port: number) =>
+        call<{ hostId: string }>("ssh.hosts.configure", {
+          name,
+          host: "127.0.0.1",
+          port,
+          user: "fixture",
+          authKind: "password",
+          expectedRevision: null,
+          credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+        });
       const direct = await configure("启动直连夹具", startup.port);
       const workspace = await configure("恢复工作区夹具", restored.port);
       const run = await call<WorkspaceRun>("ssh.workspace.runs.start", { name: "恢复首选项", layout: { kind: "one" }, panes: [{ hostId: workspace.hostId }] });
@@ -152,12 +160,15 @@ test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效"
       expect((await view())?.panes[0]?.sessionId).not.toBe(shell);
       expect(restored.conns).toHaveLength(2);
     } finally {
-      if (originalPreferences.length) await page.evaluate((preferences) => {
-        for (const [key, value] of preferences) {
-          if (value === null) localStorage.removeItem(key);
-          else localStorage.setItem(key, value);
-        }
-      }, originalPreferences).catch(() => undefined);
+      if (originalPreferences.length)
+        await page
+          .evaluate((preferences) => {
+            for (const [key, value] of preferences) {
+              if (value === null) localStorage.removeItem(key);
+              else localStorage.setItem(key, value);
+            }
+          }, originalPreferences)
+          .catch(() => undefined);
       await fixture.close();
     }
   } finally {
@@ -175,7 +186,12 @@ test("H10.2 非预期断线显示下一次重连并允许取消", async () => {
     try {
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
       const { hostId } = await call<{ hostId: string }>("ssh.hosts.configure", {
-        name: "自动重连夹具", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+        name: "自动重连夹具",
+        host: "127.0.0.1",
+        port: server.port,
+        user: "fixture",
+        authKind: "password",
+        expectedRevision: null,
         credentials: [{ purpose: "password", action: "replace", value: "pw" }],
       });
       const ssh = page.getByRole("button", { name: "远程连接", exact: true }).first();
@@ -223,11 +239,17 @@ test("H10.1 保存并排序跨行终端高亮规则，命令补全和锁定工�
   const preferenceKey = "huhu.ssh.device-preferences.v1";
   let input = "";
   let writeShell: (text: string) => void;
-  const server = await startFakeSsh({ onInteractiveShell(channel) {
-    writeShell = (text) => { channel.write(text); };
-    channel.write("welcome\r\nrange-42\r\n\u0007");
-    channel.on("data", (chunk: Buffer) => { input += chunk.toString(); });
-  } });
+  const server = await startFakeSsh({
+    onInteractiveShell(channel) {
+      writeShell = (text) => {
+        channel.write(text);
+      };
+      channel.write("welcome\r\nrange-42\r\n\u0007");
+      channel.on("data", (chunk: Buffer) => {
+        input += chunk.toString();
+      });
+    },
+  });
   try {
     const fixture = await openApp();
     const { page } = fixture;
@@ -236,7 +258,12 @@ test("H10.1 保存并排序跨行终端高亮规则，命令补全和锁定工�
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
       previous = await page.evaluate((key) => localStorage.getItem(key), preferenceKey);
       const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-        name: "显示首选项夹具", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+        name: "显示首选项夹具",
+        host: "127.0.0.1",
+        port: server.port,
+        user: "fixture",
+        authKind: "password",
+        expectedRevision: null,
         credentials: [{ purpose: "password", action: "replace", value: "pw" }],
       });
       await desktopCall(page, "ssh.shortcuts.save", { expectedRevision: null, shortcuts: [{ id: "completion-fixture", name: "回显建议", text: "completion-fixture" }] });
@@ -252,7 +279,9 @@ test("H10.1 保存并排序跨行终端高亮规则，命令补全和锁定工�
       await rule(1).getByLabel("规则内容").fill("welcome");
       await add.click();
       await rule(2).getByLabel("匹配方式").selectOption("regex");
-      await rule(2).getByLabel("规则内容").fill(String.raw`welcome\nrange-\d+`);
+      await rule(2)
+        .getByLabel("规则内容")
+        .fill(String.raw`welcome\nrange-\d+`);
       await rule(2).getByRole("button", { name: "上移" }).click();
       await add.click();
       await rule(3).getByLabel("规则内容").fill("range-42");
@@ -300,10 +329,16 @@ test("H10.1 保存并排序跨行终端高亮规则，命令补全和锁定工�
       await expect(rule(1)).toHaveCount(0);
       await settings.getByRole("button", { name: "保存设置", exact: true }).click();
     } finally {
-      if (previous !== undefined) await page.evaluate(({ key, saved }) => {
-        if (saved === null) localStorage.removeItem(key);
-        else localStorage.setItem(key, saved);
-      }, { key: preferenceKey, saved: previous }).catch(() => undefined);
+      if (previous !== undefined)
+        await page
+          .evaluate(
+            ({ key, saved }) => {
+              if (saved === null) localStorage.removeItem(key);
+              else localStorage.setItem(key, saved);
+            },
+            { key: preferenceKey, saved: previous },
+          )
+          .catch(() => undefined);
       await fixture.close();
     }
   } finally {
@@ -357,7 +392,12 @@ test("A12 SSH navigation and recording settings apply to their own UI and can be
       values: { connection: { autoReconnect: true }, recording: { enabled: false, savedLimit: 2 } },
     });
     const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-      name: "录制设置回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      name: "录制设置回环",
+      host: "127.0.0.1",
+      port: server.port,
+      user: "fixture",
+      authKind: "password",
+      expectedRevision: null,
       credentials: [{ purpose: "password", action: "replace", value: "pw" }],
     });
     await desktopCall(page, "ssh.workspace.runs.start", { name: "录制设置工作区", layout: { kind: "one" }, panes: [{ hostId }] });
@@ -378,10 +418,13 @@ test("A12 SSH navigation and recording settings apply to their own UI and can be
   } finally {
     try {
       if (previousPreferences !== undefined) {
-        await fixture.page.evaluate(({ key, saved }) => {
-          if (saved === null) localStorage.removeItem(key);
-          else localStorage.setItem(key, saved);
-        }, { key: preferenceKey, saved: previousPreferences });
+        await fixture.page.evaluate(
+          ({ key, saved }) => {
+            if (saved === null) localStorage.removeItem(key);
+            else localStorage.setItem(key, saved);
+          },
+          { key: preferenceKey, saved: previousPreferences },
+        );
       }
     } finally {
       await fixture.close();
@@ -578,10 +621,16 @@ test("H10.2 文件表列宽可拖动、键盘调整、重载并恢复，SSH 设�
     await page.getByRole("button", { name: "本地终端", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "启动环境" })).toHaveValue(localShell!.id);
   } finally {
-    if (before !== undefined) await fixture.page.evaluate(({ key, saved }) => {
-      if (saved === null) localStorage.removeItem(key);
-      else localStorage.setItem(key, saved);
-    }, { key: preferenceKey, saved: before }).catch(() => undefined);
+    if (before !== undefined)
+      await fixture.page
+        .evaluate(
+          ({ key, saved }) => {
+            if (saved === null) localStorage.removeItem(key);
+            else localStorage.setItem(key, saved);
+          },
+          { key: preferenceKey, saved: before },
+        )
+        .catch(() => undefined);
     await fixture.close();
     await server.close();
   }

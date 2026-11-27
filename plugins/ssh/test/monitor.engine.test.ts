@@ -115,8 +115,7 @@ const change = (client: EngineClient, panel: MonitorPanel, action: "start" | "pa
 const monitorPlans = (client: EngineClient) => client.call<{ plans: PlanSummary[] }>("automations.plans.list");
 async function updatePlan(client: EngineClient, { planId, revision }: PlanSummary, update: object) {
   const intentId = randomUUID();
-  const result = await client.call<{ outcome: string; plan: PlanSummary }>("automations.plans.submit",
-    { planId, expectedRevision: revision, intentId, ...update }, { ...opts, intentKey: intentId });
+  const result = await client.call<{ outcome: string; plan: PlanSummary }>("automations.plans.submit", { planId, expectedRevision: revision, intentId, ...update }, { ...opts, intentKey: intentId });
   expect(result.outcome).toBe("completed");
   return result.plan;
 }
@@ -139,24 +138,32 @@ test("tool actions and dashboard sudo stay on the selected original transport", 
     const containerId = "abcdef123456";
     let startTicks = "101";
     let terminations = 0;
-    const a = await f.host("Action A", "linux", (command) => {
-      seenA.push(command);
-      if (command === PROCESS_LIST) return { stdout: `55\t${startTicks}\tfixture` };
-      if (command.endsWith("kill -TERM 55")) {
-        if (!command.includes(`[ "$name" = 'fixture' ] && [ "$start" = '${startTicks}' ]`)) return { code: 3 };
-        terminations++;
-        return { code: 0 };
-      }
-      if (command === `docker logs --tail 100 -- ${containerId}`) return { stdout: "from A", stderr: "stderr from A" };
-      if (command === `docker exec ${containerId} sh -c :`) return { code: 0 };
-      if (command.startsWith("sudo -n --")) return { stdout: "memory 8192 4096\n" };
-    }, (command, channel) => {
-      if (command !== `docker exec -it ${containerId} sh`) return false;
-      seenA.push(command);
-      channel.write("container A ready");
-      return true;
+    const a = await f.host(
+      "Action A",
+      "linux",
+      (command) => {
+        seenA.push(command);
+        if (command === PROCESS_LIST) return { stdout: `55\t${startTicks}\tfixture` };
+        if (command.endsWith("kill -TERM 55")) {
+          if (!command.includes(`[ "$name" = 'fixture' ] && [ "$start" = '${startTicks}' ]`)) return { code: 3 };
+          terminations++;
+          return { code: 0 };
+        }
+        if (command === `docker logs --tail 100 -- ${containerId}`) return { stdout: "from A", stderr: "stderr from A" };
+        if (command === `docker exec ${containerId} sh -c :`) return { code: 0 };
+        if (command.startsWith("sudo -n --")) return { stdout: "memory 8192 4096\n" };
+      },
+      (command, channel) => {
+        if (command !== `docker exec -it ${containerId} sh`) return false;
+        seenA.push(command);
+        channel.write("container A ready");
+        return true;
+      },
+    );
+    const b = await f.host("Action B", "linux", (command) => {
+      seenB.push(command);
+      return undefined;
     });
-    const b = await f.host("Action B", "linux", (command) => { seenB.push(command); return undefined; });
     const { client } = f;
     const source = await shell(client, a.id);
     const other = await shell(client, b.id);
@@ -187,10 +194,7 @@ test("tool actions and dashboard sudo stay on the selected original transport", 
     expect(seenB.some((command) => command.startsWith("sudo -n --"))).toBe(false);
     expect(a.server.conns).toHaveLength(1);
     await client.call("ssh.shells.close", { id: source }, opts);
-    expect(await client.call("ssh.shells.list")).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: child.id, state: "ended" }),
-      expect.objectContaining({ id: other, state: "running" }),
-    ]));
+    expect(await client.call("ssh.shells.list")).toEqual(expect.arrayContaining([expect.objectContaining({ id: child.id, state: "ended" }), expect.objectContaining({ id: other, state: "running" })]));
   } finally {
     await f.close();
   }
@@ -208,16 +212,23 @@ test("server tools use only read-only commands on the selected Pane", { timeout:
     let imageReady = false;
     let imageClosed = false;
     let holdImages = false;
-    const b = await f.host("Tool B", "linux", (command) => {
-      if (command === PROCESS_LIST) return { stdout: "31\t102\ttool-b" };
-      if (command === CONTAINER_LIST) return restricted ? { stderr: "permission denied", code: 1 } : { stdout: "abcdef123456|fixture-b|fixture/image|running" };
-      if (command === IMAGE_LIST) return { stdout: "abcdef123456|fixture/image:stable|10MB\nabcdef123456|fixture/image:latest|10MB\nmalformed row" };
-    }, (command, _channel, session) => {
-      if (!holdImages || command !== IMAGE_LIST) return false;
-      session.once("close", () => { imageClosed = true; });
-      imageReady = true;
-      return true;
-    });
+    const b = await f.host(
+      "Tool B",
+      "linux",
+      (command) => {
+        if (command === PROCESS_LIST) return { stdout: "31\t102\ttool-b" };
+        if (command === CONTAINER_LIST) return restricted ? { stderr: "permission denied", code: 1 } : { stdout: "abcdef123456|fixture-b|fixture/image|running" };
+        if (command === IMAGE_LIST) return { stdout: "abcdef123456|fixture/image:stable|10MB\nabcdef123456|fixture/image:latest|10MB\nmalformed row" };
+      },
+      (command, _channel, session) => {
+        if (!holdImages || command !== IMAGE_LIST) return false;
+        session.once("close", () => {
+          imageClosed = true;
+        });
+        imageReady = true;
+        return true;
+      },
+    );
     const left = await shell(client, a.id);
     const right = await shell(client, b.id);
     const read = (hostId: string, shellId: string, tool: MonitorTool) => client.call<MonitorToolResult>("ssh.monitor.tools.read", { hostId, shellId, tool }, opts);
@@ -231,10 +242,14 @@ test("server tools use only read-only commands on the selected Pane", { timeout:
     expect(await read(a.id, left, "containers")).toMatchObject({ state: "unsupported", rows: [] });
     expect(await read(b.id, right, "containers")).toMatchObject({ state: "ready", rows: [{ id: "abcdef123456", name: "fixture-b", detail: "fixture/image · running" }] });
     expect(await read(a.id, left, "images")).toMatchObject({ state: "unsupported", rows: [] });
-    expect(await read(b.id, right, "images")).toMatchObject({ connectionId: rightResult.connectionId, state: "ready", rows: [
-      { id: "abcdef123456", name: "fixture/image:stable", detail: "10MB" },
-      { id: "abcdef123456", name: "fixture/image:latest", detail: "10MB" },
-    ] });
+    expect(await read(b.id, right, "images")).toMatchObject({
+      connectionId: rightResult.connectionId,
+      state: "ready",
+      rows: [
+        { id: "abcdef123456", name: "fixture/image:stable", detail: "10MB" },
+        { id: "abcdef123456", name: "fixture/image:latest", detail: "10MB" },
+      ],
+    });
     restricted = true;
     expect(await read(b.id, right, "containers")).toMatchObject({ state: "denied", rows: [] });
     holdImages = true;
@@ -298,11 +313,18 @@ test("Pane monitor binds the original shell and separates Linux counters, Window
       expect((await readPane(client, a.id)).host).toMatchObject({
         state: "running",
         platform: "linux",
-        latest: { sample: {
-          cpu: 25, cores: [{ index: 0, percent: 50 }, { index: 1, percent: 0 }],
-          memory: { total: 8192, available: 4096 }, network: { received: expect.any(Number), sent: expect.any(Number) },
-          interfaces: [{ name: "eth0", received: expect.any(Number), sent: expect.any(Number) }],
-        } },
+        latest: {
+          sample: {
+            cpu: 25,
+            cores: [
+              { index: 0, percent: 50 },
+              { index: 1, percent: 0 },
+            ],
+            memory: { total: 8192, available: 4096 },
+            network: { received: expect.any(Number), sent: expect.any(Number) },
+            interfaces: [{ name: "eth0", received: expect.any(Number), sent: expect.any(Number) }],
+          },
+        },
       });
       expect((await readPane(client, b.id)).host).toMatchObject({ state: "running", platform: "windows", latest: { sample: windows } });
     }, wait);
@@ -389,7 +411,14 @@ test("dashboards share fastest sampling, allow browser reads and keep configurat
     expect(await f.webCall("ssh.monitor.panels.list")).toMatchObject({ ok: true, data: expect.arrayContaining([{ ...fast, plan: expect.objectContaining({ planId: fastPlan!.planId }) }]) });
     expect(await f.webCall("ssh.monitor.panels.run", { id: fast.id })).toMatchObject({
       ok: true,
-      data: { id: fast.id, state: "running", hosts: [{ hostId: win.id, state: "denied" }, { hostId: linux.id, state: "running", latest: expect.any(Object) }] },
+      data: {
+        id: fast.id,
+        state: "running",
+        hosts: [
+          { hostId: win.id, state: "denied" },
+          { hostId: linux.id, state: "running", latest: expect.any(Object) },
+        ],
+      },
     });
     expect(await f.webCall("ssh.monitor.panels.change", { id: fast.id, expectedRevision: fast.revision, action: "stop" })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     expect(await f.webCall("ssh.monitor.panels.delete", { id: fast.id, expectedRevision: fast.revision })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });

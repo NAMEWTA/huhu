@@ -23,12 +23,14 @@ export const sshNavigation = {
 } as const;
 const navigationPage = z.enum(Object.keys(sshNavigation) as (keyof typeof sshNavigation)[]);
 export const maxHighlightRules = 16;
-const highlightRule = z.object({
-  id: z.uuid(),
-  pattern: z.string().max(160),
-  mode: z.enum(["literal", "regex"]),
-  enabled: z.boolean(),
-}).refine(validTerminalPattern, "高亮规则为空或正则表达式无效");
+const highlightRule = z
+  .object({
+    id: z.uuid(),
+    pattern: z.string().max(160),
+    mode: z.enum(["literal", "regex"]),
+    enabled: z.boolean(),
+  })
+  .refine(validTerminalPattern, "高亮规则为空或正则表达式无效");
 
 const schema = z.object({
   tabs: z.enum(["top", "left"]),
@@ -46,7 +48,10 @@ const schema = z.object({
   terminalCursor: z.enum(["block", "bar", "underline"]),
   terminalCursorBlink: z.boolean(),
   terminalScrollback: z.literal(terminalScrollbackChoices),
-  terminalWordSeparator: z.string().max(100).regex(/^[^\p{Cc}]*$/u),
+  terminalWordSeparator: z
+    .string()
+    .max(100)
+    .regex(/^[^\p{Cc}]*$/u),
   terminalLinkActivation: z.boolean(),
   terminalCopyOnSelect: z.boolean(),
   terminalRightClickWord: z.boolean(),
@@ -66,8 +71,14 @@ const schema = z.object({
   showFileTree: z.boolean(),
   hiddenFileColumns: z.array(z.enum(["size", "mtime", "mode"])),
   fileColumnWidths: z.partialRecord(fileColumn, z.int().min(fileColumnLimits.min).max(fileColumnLimits.max)),
-  downloadDirectory: z.string().max(4096).regex(/^(?:$|\/(?!\/)[^\p{Cc}]*|[A-Za-z]:[\\/][^\p{Cc}]*)$/u),
-  initialRemoteDirectory: z.string().max(4096).regex(/^(?:$|\/[^\p{Cc}]*)$/u),
+  downloadDirectory: z
+    .string()
+    .max(4096)
+    .regex(/^(?:$|\/(?!\/)[^\p{Cc}]*|[A-Za-z]:[\\/][^\p{Cc}]*)$/u),
+  initialRemoteDirectory: z
+    .string()
+    .max(4096)
+    .regex(/^(?:$|\/[^\p{Cc}]*)$/u),
   followShellDirectory: z.boolean(),
   followFileDirectory: z.boolean(),
 });
@@ -127,9 +138,7 @@ function read(): DevicePreferences {
       const stored = next === null ? {} : JSON.parse(next);
       const preferences = schema.partial().parse(stored);
       const legacy = z.string().trim().min(1).max(80).safeParse(stored.terminalHighlight);
-      const migrated = legacy.success && preferences.terminalHighlightRules === undefined
-        ? { terminalHighlightRules: [{ id: "00000000-0000-4000-8000-000000000001", pattern: legacy.data, mode: "literal" as const, enabled: true }] }
-        : {};
+      const migrated = legacy.success && preferences.terminalHighlightRules === undefined ? { terminalHighlightRules: [{ id: "00000000-0000-4000-8000-000000000001", pattern: legacy.data, mode: "literal" as const, enabled: true }] } : {};
       snapshot = next === null ? deviceDefaults : schema.parse({ ...deviceDefaults, ...preferences, ...migrated });
     }
   } catch {

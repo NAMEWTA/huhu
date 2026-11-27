@@ -5,7 +5,21 @@ import path from "node:path/posix";
 import { errors, isId, KINDS, newId, type NoteIndexDelta } from "@huhu/contracts";
 import { z } from "zod";
 import { dailyNotePath } from "../shared/daily.js";
-import { folderNoteDir, inboxDocumentReceiptPath, normalizeRelPath, readAsset, resolveReadableAsset, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type TrashMeta, type VaultFiles, type VaultIndex } from "@huhu/vault";
+import {
+  folderNoteDir,
+  inboxDocumentReceiptPath,
+  normalizeRelPath,
+  readAsset,
+  resolveReadableAsset,
+  splitDocument,
+  versionOf,
+  type OperationLog,
+  type OpStep,
+  type Trash,
+  type TrashMeta,
+  type VaultFiles,
+  type VaultIndex,
+} from "@huhu/vault";
 import { ATTACH_DIR, hasProtectedSegment, isAllowedAttachment, MAX_ATTACH_BYTES, sanitizeAttachmentName, uniqueName } from "../shared/attachments.js";
 import { rewriteLinks } from "../shared/links-rewrite.js";
 import { renderTemplate, validateName, type NoteTemplate } from "../shared/templates.js";
@@ -313,7 +327,7 @@ export class NotesService {
     this.pendingCreations.add(key);
     try {
       const before = this.d.files.read(IDENTITIES);
-      const identities = before ? JSON.parse(before.bytes.toString("utf8")) as Record<string, string> : {};
+      const identities = before ? (JSON.parse(before.bytes.toString("utf8")) as Record<string, string>) : {};
       const id = newId("note");
       identities[rel] = id;
       await this.d.ops.run(`inbox-convert-${conversionId}`, "inbox-document", [
@@ -561,7 +575,14 @@ export class NotesService {
       ...(expectedVersion !== undefined && { expectedVersion }),
       steps: [
         this.trashStateStep(IDENTITIES, ids),
-        ...(retained.size ? [this.trashStateStep(FOLDERS, folders.filter((f) => !retained.has(f)))] : []),
+        ...(retained.size
+          ? [
+              this.trashStateStep(
+                FOLDERS,
+                folders.filter((f) => !retained.has(f)),
+              ),
+            ]
+          : []),
       ],
     });
     this.d.index.refreshPaths([...new Set([norm, ...under])]);
@@ -668,9 +689,8 @@ export class NotesService {
     const entry = index.entry(norm);
     const revision = index.treeRevision;
     const updatedTags = index.tagsOf(norm);
-    const noteIndex = previousEntry?.type === "file" && entry?.type === "file" && revision <= before + 1
-      ? { before, revision, entry, tagsChanged: tags.length !== updatedTags.length || tags.some((tag, i) => tag !== updatedTags[i]) }
-      : undefined;
+    const noteIndex =
+      previousEntry?.type === "file" && entry?.type === "file" && revision <= before + 1 ? { before, revision, entry, tagsChanged: tags.length !== updatedTags.length || tags.some((tag, i) => tag !== updatedTags[i]) } : undefined;
     return { ...r, previous, ...(noteIndex && { noteIndex }) };
   }
 

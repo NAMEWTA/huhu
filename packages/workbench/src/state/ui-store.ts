@@ -77,11 +77,15 @@ export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s
         else set({ sidebarCollapsed: !s.sidebarCollapsed });
         return true;
       }
-      return leave(s.activeModule, () => {
-        const { openTabs } = get();
-        set({ activeModule: id, openTabs: openTabs.includes(id) ? openTabs : [...openTabs, id], detailOpen: false });
-        request?.onOpen();
-      }, request?.isCurrent);
+      return leave(
+        s.activeModule,
+        () => {
+          const { openTabs } = get();
+          set({ activeModule: id, openTabs: openTabs.includes(id) ? openTabs : [...openTabs, id], detailOpen: false });
+          request?.onOpen();
+        },
+        request?.isCurrent,
+      );
     },
     closeTab: (id) => {
       const s = get();

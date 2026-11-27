@@ -706,7 +706,8 @@ describe("Engine 启动与关闭", () => {
     expect(list.map((n) => [n.title, n.module])).toEqual([["任务提醒：到点提醒", "tasks"]]);
     expect((await call(e2, "tasks.read", { id: t.id })).data).toMatchObject({ status: "not_started", reminders: [] });
     const { planId, revision } = reminder.data as { planId: string; revision: string };
-    await expect.poll(async () => (await call(e2, "automations.plans.list", { source: { plugin: "tasks", object: { kind: "task", id: t.id } } })).data)
+    await expect
+      .poll(async () => (await call(e2, "automations.plans.list", { source: { plugin: "tasks", object: { kind: "task", id: t.id } } })).data)
       .toMatchObject({ plans: [{ planId, revision, nextAt: null, lastOccurrence: { state: "completed" } }] });
     const ids = ((await call(e2, "notifications.list", {})).data as { id: string }[]).map((n) => n.id);
     expect(((await call(e2, "notifications.markRead", { ids })).data as { changed: number }).changed).toBe(1);
@@ -714,59 +715,70 @@ describe("Engine 启动与关闭", () => {
   test.each([
     { scenario: "Engine 停机期间到期，重开无页面仍结算一次", pauseBeforeShutdown: false },
     { scenario: "桌面退出前主动暂停，跨过原截止重开仍保持暂停", pauseBeforeShutdown: true },
-  ])("F32：专注截止随同一计划改期，$scenario", async ({ pauseBeforeShutdown }) => {
-    const dir = tmp();
-    const original = await boot({ vaultPath: dir, create: true });
-    engines.push(original);
-    const call = (engine: RunningEngine, capability: string, input: unknown, intentKey?: string) =>
-      post(engine, engine.rendererToken, { capability, input, requestId: randomUUID(), idempotencyKey: intentKey ?? randomUUID(), intentKey });
-    expect((await call(original, "plugins.setEnabled", { id: "automations", enabled: false })).ok).toBe(true);
-    expect(await call(original, "home.focus.update", { action: "start" })).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
-    expect((await call(original, "home.focus.get", {})).data).toMatchObject({ running: false, endsAt: null, completedToday: 0 });
-    expect((await call(original, "plugins.setEnabled", { id: "automations", enabled: true })).ok).toBe(true);
+  ])(
+    "F32：专注截止随同一计划改期，$scenario",
+    async ({ pauseBeforeShutdown }) => {
+      const dir = tmp();
+      const original = await boot({ vaultPath: dir, create: true });
+      engines.push(original);
+      const call = (engine: RunningEngine, capability: string, input: unknown, intentKey?: string) => post(engine, engine.rendererToken, { capability, input, requestId: randomUUID(), idempotencyKey: intentKey ?? randomUUID(), intentKey });
+      expect((await call(original, "plugins.setEnabled", { id: "automations", enabled: false })).ok).toBe(true);
+      expect(await call(original, "home.focus.update", { action: "start" })).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+      expect((await call(original, "home.focus.get", {})).data).toMatchObject({ running: false, endsAt: null, completedToday: 0 });
+      expect((await call(original, "plugins.setEnabled", { id: "automations", enabled: true })).ok).toBe(true);
 
-    const started = await call(original, "home.focus.update", { action: "start" });
-    expect(started).toMatchObject({ ok: true, data: { plan: { planId: expect.any(String), revision: expect.any(String) }, running: true } });
-    const { planId, revision } = (started.data as unknown as { plan: { planId: string; revision: string } }).plan;
-    const intentId = randomUUID();
-    const scheduledFor = new Date(Date.now() + 3_000).toISOString();
-    const moved = await call(original, "automations.plans.submit", {
-      planId, expectedRevision: revision, intentId, change: "reschedule", trigger: { kind: "once", scheduledFor },
-    }, intentId);
-    expect(moved).toMatchObject({ ok: true, data: { outcome: "completed", plan: { planId, revision: expect.any(String) } } });
-    const updated = await call(original, "home.focus.get", {});
-    const ref = (updated.data as unknown as { plan: { planId: string; revision: string } }).plan;
-    expect(ref.revision).not.toBe(revision);
-    expect(updated.data).toMatchObject({ running: true, plan: ref, endsAt: scheduledFor });
-    const paused = pauseBeforeShutdown ? await call(original, "home.focus.update", { action: "pause" }) : undefined;
-    if (paused) {
-      expect(paused).toMatchObject({ ok: true, data: { running: false, endsAt: null, completedToday: 0, plan: { planId } } });
-    }
-    await original.shutdown();
-    engines.splice(engines.indexOf(original), 1);
-    await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(scheduledFor) - Date.now() + 50)));
-    const saved = JSON.parse(readFileSync(path.join(dir, ".huhu/home/focus.json"), "utf8"));
-    expect(saved).toMatchObject({
-      running: !pauseBeforeShutdown, completedToday: 0,
-      deadline: { planId, scheduledFor, state: pauseBeforeShutdown ? "paused" : "enabled" },
-    });
-    const reopened = await boot({ vaultPath: dir });
-    engines.push(reopened);
-    if (paused) {
-      expect((await call(reopened, "home.focus.get", {})).data).toEqual(paused.data);
-      expect((await call(reopened, "automations.plans.read", { planId })).data)
-        .toMatchObject({ intent: "paused", nextAt: null, lastOccurrence: null });
-      expect((await call(reopened, "notifications.list", {})).data).toEqual([]);
-      return;
-    }
-    await expect.poll(async () => (await call(reopened, "home.focus.get", {})).data).toMatchObject({ running: false, completedToday: 1, plan: ref });
-    await expect.poll(async () => (await call(reopened, "automations.plans.read", { planId })).data)
-      .toMatchObject({ ...ref, nextAt: null, lastOccurrence: { state: "completed" } });
-    const notices = (await call(reopened, "notifications.list", {})).data as unknown as { id: string; title: string }[];
-    expect(notices.filter(({ title }) => title === "专注完成")).toHaveLength(1);
-    const reads = await Promise.all(Array.from({ length: 3 }, () => call(reopened, "home.focus.get", {})));
-    expect(reads.every(({ data }) => (data as unknown as { completedToday: number }).completedToday === 1)).toBe(true);
-  }, 15_000);
+      const started = await call(original, "home.focus.update", { action: "start" });
+      expect(started).toMatchObject({ ok: true, data: { plan: { planId: expect.any(String), revision: expect.any(String) }, running: true } });
+      const { planId, revision } = (started.data as unknown as { plan: { planId: string; revision: string } }).plan;
+      const intentId = randomUUID();
+      const scheduledFor = new Date(Date.now() + 3_000).toISOString();
+      const moved = await call(
+        original,
+        "automations.plans.submit",
+        {
+          planId,
+          expectedRevision: revision,
+          intentId,
+          change: "reschedule",
+          trigger: { kind: "once", scheduledFor },
+        },
+        intentId,
+      );
+      expect(moved).toMatchObject({ ok: true, data: { outcome: "completed", plan: { planId, revision: expect.any(String) } } });
+      const updated = await call(original, "home.focus.get", {});
+      const ref = (updated.data as unknown as { plan: { planId: string; revision: string } }).plan;
+      expect(ref.revision).not.toBe(revision);
+      expect(updated.data).toMatchObject({ running: true, plan: ref, endsAt: scheduledFor });
+      const paused = pauseBeforeShutdown ? await call(original, "home.focus.update", { action: "pause" }) : undefined;
+      if (paused) {
+        expect(paused).toMatchObject({ ok: true, data: { running: false, endsAt: null, completedToday: 0, plan: { planId } } });
+      }
+      await original.shutdown();
+      engines.splice(engines.indexOf(original), 1);
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(scheduledFor) - Date.now() + 50)));
+      const saved = JSON.parse(readFileSync(path.join(dir, ".huhu/home/focus.json"), "utf8"));
+      expect(saved).toMatchObject({
+        running: !pauseBeforeShutdown,
+        completedToday: 0,
+        deadline: { planId, scheduledFor, state: pauseBeforeShutdown ? "paused" : "enabled" },
+      });
+      const reopened = await boot({ vaultPath: dir });
+      engines.push(reopened);
+      if (paused) {
+        expect((await call(reopened, "home.focus.get", {})).data).toEqual(paused.data);
+        expect((await call(reopened, "automations.plans.read", { planId })).data).toMatchObject({ intent: "paused", nextAt: null, lastOccurrence: null });
+        expect((await call(reopened, "notifications.list", {})).data).toEqual([]);
+        return;
+      }
+      await expect.poll(async () => (await call(reopened, "home.focus.get", {})).data).toMatchObject({ running: false, completedToday: 1, plan: ref });
+      await expect.poll(async () => (await call(reopened, "automations.plans.read", { planId })).data).toMatchObject({ ...ref, nextAt: null, lastOccurrence: { state: "completed" } });
+      const notices = (await call(reopened, "notifications.list", {})).data as unknown as { id: string; title: string }[];
+      expect(notices.filter(({ title }) => title === "专注完成")).toHaveLength(1);
+      const reads = await Promise.all(Array.from({ length: 3 }, () => call(reopened, "home.focus.get", {})));
+      expect(reads.every(({ data }) => (data as unknown as { completedToday: number }).completedToday === 1)).toBe(true);
+    },
+    15_000,
+  );
   test("plugins.setEnabled：停用后其能力不可用并持久化；级联停用依赖者；重启保持；kernel 不可停用", async () => {
     const dir = tmp();
     const e1 = await boot({ vaultPath: dir, create: true });
@@ -917,15 +929,30 @@ describe("Engine 启动与关闭", () => {
         await expect.poll(waiting, { timeout: 15_000 }).toMatchObject({ active: true, n: 1 });
         expect(await reminders()).toEqual([]);
         const intentId = randomUUID();
-        const result = await call("automations.plans.createObservation", {
-          title: "需要核对原会话", target: { kind: "agent-session", id: s.id }, everySeconds: 1,
-          condition: { kind: "threshold", status: "waiting_input", seconds: 1 }, stopAtTerminal: true, effect: "both", intentId,
-        }, intentId);
+        const result = await call(
+          "automations.plans.createObservation",
+          {
+            title: "需要核对原会话",
+            target: { kind: "agent-session", id: s.id },
+            everySeconds: 1,
+            condition: { kind: "threshold", status: "waiting_input", seconds: 1 },
+            stopAtTerminal: true,
+            effect: "both",
+            intentId,
+          },
+          intentId,
+        );
         expect(result).toMatchObject({ ok: true, data: { trigger: { kind: "observe", everySeconds: 1 } } });
-        await expect.poll(reminders, { timeout: 12_000 }).toEqual([expect.objectContaining({
-          title: "需要核对原会话：等待输入", id: expect.any(String), module: "automations", at: expect.any(String), read: false,
-          occurrence: { planId: result.data.planId, occurrenceId: expect.stringMatching(/^rem-/) },
-        })]);
+        await expect.poll(reminders, { timeout: 12_000 }).toEqual([
+          expect.objectContaining({
+            title: "需要核对原会话：等待输入",
+            id: expect.any(String),
+            module: "automations",
+            at: expect.any(String),
+            read: false,
+            occurrence: { planId: result.data.planId, occurrenceId: expect.stringMatching(/^rem-/) },
+          }),
+        ]);
         const tasks = async () => ((await call("tasks.list", {})).data as { title: string }[]).filter(({ title }) => title.startsWith("需要核对原会话"));
         await expect.poll(async () => (await tasks()).map(({ title }) => title)).toEqual(["需要核对原会话：等待输入"]);
         for (let i = 0; i < 6; i++) await Promise.all([waiting(), waiting(), waiting()]);
@@ -1056,9 +1083,13 @@ describe("Engine 启动与关闭", () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
     const { WebSocket } = await import("ws");
-    const manage = (capability: string, input: unknown) => post(e, e.rendererToken, {
-      capability, input, requestId: "fixture", idempotencyKey: crypto.randomUUID(),
-    });
+    const manage = (capability: string, input: unknown) =>
+      post(e, e.rendererToken, {
+        capability,
+        input,
+        requestId: "fixture",
+        idempotencyKey: crypto.randomUUID(),
+      });
     const create = async (name: string) => {
       const result = await manage("gateway.tokens.create", { name });
       expect(result.ok).toBe(true);
@@ -1066,18 +1097,19 @@ describe("Engine 启动与关闭", () => {
     };
     const a = await create("first fixture");
     const b = await create("second fixture");
-    const upgrade = (token: string, route: string) => new Promise<number>((resolve, reject) => {
-      const socket = new WebSocket(`ws://127.0.0.1:${e.port}${route}`, [`bearer.${token}`]);
-      socket.on("unexpected-response", (_r, response) => {
-        response.resume();
-        resolve(response.statusCode ?? 0);
+    const upgrade = (token: string, route: string) =>
+      new Promise<number>((resolve, reject) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${e.port}${route}`, [`bearer.${token}`]);
+        socket.on("unexpected-response", (_r, response) => {
+          response.resume();
+          resolve(response.statusCode ?? 0);
+        });
+        socket.on("open", () => {
+          socket.close();
+          resolve(200);
+        });
+        socket.on("error", reject);
       });
-      socket.on("open", () => {
-        socket.close();
-        resolve(200);
-      });
-      socket.on("error", reject);
-    });
     for (const { token } of [a, b]) {
       expect(await upgrade(token, "/ws/terminal/sess-fixture")).toBe(403);
       expect(await upgrade(token, "/ws/events?lastSeq=0")).toBe(403);
@@ -1451,15 +1483,17 @@ describe("Engine 启动与关闭", () => {
   }, 30_000);
   test("AW6：固定需求计划立即反映 Agent CLI 设置，保留原修订与暂停意图", async () => {
     const root = tmp();
-    const configure = (engine: RunningEngine, capability: string, input: unknown = {}) =>
-      post(engine, engine.rendererToken, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+    const configure = (engine: RunningEngine, capability: string, input: unknown = {}) => post(engine, engine.rendererToken, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
     const setCodex = async (engine: RunningEngine, enabled: boolean) => {
       const current = await configure(engine, "agent.settings.get");
       const { settings } = current.data as unknown as { settings: { revision: number } };
-      expect(await configure(engine, "agent.settings.update", {
-        expectedRevision: settings.revision, defaultAgent: "codex",
-        agents: { codex: { enabled, command: process.execPath }, claude: { enabled: false }, pi: { enabled: false } },
-      })).toMatchObject({ ok: true });
+      expect(
+        await configure(engine, "agent.settings.update", {
+          expectedRevision: settings.revision,
+          defaultAgent: "codex",
+          agents: { codex: { enabled, command: process.execPath }, claude: { enabled: false }, pi: { enabled: false } },
+        }),
+      ).toMatchObject({ ok: true });
     };
     const original = await boot({ vaultPath: root, create: true });
     engines.push(original);
@@ -1470,7 +1504,8 @@ describe("Engine 启动与关闭", () => {
     engines.push(engine);
     const [space] = (await configure(engine, "agent.spaces.list")).data as unknown as { id: string }[];
     const created = await configure(engine, "automations.create", {
-      title: "整理周报", body: "请整理本周的工作记录。",
+      title: "整理周报",
+      body: "请整理本周的工作记录。",
       trigger: { preset: "daily", cron: "30 9 * * *", zone: "UTC" },
       action: { kind: "agent", input: { source: "prompt", spaceId: space!.id, provider: "codex" } },
     });
