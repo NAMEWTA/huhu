@@ -1,8 +1,8 @@
 "use strict";
 
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const { createHash, createHmac, timingSafeEqual } = require("node:crypto");
-const { closeSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync, writeSync } = require("node:fs");
+const { closeSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync, writeSync } = require("node:fs");
 const { createServer } = require("node:net");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
@@ -122,12 +122,44 @@ function main(file) {
   env.CODEX_HOME = config.home;
   if (!windows) env.HOME = config.home;
 
+  // Codex merges tables across layers, so an empty CLI MCP table alone does not clear profile entries.
+  const isolatedMcpArgs = config.args.length ? [] : [
+    "--disable", "plugins", "--disable", "remote_plugin", "--disable", "skill_mcp_dependency_install", "--disable", "apps",
+    "--config", "projects." + JSON.stringify(process.cwd()) + '.trust_level="untrusted"',
+  ];
+  if (isolatedMcpArgs.length) {
+    const inventory = spawnSync(config.command, [...isolatedMcpArgs, "mcp", "list", "--json"], {
+      cwd: process.cwd(), env, encoding: "utf8", timeout: 4_000, maxBuffer: 512 * 1024, windowsHide: true,
+    });
+    if (inventory.status !== 0) throw new Error("Controlled MCP configuration could not be verified");
+    const entries = JSON.parse(inventory.stdout);
+    if (!Array.isArray(entries) || entries.length) throw new Error("Controlled Codex profile contains existing MCP entries");
+    if ((statSync(userConfig, { throwIfNoEntry: false }) ? stamp(userConfig) : null) !== config.configStamp) throw new Error("Provider configuration changed");
+  }
+
   const nativeChoiceFeature = "default_mode_request_user_input";
   const choiceArgs = nativeChoiceBridge ? ["--enable", nativeChoiceFeature] : [];
   const toolArgs = workspace
     ? ["--enable", "shell_tool", "--config", "sandbox_workspace_write={writable_roots=[],network_access=false,exclude_tmpdir_env_var=true,exclude_slash_tmp=true}"]
     : ["--disable", "shell_tool"];
-  const app = spawn(config.command, [...config.args, ...choiceArgs, "--config", "mcp_servers={}", "--config", 'web_search="disabled"', ...toolArgs, "app-server", "--listen", "stdio://"], {
+  const tokenFile = path.join(directory, "task-mcp-token.json");
+  const taskMcp = !resume && statSync(tokenFile, { throwIfNoEntry: false }) ? JSON.parse(readFileSync(tokenFile, "utf8")) : null;
+  const endTaskMcp = () => {
+    if (!taskMcp) return;
+    rmSync(path.join(directory, "task-mcp-active.json"), { force: true });
+    rmSync(path.join(directory, "task-mcp-submitted.json"), { force: true });
+  };
+  let mcp = "mcp_servers={}";
+  if (taskMcp) {
+    rmSync(tokenFile);
+    if (!/^http:\/\/127\.0\.0\.1:[0-9]+\/mcp$/.test(taskMcp.url) || !/^[A-Za-z0-9_-]{43}$/.test(taskMcp.token)) throw new Error("Invalid task MCP binding");
+    env.HUHU_TASK_MCP_TOKEN = taskMcp.token;
+    mcp = 'mcp_servers={huhu={url=' + JSON.stringify(taskMcp.url) + ',bearer_token_env_var="HUHU_TASK_MCP_TOKEN",default_tools_approval_mode="approve"}}';
+    toolArgs.push("--config", 'shell_environment_policy.exclude=["HUHU_TASK_MCP_TOKEN"]');
+    const processStart = process.platform === "linux" ? statSync(`/proc/${process.pid}`, { bigint: true }).ino.toString() : undefined;
+    save("task-mcp-active", { pid: process.pid, processStart });
+  }
+  const app = spawn(config.command, [...config.args, ...isolatedMcpArgs, ...choiceArgs, "--config", mcp, "--config", 'web_search="disabled"', ...toolArgs, "app-server", "--listen", "stdio://"], {
     cwd: process.cwd(),
     env,
     windowsHide: true,
@@ -168,6 +200,7 @@ function main(file) {
   function stop(state) {
     if (closing) return;
     closing = true;
+    endTaskMcp();
     clearTimeout(startup);
     clearInterval(approvalWatch);
     for (const socket of sockets) socket.destroy();
@@ -232,6 +265,7 @@ function main(file) {
     }
     const final = finals.get(turnId);
     const { status, error } = completion;
+    endTaskMcp();
     if (status === "completed" && final) report(final.source, { message: final.text });
     const withoutFinal = status === "completed" && !final
       ? (final === undefined && resultMode === "allow_no_update" ? "allowed" : "unconfirmed")
@@ -386,6 +420,7 @@ function main(file) {
       (requestedResultMode !== undefined && requestedResultMode !== "allow_no_update")
     )
       return;
+    if (taskMcp && observedTurns.size === 0 && Object.entries(taskMcp.key).some(([key, value]) => key === "machineId" ? binding.machineId !== value : execution[key] !== value)) return;
     if (!workspaceApproved()) return stop("workspace write approval changed before input");
     if (resume && observedTurns.size === 0) {
       if (execution.dispatchId !== resume.dispatchId) return;
@@ -402,6 +437,7 @@ function main(file) {
       .update(JSON.stringify([execution, inputSha256]))
       .digest("hex");
     save(intent, { execution, inputSha256, clientUserMessageId, resultMode });
+    if (taskMcp && observedTurns.size === 0) save("task-mcp-submitted", { pid: process.pid });
     request("turn/start", { threadId, clientUserMessageId, input: [{ type: "text", text: input }] }, (result) => {
       if (typeof result?.turn?.id !== "string" || !id.test(result.turn.id) || observedTurns.has(result.turn.id)) return stop("turn acceptance is unconfirmed");
       turnId = result.turn.id;

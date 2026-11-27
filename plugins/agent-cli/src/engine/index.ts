@@ -168,6 +168,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     resumeTargets,
     launchResume: launchDispatchResume,
     resumeAbandoned,
+    taskMcpAvailable: () => codex?.taskMcpAvailable ?? false,
     signal: lifetime.signal,
   });
   registerDispatch(api, dispatch);

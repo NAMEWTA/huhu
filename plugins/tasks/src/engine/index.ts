@@ -12,6 +12,7 @@ import {
   TaskExecutionProfileSchema,
   TaskExecutionSchema,
   TaskPatchSchema,
+  TaskMcpToolsSchema,
   TaskStatusSchema,
   TaskTypeSchema,
   TaskWritableSchema,
@@ -205,11 +206,18 @@ export const taskToolDescriptors = {
     scope: "read",
     exposable: true,
     defaultExposed: false,
-    input: z.strictObject({ spaceId: z.string().min(1), profile: TaskExecutionProfileSchema.optional() }),
+    input: z.strictObject({ spaceId: z.string().min(1), profile: TaskExecutionProfileSchema.optional(), taskId: Id.shape.id.optional() }),
     output: z.array(AgentDispatchTargetInfoSchema.pick({ mode: true, provider: true, sessionId: true, nativeSessionId: true, history: true, historyTitle: true, available: true, reason: true, profile: true, capabilities: true })),
     title: "查看派遣目标",
     description: "查看指定 Space 可选的 Agent 与会话目标。",
     risk: "normal",
+  }),
+  mcpAuthorize: defineCapabilityDescriptor({
+    name: "tasks.mcp.authorize", plugin: "tasks", scope: "write", exposable: false, defaultExposed: false, risk: "high",
+    title: "设置任务 MCP 授权", desktopOnly: true,
+    description: "替换当前任务的工具授权，空列表撤销授权。",
+    input: Versioned.extend({ tools: TaskMcpToolsSchema }),
+    output: TaskDtoSchema,
   }),
   dispatchResources: defineCapabilityDescriptor({
     name: "tasks.dispatch.resources", plugin: "tasks", scope: "read", exposable: false, defaultExposed: false, risk: "normal",
@@ -644,9 +652,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     }),
   );
   api.defineCapability(
-    bindCapability(taskToolDescriptors.dispatchTargets, async ({ caller, signal }, { spaceId, profile }) => {
+    bindCapability(taskToolDescriptors.dispatchTargets, async ({ caller, signal }, { spaceId, profile, taskId }) => {
       if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务的会话目标");
-      const input = { vaultId: api.vault.vaultId, machineId: machineId(), spaceId, ...(profile && { options: { profile } }), ...(!isWorkbenchCaller(caller) && { mode: "snapshot" }) };
+      const task = taskId && isWorkbenchCaller(caller) ? svc.read(taskId) : undefined;
+      const input = { vaultId: api.vault.vaultId, machineId: machineId(), spaceId, taskMcp: task?.execution?.spaceId === spaceId && !!task?.mcpAuthorization, ...(profile && { options: { profile } }), ...(!isWorkbenchCaller(caller) && { mode: "snapshot" }) };
       const response = await api.call("agent.targets.list", input, { signal }).catch((error: unknown) => {
         const code = ErrorCodeSchema.safeParse(error instanceof Error && "code" in error ? error.code : undefined);
         if (code.success && error instanceof Error) throw new HuhuError(code.data, error.message);
@@ -656,6 +665,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       return targets.map(({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason, profile, capabilities }) => ({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason, profile, capabilities }));
     }),
   );
+  api.provide("taskMcpAuthorization", dispatch.currentMcpAuthorization.bind(dispatch));
+  api.defineCapability(bindCapability(taskToolDescriptors.mcpAuthorize, ({ caller, signal }, { id, expectedVersion, tools }) => {
+    if (caller !== "desktop") throw errors.permissionDenied("仅桌面工作台可设置任务 MCP 授权");
+    return svc.authorizeMcp(id, expectedVersion, tools, signal);
+  }));
   api.defineCapability(bindCapability(taskToolDescriptors.dispatchResources, ({ caller }) => {
     if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看本机派遣资源");
     const retained = api.service<{ dispatchRetained(): number }>("agentCli")?.dispatchRetained();

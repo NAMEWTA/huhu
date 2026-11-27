@@ -10,6 +10,7 @@ import { registerCapabilityHttp, type CapabilityHttpEnv } from "./capability-htt
 import { RENDERER_ORIGIN, bearerFrom, checkIngress } from "./ingress.js";
 import { listenHttp } from "./listen-http.js";
 import { McpSessions, type McpRecoveryOptions } from "./mcp-http.js";
+import type { TaskMcpCredentials } from "./task-mcp.js";
 import type { TokenTable } from "./tokens.js";
 import type { EventReplay } from "./ws-events.js";
 import { attachWorkbenchStreams, type TerminalBridge } from "./ws-workbench.js";
@@ -26,6 +27,7 @@ export interface EngineServerDeps {
   terminal?: TerminalBridge;
   /** MCP Streamable HTTP（`/mcp`）：未启用时返回 404，使用持久 HTTP 授权。 */
   mcpHttp?: { enabled(): boolean };
+  taskMcp?: TaskMcpCredentials;
   /** Scoped external catalog available only while its management plugin is running. */
   externalMcpTools?(): ExternalMcpTools | undefined;
   /** Lifetime of the admitted MCP service configuration. */
@@ -107,7 +109,8 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     if (!sessions.enabled()) return refuse(404, "MCP 服务未启用");
     const verdict = checkIngress(req.headers, port);
     if (!verdict.ok) return refuse(verdict.status, verdict.reason);
-    const credential = d.tokens.principal(bearerFrom(req.headers["authorization"]));
+    const bearer = bearerFrom(req.headers["authorization"]);
+    const credential = d.taskMcp?.principal(bearer) ?? d.tokens.principal(bearer);
     if (!credential) return refuse(401, "未授权");
     if (credential.caller !== "http") return refuse(403, "该令牌身份不能使用 MCP 服务");
     void sessions.handle(credential, req, res).catch(() => {
@@ -150,6 +153,7 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     hasMcpPrincipal: (caller, subject) => sessions.hasPrincipal(caller, subject),
     lastActivity: () => lastActivity,
     close: async () => {
+      d.taskMcp?.close();
       sessions.close();
       streams.close();
       await new Promise<void>((r) => server.close(() => r()));

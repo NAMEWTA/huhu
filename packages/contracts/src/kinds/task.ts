@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DateOnly, IsoTime, dateLike } from "./common.js";
+import { TaskMcpAuthorizationSchema } from "../mcp-routing.js";
 import { normalizeTags } from "../tags.js";
 
 /** schema 2：human / agent 两类、三种状态。不兼容 schema 1（项目约束：0→1，不读取旧格式）。 */
@@ -93,6 +94,7 @@ export const TaskFrontmatterSchema = z.object({
   project: z.string().nullable().default(null),
   origin: TaskOriginSchema,
   execution: TaskExecutionSchema.nullable().default(null),
+  mcpAuthorization: TaskMcpAuthorizationSchema.nullable().optional(),
   reminders: z.array(TaskReminderSchema).default([]),
   inputRevision: z.number().int().min(1).default(1),
   createdAt: dateLike(IsoTime),

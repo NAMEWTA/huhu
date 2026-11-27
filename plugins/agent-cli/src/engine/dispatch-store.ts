@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { ExecutionBindingSchema, ExecutionSessionBindingSchema, HuhuError, TaskExecutionProfileSchema, TaskHistorySelectionSchema, TaskRunAttemptSchema } from "@huhu/contracts";
+import { ExecutionBindingSchema, ExecutionSessionBindingSchema, HuhuError, TaskExecutionProfileSchema, TaskHistorySelectionSchema, TaskMcpAuthorizationSchema, TaskRunAttemptSchema } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { putReceiptFile } from "./execution-receipts.js";
@@ -51,6 +51,7 @@ export const DispatchInput = DispatchLookup.extend({
   input: z.string().min(1).max(64_000).refine(isInputText),
   resultMode: z.literal("allow_no_update").optional(),
   target: DispatchTarget,
+  mcpAuthorization: TaskMcpAuthorizationSchema.optional(),
 });
 export type DispatchLookup = z.infer<typeof DispatchLookup>;
 export type DispatchInput = z.infer<typeof DispatchInput>;

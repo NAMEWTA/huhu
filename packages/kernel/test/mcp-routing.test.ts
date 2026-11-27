@@ -136,6 +136,21 @@ test("authentication generations and route replacements invalidate in-progress p
   expect(routing.list(principal, "tool")).toEqual([builtin, updated]);
 });
 
+test("a task session rejects a published name rebound to another source or source revision", async () => {
+  const { principal, catalog, routing, send, update } = fixture();
+  const task = { ...principal, taskTools: [{ sourceId: repo.sourceId, upstreamIdentity: repo.upstreamIdentity, sourceRevision: repo.configRevision }] };
+  expect(routing.list(task, "tool")).toEqual([repo]);
+  await routing.call(task, request);
+  const other = { ...repo, sourceId: "source:other" };
+  update({ routes: [other], policy: { revision: 2, catalogRevision: 2, selected: [entry(other)] }, sources: new Map([[other.sourceId, { ...catalog, sourceId: other.sourceId }]]) });
+  expect(routing.list(task, "tool")).toEqual([]);
+  await expect(routing.call(task, request)).rejects.toMatchObject({ details: { reason: "permission-denied" } });
+  const revised = { ...repo, configRevision: 2 };
+  update({ routes: [revised], policy: { revision: 3, catalogRevision: 2, selected: [entry(repo)] }, sources: new Map([[repo.sourceId, { ...catalog, configRevision: 2 }]]) });
+  await expect(routing.call(task, request)).rejects.toMatchObject({ details: { reason: "permission-denied" } });
+  expect(send).toHaveBeenCalledTimes(1);
+});
+
 test("recovery, host permission, invalid session and cancellation stop before send", async () => {
   const { principal, lifetime, routing, prepare, send } = fixture();
   const recovered: McpSessionPrincipal = { ...principal, recovered: true };

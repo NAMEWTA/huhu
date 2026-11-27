@@ -59,11 +59,12 @@ export class AgentDispatch {
       resumeTargets?(space: Space, snapshot: boolean): Promise<ResumeInfo[]>;
       launchResume?(target: ResumeTarget, requestId: string, dispatchId: string, prepare: boolean, signal: AbortSignal): Promise<string | null>;
       resumeAbandoned?(dispatchId: string): boolean;
+      taskMcpAvailable?(): boolean;
       signal: AbortSignal;
     },
   ) {}
 
-  async targets(input: { vaultId: string; machineId: string; spaceId: string; options?: z.infer<typeof LaunchOptions> | undefined; mode?: "snapshot" | undefined; includeResume?: false | undefined }, requestSignal: AbortSignal) {
+  async targets(input: { vaultId: string; machineId: string; spaceId: string; options?: z.infer<typeof LaunchOptions> | undefined; mode?: "snapshot" | undefined; includeResume?: false | undefined; taskMcp?: boolean | undefined }, requestSignal: AbortSignal) {
     this.assertScope(input);
     const signal = AbortSignal.any([this.d.signal, requestSignal]);
     signal.throwIfAborted();
@@ -155,7 +156,10 @@ export class AgentDispatch {
           liveSession: target.mode === "existing" ? dispatch : runtime("requires_live_binding"),
           coldResume: target.mode === "resume" ? dispatch : runtime("requires_qualified_persistent_history"),
           structuredReply: feature, structuredResult: feature, stop: feature, workspaceRead: feature,
-          workspaceWrite: writeFeature, command: writeFeature, mcp: unsupported("no_task_tool_scope"),
+          workspaceWrite: writeFeature, command: writeFeature, mcp: !input.taskMcp ? unsupported("no_task_tool_scope")
+            : provider !== "codex" || !native || target.mode !== "new" ? unsupported("task_mcp_requires_new_controlled_codex")
+              : reason ? unsupported(reason)
+                : this.d.taskMcpAvailable?.() ? available : unsupported("task_mcp_service_unavailable"),
         },
       };
     });
@@ -285,6 +289,10 @@ export class AgentDispatch {
     const adapter = Object.hasOwn(this.d.providers, provider) ? this.d.providers[provider] : undefined;
     if (!adapter?.modes.includes(target.mode) || (target.mode === "resume" && adapter.transport !== "native")) return receipt(prior, "unsupported", "provider_acceptance_unavailable");
     if (target.mode === "new" && target.profile === "workspace-write" && adapter.transport !== "native") return receipt(prior, "unsupported", "workspace_write_profile_unsupported");
+    if (input.mcpAuthorization) {
+      if (provider !== "codex" || adapter.transport !== "native" || target.mode !== "new") return receipt(prior, "unsupported", "task_mcp_requires_new_controlled_codex");
+      if (!this.d.taskMcpAvailable?.()) return receipt(prior, "unsupported", "task_mcp_service_unavailable");
+    }
     if (input.resultMode && adapter.transport !== "native") return receipt(prior, "unsupported", "result_mode_unsupported");
     if (prior && prior.adapterId !== adapter.id) return receipt(prior, "unknown", "provider_adapter_changed");
 
@@ -307,9 +315,10 @@ export class AgentDispatch {
     let id = record.execution?.sessionBinding.sessionId ?? (target.mode === "existing" ? target.binding.sessionId : null);
     if (!id && target.mode === "new") {
       try {
-        id = await this.launchNew(target, record, signal);
+        id = await this.launchNew(target, record, signal, input.mcpAuthorization);
       } catch (error) {
         if (error instanceof HuhuError && error.code === "HEADLESS_UNSUPPORTED") return receipt(record, "unsupported", "provider_acceptance_unavailable");
+        if (error instanceof HuhuError && error.details?.["reason"] === "task_mcp_authorization_inactive") return receipt(record, "unsupported", "task_mcp_authorization_inactive");
         if (error instanceof HuhuError && error.details?.["reason"] === "workspace_write_approval_required") return receipt(record, "unsupported", "workspace_write_approval_required");
         throw error;
       }
@@ -389,11 +398,11 @@ export class AgentDispatch {
     return this.observe(updated, signal);
   }
 
-  private async launchNew(target: Extract<DispatchInput["target"], { mode: "new" }>, record: StoredDispatch, signal: AbortSignal): Promise<string | null> {
+  private async launchNew(target: Extract<DispatchInput["target"], { mode: "new" }>, record: StoredDispatch, signal: AbortSignal, authorization: DispatchInput["mcpAuthorization"]): Promise<string | null> {
     const { mode: _mode, configurationId, ...launch } = target;
     try {
       const controlled = record.transport === "native" ? { controlled: "codex" as const } : {};
-      return (await this.d.sessions.launch({ ...launch, ...controlled, expectedConfigurationId: configurationId, requestId: "dispatch-" + launchHash(record.key) }, signal)).id;
+      return (await this.d.sessions.launch({ ...launch, ...controlled, ...(authorization && { taskMcp: { key: record.key, authorization } }), expectedConfigurationId: configurationId, requestId: "dispatch-" + launchHash(record.key) }, signal)).id;
     } catch (error) {
       if (error instanceof HuhuError && (error.code === "RUN_UNKNOWN" || error.code === "HERDR_UNAVAILABLE")) return null;
       throw error;

@@ -13,7 +13,7 @@ import type { HistoryLaunch, ResolvedLaunch, ResolveInput } from "./launch.js";
 import { hasLaunchLabels, identifyCore, launchHash, launchLabels, processBinding, sameCore, sameProcess, type LaunchAttempt, type LaunchReceipt, type ProcessBinding, type Terminal } from "./launch-binding.js";
 import type { SpaceStore } from "./spaces.js";
 import type { InputOwnership } from "./input-ownership.js";
-import type { CodexDispatch } from "./codex-dispatch.js";
+import type { CodexDispatch, TaskMcpDispatch } from "./codex-dispatch.js";
 import type { DeviceDispatchBudget } from "@huhu/vault";
 import type { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
 import type { NativeStop, NativeStopStatus } from "./native-stop.js";
@@ -127,6 +127,7 @@ const noControl = (s: string): string =>
     .trim();
 
 export interface LaunchInput {
+  taskMcp?: TaskMcpDispatch;
   spaceId: string;
   spaceRevision: number;
   provider: AgentId | "shell";
@@ -832,7 +833,7 @@ export class SessionsService {
     }
     const attempt = { id: randomUUID(), core };
     if (controlled) {
-      argv = this.d.codex!.start(controlled, { vaultId: receipt.vaultId, machineId: receipt.machineId, sessionId: session.id, attempt: attempt.id, coreId: core.id });
+      argv = this.d.codex!.start(controlled, { vaultId: receipt.vaultId, machineId: receipt.machineId, sessionId: session.id, attempt: attempt.id, coreId: core.id }, input.taskMcp);
     }
     let codexHistoryStage: ReturnType<typeof stageCodexHistory> | undefined;
     if (codexHistory) {

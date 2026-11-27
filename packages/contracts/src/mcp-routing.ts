@@ -66,6 +66,20 @@ export const McpImportConfirmationSchema = z.strictObject({
 });
 export type McpImportConfirmation = z.infer<typeof McpImportConfirmationSchema>;
 
+export const TaskMcpToolSchema = z.strictObject({
+  sourceId: identity,
+  upstreamIdentity: identity,
+  sourceRevision: revision.nullable(),
+}).refine(({ sourceId, sourceRevision }) => (sourceId === "builtin") === (sourceRevision === null));
+export type TaskMcpTool = z.infer<typeof TaskMcpToolSchema>;
+export const TaskMcpToolsSchema = z.array(TaskMcpToolSchema).max(64).refine((tools) =>
+  new Set(tools.map(({ sourceId, upstreamIdentity }) => JSON.stringify([sourceId, upstreamIdentity]))).size === tools.length);
+export const TaskMcpAuthorizationSchema = z.strictObject({
+  revision: z.uuidv4(),
+  tools: TaskMcpToolsSchema.refine((tools) => tools.length > 0),
+});
+export type TaskMcpAuthorization = z.infer<typeof TaskMcpAuthorizationSchema>;
+
 export const MCP_ENTRY_KINDS = ["tool", "resource", "resource-template", "prompt"] as const;
 export type McpEntryKind = (typeof MCP_ENTRY_KINDS)[number];
 const entryKind = z.enum(MCP_ENTRY_KINDS);

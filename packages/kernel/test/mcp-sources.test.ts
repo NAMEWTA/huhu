@@ -151,6 +151,33 @@ async function readySource(f: Awaited<ReturnType<typeof fixture>>, directory: st
   return { source: enabled, journal };
 }
 
+test("refreshing an enabled MCP source restores the selected tool in the unfiltered workbench catalog", async () => {
+  const f = await fixture(root());
+  const upstream = await localUpstream("streamable-http");
+  cleanup.push(upstream.close);
+  const source = await f.call<Source>("mcp.sources.create", {
+    displayName: "Task fixture", namespace: "task_allowed",
+    configuration: { transport: "streamable-http", url: upstream.url, headers: {}, authentication: { kind: "none" } },
+  });
+  expect(await f.call("mcp.sources.check", sourceRef(source))).toMatchObject({ state: "ready", toolCount: 1 });
+  await exposure(f, source, "echo", true);
+  const enabled = await f.call<Source>("mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
+  f.setPublishing(true);
+
+  expect(await f.call("mcp.sources.get", { sourceId: source.sourceId })).toMatchObject({ source: enabled, state: "stale" });
+  expect((await f.call<Catalog>("mcp.catalog.list")).entries).toEqual([]);
+  expect((await f.call<Catalog>("mcp.catalog.list", { sourceId: source.sourceId })).entries).toEqual([]);
+  expect(upstream.listRequests).toBe(1);
+
+  expect(await f.call("mcp.sources.refresh", sourceRef(enabled))).toMatchObject({ state: "ready", toolCount: 1 });
+  expect(await f.call("mcp.sources.get", { sourceId: source.sourceId })).toMatchObject({ source: enabled, state: "ready" });
+  expect((await f.call<Catalog>("mcp.catalog.list")).entries).toMatchObject([
+    { sourceId: source.sourceId, upstreamIdentity: "echo", publicKey: "task_allowed__echo", selected: true },
+  ]);
+  expect(upstream.listRequests).toBe(2);
+  expect(upstream.calls).toEqual([]);
+});
+
 function running(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
   catch (error) {

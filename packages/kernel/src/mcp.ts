@@ -5,6 +5,7 @@ import { mcpToolName } from "./capabilities/define.js";
 import { externalUriScheme, type DirectoryEntry } from "./mcp-sources/catalog.js";
 
 export interface McpBackend {
+  toolsOnly?: boolean;
   /** 对当前调用者可见（已对外开放）的能力。 */
   list(): Promise<McpCapability[]> | McpCapability[];
   /** 解析协议工具名并交给 Dispatcher 复核，包括客户端缓存的旧工具。 */
@@ -90,7 +91,7 @@ export function resolveMcpToolName(known: readonly string[], name: string): stri
 /** 把对外开放的能力映射为 MCP 工具，并提供资源（概览、最近笔记）、模板（`huhu://notes/{id}`）与提示词（daily-review、knowledge-synthesis）。 */
 export function createMcpServer(backend: McpBackend, version: string): Server {
   const dynamic = backend.external ? { listChanged: true } : {};
-  const server = new Server({ name: "huhu", version }, { capabilities: { tools: dynamic, resources: dynamic, prompts: dynamic } });
+  const server = new Server({ name: "huhu", version }, { capabilities: { tools: backend.toolsOnly ? {} : dynamic, ...(!backend.toolsOnly && { resources: dynamic, prompts: dynamic }) } });
   const externalList = (kind: McpEntryKind) => backend.external?.list(kind).catch((error: unknown) => {
     if (isHuhuError(error) && error.code === "INVALID_INPUT") return [];
     throw error;
@@ -121,6 +122,7 @@ export function createMcpServer(backend: McpBackend, version: string): Server {
     const data = r.data ?? null;
     return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: { data, ...(r.opId && { opId: r.opId }) } };
   });
+  if (backend.toolsOnly) return server;
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
     resources: (await directory("resource")).flatMap((entry) => entry.kind === "resource" ? [entry.definition] : []),
   }));
