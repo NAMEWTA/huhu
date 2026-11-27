@@ -451,7 +451,7 @@
       "target": "app/src/comments/store.ts",
       "upstream": "packages/app/src/comments/store.ts",
       "blob": "e5b6e5154a419f3138a42549a8adffcfbf94fd09",
-      "sha256": "7cef4bd9210788145a31eb900ad3e9db0d0b3ce97de3588ba21a98361cfcb3fb",
+      "sha256": "e9bb440ecbea91890e1e77b71a928415b52185e1ec96a519f7b33b43bdc1c86b",
       "method": "patch",
       "description": "PATCHES.md:20 - P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：提交批注编辑时带上开始编辑的版本，写入失败保留编辑内容；保留整篇笔记批注入口。"
     },

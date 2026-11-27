@@ -426,6 +426,7 @@ export async function editComment(threadId: string, body: string, surface = defa
   } catch (err) {
     const failed = t`Couldn't save that edit.`;
     toast.error(err instanceof Error && err.message ? `${failed} ${err.message}` : failed);
+    invalidate(surface);
     return false;
   }
 }
