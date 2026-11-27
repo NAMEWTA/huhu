@@ -15,12 +15,13 @@ const fixture = vi.hoisted(() => ({
   refetch: vi.fn(),
   queries: { invalidateQueries: vi.fn(async () => {}) },
   resources: undefined as unknown,
+  mcpCatalogs: {} as Record<string, unknown>,
 }));
 
 vi.mock("@huhu/workbench", () => ({
-  useEngine: () => ({ call: fixture.call, vaultId: "fixture" }),
+  useEngine: () => ({ call: fixture.call, vaultId: "fixture", endpoint: { token: "desktop-fixture" } }),
   useQueryClient: () => fixture.queries,
-  useCapability: (name: string) => ({ data: name === "tasks.dispatch.resources" ? fixture.resources : undefined, refetch: fixture.refetch }),
+  useCapability: (name: string) => ({ data: name === "tasks.dispatch.resources" ? fixture.resources : fixture.mcpCatalogs[name], refetch: fixture.refetch }),
   createRequestId: () => "intent-fixture",
 }));
 vi.mock("../src/ui/compact.js", () => ({ TaskRunMarkdownView: () => null }));
@@ -55,6 +56,7 @@ beforeEach(() => {
   fixture.call.mockReset();
   fixture.refetch.mockReset();
   fixture.resources = undefined;
+  fixture.mcpCatalogs = {};
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -108,4 +110,35 @@ test("结束原轮次后显式派遣，仅冻结选中的评论和原产物版�
       context: { messageIds: ["summary"], artifacts: [{ path: "Notes/产物.txt", expectedVersion: "artifact-version" }] },
     }],
   ]);
+});
+
+test("长外部工具的整行授权标签可勾选，并保存精确来源和修订", async () => {
+  fixture.mcpCatalogs = {
+    "capabilities.list": [{ name: "vault.info", exposed: true }],
+    "mcp.catalog.list": { entries: [
+      { kind: "tool", sourceId: "allowed-source", upstreamIdentity: "echo", publicKey: "task_allowed__echo", selected: true },
+      { kind: "tool", sourceId: "other-source", upstreamIdentity: "echo", publicKey: "task_other__echo", selected: true },
+    ] },
+    "mcp.sources.list": { sources: [
+      { state: "ready", source: { sourceId: "allowed-source", revision: 2, displayName: "task_allowed" } },
+      { state: "ready", source: { sourceId: "other-source", revision: 3, displayName: "task_other" } },
+    ] },
+  };
+  await render();
+  await act(async () => button("任务 MCP 授权")!.click());
+
+  const labels = [...container.querySelectorAll("label")];
+  const allowed = labels.find((label) => label.textContent === "选择 task_allowed__echo（task_allowed）")!;
+  const other = labels.find((label) => label.textContent === "选择 task_other__echo（task_other）")!;
+  const checkbox = allowed.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  expect(checkbox).toBeInstanceOf(HTMLInputElement);
+  expect(allowed.control).toBe(checkbox);
+  await act(async () => allowed.click());
+  expect(checkbox?.checked).toBe(true);
+  expect(other.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false);
+  await act(async () => button("保存工具授权")!.click());
+  expect(fixture.call).toHaveBeenCalledExactlyOnceWith("tasks.mcp.authorize", {
+    id: task.id, expectedVersion: task.version,
+    tools: [{ sourceId: "allowed-source", upstreamIdentity: "echo", sourceRevision: 2 }],
+  }, { write: true });
 });
