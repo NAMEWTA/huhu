@@ -64,6 +64,14 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function revealTerminalPane(canvas: HTMLElement, pane: HTMLElement) {
+  const top = canvas.getBoundingClientRect().top + canvas.clientTop;
+  const bottom = top + canvas.clientHeight;
+  const bounds = pane.getBoundingClientRect();
+  if (bounds.bottom > bottom) canvas.scrollTop += Math.ceil(bounds.bottom - bottom);
+  else if (bounds.top < top && bounds.height <= canvas.clientHeight) canvas.scrollTop -= Math.ceil(top - bounds.top);
+}
+
 function dropDirection(event: DragEvent<HTMLElement>): SplitDirection {
   const bounds = event.currentTarget.getBoundingClientRect();
   const x = (event.clientX - bounds.left) / bounds.width - 0.5;
@@ -132,6 +140,12 @@ export function WorkspaceCanvas({
     measure();
     return () => resize.disconnect();
   }, []);
+  useLayoutEffect(() => {
+    const canvas = host.current;
+    const body = canvas?.ownerDocument.activeElement?.closest(".agent-workspace-pane-body");
+    const leaf = body?.closest<HTMLElement>("[data-pane-id]:not([hidden])");
+    if (canvas && leaf && canvas.contains(leaf)) revealTerminalPane(canvas, leaf);
+  }, [pane, zoom, available.height]);
   const needed = zoom ? minPane : minimum(pane);
   const size = { width: Math.max(available.width, needed.width), height: Math.max(available.height, needed.height) };
   const bounds = { left: 0, top: 0, ...size };
@@ -172,7 +186,12 @@ export function WorkspaceCanvas({
               tabIndex={-1}
               hidden={hidden}
               data-drop-edge={drop?.id === leaf.id ? drop.direction : undefined}
-              onFocusCapture={() => onFocus(leaf.id, leaf.sessionId)}
+              onFocusCapture={(event) => {
+                if (session?.state === "running" && host.current && event.target.closest(".agent-workspace-pane-body")) {
+                  revealTerminalPane(host.current, event.currentTarget);
+                }
+                onFocus(leaf.id, leaf.sessionId);
+              }}
               onPointerDown={() => onFocus(leaf.id, leaf.sessionId)}
               onDragOver={(event) => {
                 if (!retained || isSource || !editable || !event.dataTransfer.types.includes(paneDrag)) return;

@@ -262,6 +262,58 @@ test("a recovered session refuses even read-only upstream tools, and revocation 
   expect(writes(journal).filter(({ type }) => type === "call")).toHaveLength(2);
 });
 
+test("deletion, plugin restart and a different Vault reclaim old upstreams without replay", async () => {
+  const directory = root();
+  const f = await fixture(directory);
+  const removed = await readySource(f, directory, "removed");
+  const kept = await readySource(f, directory, "kept");
+  const calls = (journal: string) => writes(journal).filter(({ type }) => type === "call");
+  const starts = (journal: string) => writes(journal).filter(({ type }) => type === "start");
+  const echo = (name: string, value: string) => mcpRpc("tools/call", { name: name + "__echo", arguments: { value } });
+  const names = (reply: z.infer<typeof mcpReply>) => reply.result?.tools?.map(({ name }) => name);
+
+  f.setPublishing(true);
+  const first = await f.client();
+  const peerToken = f.tokens.issue("http");
+  const peer = await openMcpSession(f.endpoint, peerToken);
+  const peerCall = async (body: unknown) => mcpReply.parse(await (await mcpRequest(f.endpoint, peerToken, body, peer)).json());
+  expect(names(await first("tools/list"))).toEqual(["vault_info", "removed__echo", "kept__echo"]);
+  expect((await first("tools/call", echo("removed", "fixture-disconnect").params)).error?.data?.code).toBe("RUN_UNKNOWN");
+  await f.call("mcp.sources.delete", sourceRef(removed.source));
+  await expect.poll(() => starts(removed.journal).some(({ pid }) => running(pid!))).toBe(false);
+  expect(names(await peerCall(mcpRpc("tools/list")))).toEqual(["vault_info", "kept__echo"]);
+  expect((await peerCall(echo("kept", "peer"))).result?.structuredContent).toEqual({ value: "peer" });
+  expect((await first("tools/call", echo("removed", "stale").params)).error?.data?.code).toBe("CAPABILITY_NOT_FOUND");
+
+  await f.plugins.disable("mcp");
+  expect(starts(kept.journal).some(({ pid }) => running(pid!))).toBe(false);
+  expect((await mcpRequest(f.endpoint, peerToken, echo("kept", "disabled"), peer)).ok).toBe(false);
+  f.setPublishing(false);
+  await f.plugins.enable("mcp");
+  const shortChecks = starts(kept.journal).length;
+  expect(await f.call("mcp.sources.check", sourceRef(kept.source))).toMatchObject({ state: "ready" });
+  expect(starts(kept.journal)).toHaveLength(shortChecks + 1);
+  expect(starts(kept.journal).some(({ pid }) => running(pid!))).toBe(false);
+  f.setPublishing(true);
+  expect(names(await (await f.client())("tools/list"))).toEqual(["vault_info", "kept__echo"]);
+
+  await f.close();
+  expect(starts(kept.journal).some(({ pid }) => running(pid!))).toBe(false);
+  const other = await fixture(root());
+  other.setPublishing(true);
+  expect((await mcpRequest(other.endpoint, f.token, echo("kept", "wrong vault"), peer)).ok).toBe(false);
+  expect(names(await (await other.client())("tools/list"))).toEqual(["vault_info"]);
+  await other.close();
+
+  const reopened = await fixture(directory);
+  reopened.setPublishing(true);
+  const fresh = await reopened.client();
+  expect(names(await fresh("tools/list"))).toEqual(["vault_info", "kept__echo"]);
+  expect((await fresh("tools/call", echo("kept", "new session").params)).result?.structuredContent).toEqual({ value: "new session" });
+  expect(calls(removed.journal).map(({ args }) => args)).toEqual([{ value: "fixture-disconnect" }]);
+  expect(calls(kept.journal).map(({ args }) => args)).toEqual([{ value: "peer" }, { value: "new session" }]);
+}, 20_000);
+
 test("automatic discovery stops after three reconnect attempts, and an explicit reconnect resets it", async () => {
   const directory = root();
   const f = await fixture(directory);

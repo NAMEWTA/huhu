@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { errors, type CapabilityCatalogEntry, type PlanOccurrence, type PlanSummary, type TaskDto, type TaskRuleDispatch } from "@huhu/contracts";
+import { errors, type CapabilityCatalogEntry, type PlanOccurrence, type PlanSummary, type PlanWrite, type TaskDto, type TaskRuleDispatch } from "@huhu/contracts";
 import { NotificationStore, OperationReceipts, type HuhuApi } from "@huhu/kernel";
 import { exportPackage, filesystemIdentity, importPackage, machineId, VaultFiles } from "@huhu/vault";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -14,13 +14,15 @@ import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
 import { createAgentDispatchExecutor } from "../../tasks/src/engine/agent-dispatch-executor.js";
 import type { TaskDispatchExecutor } from "../../tasks/src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord } from "../../tasks/src/engine/dispatch-store.js";
+import { TasksService } from "../../tasks/src/engine/service.js";
 import { externalEntries, externalToolEntry, type ExternalEntry } from "../../tasks/test/external-tool-entry.js";
 import { DEFAULT_TASK_SCAN_RULE_ID } from "../src/engine/default-task-scan.js";
 import { AutomationsService } from "../src/engine/service.js";
 import { Scheduler } from "../src/engine/scheduler.js";
+import { TaskReminderPlans } from "../src/engine/task-reminder-plans.js";
 import { taskScanToolDescriptors } from "../src/engine/task-scan-tools.js";
 import type { TaskScanOccurrences } from "../src/engine/task-scan-occurrences.js";
-import type { ReminderDeliveries } from "../src/engine/reminder-deliveries.js";
+import { planReminderOccurrenceId, ReminderDeliveries } from "../src/engine/reminder-deliveries.js";
 
 const fixture = {
   now: new Date(),
@@ -147,6 +149,12 @@ async function start(vaultPath?: string, readOnly = false) {
 async function stop(engine: RunningEngine) {
   await engine.shutdown();
   engines.splice(engines.indexOf(engine), 1);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 async function call<T = unknown>(engine: RunningEngine, capability: string, input: unknown, external: boolean | string = false, intentKey?: string) {
@@ -641,6 +649,135 @@ test("提醒任务创建后落盘失败，重启只读回原任务和已发通�
   expect((await reopened.reminders.activate(rule.id, slot))?.summary).toMatchObject({ notification: "sent", task: "created", taskId: first!.id });
   expect((await invoke<TaskDto[]>(reopened.engine, "tasks.list", {})).map(({ id }) => id)).toEqual([first!.id]);
   expect(await invoke(reopened.engine, "notifications.list", {})).toEqual([expect.objectContaining({ title: "保留确认身份" })]);
+});
+
+test.each((["reschedule", "set-intent", "delete"] as const).flatMap((change) =>
+  (["selected", "claimed"] as const).map((point) => ({ change, point }))),
+)("关联任务提醒在 $point 时 $change，旧排期不递送", async ({ change, point }) => {
+  const { engine } = await start();
+  const task = await createTask(engine, "关联提醒的原任务");
+  const selected = deferred<Parameters<ReminderDeliveries["activateTaskReminder"]>[0]>();
+  const claimed = deferred<void>();
+  const release = deferred<void>();
+  const queued = deferred<void>();
+  const dispatch = ReminderDeliveries.prototype.activateTaskReminder;
+  let effect: Promise<void> | undefined;
+  const boundary = vi.spyOn(ReminderDeliveries.prototype, "activateTaskReminder").mockImplementation(function (this: ReminderDeliveries, plan) {
+    selected.resolve(plan);
+    return effect = point === "selected" ? release.promise.then(() => dispatch.call(this, plan)) : dispatch.call(this, plan);
+  });
+  const writeFile = VaultFiles.prototype.write;
+  const writeBoundary = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(async function (this: VaultFiles, name, bytes, options) {
+    const result = await writeFile.call(this, name, bytes, options);
+    if (point === "claimed" && name.startsWith("automations/reminder-deliveries/") && options?.expectedVersion === null) {
+      claimed.resolve();
+      await release.promise;
+    }
+    return result;
+  });
+  const changeReminder = TaskReminderPlans.prototype.change;
+  const planBoundary = vi.spyOn(TaskReminderPlans.prototype, "change").mockImplementation(function (this: TaskReminderPlans, input, signal) {
+    const pending = changeReminder.call(this, input, signal);
+    queued.resolve();
+    return pending;
+  });
+  const scheduledFor = at("01:15:00").toISOString();
+  fixture.now = at("01:15:00");
+  const intentId = randomUUID();
+  const { data: original } = await call<PlanSummary>(engine, "automations.plans.createTaskReminder", {
+    taskId: task.id, scheduledFor, intentId,
+  }, false, intentId);
+  try {
+    expect(original).toMatchObject({ intent: "enabled", nextAt: scheduledFor });
+    const candidate = await selected.promise;
+    expect(candidate).toMatchObject({ planId: original.planId, revision: original.revision, taskId: task.id, scheduledFor });
+    const ref = { planId: original.planId, expectedRevision: original.revision, intentId: randomUUID() };
+    const write: PlanWrite = change === "reschedule" ? { ...ref, change, trigger: { kind: "once", scheduledFor: at("01:30:00").toISOString() } }
+      : change === "set-intent" ? { ...ref, change, intent: "paused" } : { ...ref, change };
+    if (point === "claimed") await claimed.promise;
+    const changeResult = call(engine, "automations.plans.submit", write, false, ref.intentId);
+    if (point === "claimed") {
+      await queued.promise;
+      release.resolve();
+    }
+    expect(await changeResult).toMatchObject({ ok: true, data: { outcome: "completed" } });
+    release.resolve();
+    await effect;
+    expect(boundary).toHaveBeenCalledTimes(1);
+    const occurrenceId = planReminderOccurrenceId(candidate);
+    const originalOccurrence = await invoke(engine, "automations.plans.readOccurrence", { occurrenceId });
+    if (point === "selected") expect(originalOccurrence).toBeNull();
+    else expect(originalOccurrence).toMatchObject({
+      occurrenceId, plan: { planId: original.planId, revision: original.revision },
+      state: "cancelled", effects: [{ kind: "notification", state: "not-accepted" }],
+    });
+    expect(await invoke(engine, "notifications.list", {})).toEqual([]);
+    expect((await invoke<TaskDto>(engine, "tasks.read", { id: task.id })).comments).toEqual([]);
+  } finally {
+    release.resolve();
+    await effect;
+    writeBoundary.mockRestore();
+    planBoundary.mockRestore();
+  }
+});
+
+test.each(["before", "after"] as const)("观察评论在提交 %s 中断后按原效果核实，旧观察不补写", async (point) => {
+  const { engine } = await start();
+  const task = await createTask(engine, "观察评论的原任务");
+  const root = engine.vault.root;
+  const intentId = randomUUID();
+  const { data: plan } = await call<PlanSummary>(engine, "automations.plans.createObservation", {
+    intentId, title: "原观察", target: { kind: "task", id: task.id }, effect: "comment",
+    everySeconds: 60, condition: { kind: "threshold", status: "not_started", seconds: 60 },
+  }, false, intentId);
+  expect(plan).toMatchObject({ intent: "enabled", nextAt: expect.any(String) });
+  const stamp = plan.nextAt!;
+  const comments = vi.spyOn(TasksService.prototype, "addComment");
+  const originalWrite = VaultFiles.prototype.write;
+  const write = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(function (this: VaultFiles, name, bytes, options) {
+    if (point === "after" && name.startsWith("automations/reminder-deliveries/") && JSON.parse(Buffer.from(bytes).toString("utf8")).comment === "written") {
+      throw new Error("已提交评论，确认记录未写入");
+    }
+    return originalWrite.call(this, name, bytes, options);
+  });
+  if (point === "before") comments.mockRejectedValueOnce(new Error("评论提交前中断"));
+  const activation = { ...plan, scheduledFor: stamp, source: "observation" as const, taskId: task.id, effect: "comment" as const };
+  const occurrenceId = planReminderOccurrenceId(activation);
+  fixture.now = new Date(stamp);
+  try {
+    await expect(fixture.reminders!.activatePlanReminder(activation)).rejects.toThrow(/评论/);
+  } finally {
+    write.mockRestore();
+  }
+  const read = (running: RunningEngine) => invoke<PlanOccurrence>(running, "automations.plans.readOccurrence", { occurrenceId });
+  const pending = await read(engine);
+  const [effect] = pending.effects;
+  expect(pending).toMatchObject({
+    occurrenceId, plan: { planId: plan.planId, revision: plan.revision }, state: "unknown",
+    effects: [{ effectId: expect.any(String), kind: "task-comment", state: "unknown", recovery: "verify" }],
+  });
+  const observationComments = async (running: RunningEngine) => (await invoke<TaskDto>(running, "tasks.read", { id: task.id })).comments.filter(({ event }) => event === "observation");
+  const actual = point === "after" ? [{ id: effect!.effectId, body: plan.title }] : [];
+  expect(await observationComments(engine)).toMatchObject(actual);
+  const pauseId = randomUUID();
+  expect(await call(engine, "automations.plans.submit", {
+    planId: plan.planId, expectedRevision: plan.revision, change: "set-intent", intent: "paused", intentId: pauseId,
+  }, false, pauseId)).toMatchObject({ ok: true, data: { outcome: "completed" } });
+  await stop(engine);
+  const reopened = await start(root);
+  await reopened.reminders.recover();
+  expect(await read(reopened.engine)).toEqual(pending);
+  const recover = () => invoke<PlanOccurrence>(reopened.engine, "automations.plans.recoverEffect", { planId: plan.planId, occurrenceId, effectId: effect!.effectId });
+  const recovered = await recover();
+  expect(recovered).toMatchObject({
+    plan: pending.plan, occurrenceId, state: point === "after" ? "completed" : "cancelled",
+    effects: [{ effectId: effect!.effectId, state: point === "after" ? "completed" : "not-accepted",
+      receiptId: point === "after" ? effect!.effectId : null }],
+  });
+  await reopened.reminders.recover();
+  expect(await read(reopened.engine)).toEqual(recovered);
+  expect(await observationComments(reopened.engine)).toMatchObject(actual);
+  expect(comments).toHaveBeenCalledTimes(1);
 });
 
 test("通知尝试无确认时只记录未知，并允许独立的建任务效果完成", async () => {

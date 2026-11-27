@@ -4,11 +4,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { localUpstream } from "../../../packages/kernel/test/fixtures/mcp-upstream.js";
 import { loopbackOAuth } from "../../../packages/kernel/test/fixtures/mcp-oauth.js";
 import { openApp, root, rmTree, USER_DATA_ARG } from "../helpers/launch.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
+import { fixtureProcessRunning } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
@@ -51,7 +52,7 @@ async function openClient(page: Page, token: string) {
   };
 }
 
-function events(journal: string): { type: string; name?: string; args?: object }[] {
+function events(journal: string): { type: string; name?: string; args?: object; pid?: number; helperPid?: number }[] {
   return readFileSync(journal, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 }
 
@@ -178,6 +179,103 @@ test("P1 Gateway 添加本地 stdio、检查并开放 echo，重开 Vault 后公
   } finally {
     await app?.close().catch(() => undefined);
     rmTree(sandbox);
+  }
+});
+
+test("关闭发布后短检结束即回收，停插件和切库无旧连接", async () => {
+  test.setTimeout(90_000);
+  const { page, vault, close } = await openApp();
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-mcp-lifetimes-"));
+  try {
+    const definition = path.join(sandbox, "stdio.json");
+    writeFileSync(definition, JSON.stringify({ helper: process.platform !== "win32" }));
+    await gateway(page);
+    async function add(namespace: string) {
+      const journal = path.join(sandbox, namespace + ".ndjson");
+      const created = await fromWorkbench<Source>(page, "mcp.sources.create", {
+        displayName: namespace, namespace,
+        configuration: { transport: "stdio", command: process.execPath, args: [stdioFixture, journal, definition], environment: {} },
+      });
+      const input = sourceRef(created);
+      const { configurationFingerprint } = await fromWorkbench<{ configurationFingerprint: string }>(page, "mcp.executionApproval.preview", input);
+      await fromWorkbench(page, "mcp.executionApproval.confirm", { ...input, configurationFingerprint });
+      await fromWorkbench(page, "mcp.sources.check", input);
+      const catalog = await fromWorkbench<Catalog>(page, "mcp.catalog.list", { sourceId: created.sourceId });
+      await publication(page, catalog, created.sourceId, "echo", true);
+      const source = await fromWorkbench<Source>(page, "mcp.sources.setEnabled", { ...input, enabled: true });
+      const starts = () => events(journal).filter(({ type }) => type === "start");
+      return {
+        source, starts,
+        live: () => starts().flatMap(({ pid, helperPid }) => [pid, helperPid]).filter((pid): pid is number => pid !== undefined && fixtureProcessRunning(pid)),
+        calls: () => events(journal).filter(({ type }) => type === "call").map(({ args }) => args),
+      };
+    }
+    const removed = await add("removed");
+    const kept = await add("kept");
+    const publishing = (enabled: boolean) => call<{ url: string }>(page, "gateway.mcp.update", { enabled });
+    const status = () => call<{ mcp: { url: string } }>(page, "gateway.get", {});
+    await publishing(true);
+    const { mcp: { url } } = await status();
+    const issue = async (name: string) => (await call<{ token: string }>(page, "gateway.tokens.create", { name })).token;
+    const first = await issue("Lifecycle first");
+    const second = await issue("Lifecycle peer");
+    const old = await openRecoverableMcpSession(url, first);
+    const peer = await openClient(page, second);
+    const input = (source: string, value: string) => ({ name: source + "__echo", arguments: { value } });
+    expect((await peer("tools/list")).result.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "removed__echo" }), expect.objectContaining({ name: "kept__echo" }),
+    ]));
+    const failed = await mcpRequest(url, first, mcpRpc("tools/call", input("removed", "fixture-disconnect")), old.handle);
+    expect((await failed.json()).error.data.code).toBe("RUN_UNKNOWN");
+    const preview = await fromWorkbench<{ policyRevision: number }>(page, "mcp.sources.deletePreview", sourceRef(removed.source));
+    await fromWorkbench(page, "mcp.sources.delete", { ...sourceRef(removed.source), expectedPolicyRevision: preview.policyRevision });
+    await expect.poll(removed.live).toEqual([]);
+    expect((await peer("tools/call", input("removed", "stale"))).error.data.code).toBe("CAPABILITY_NOT_FOUND");
+    expect((await peer("tools/call", input("kept", "peer"))).result.structuredContent).toEqual({ value: "peer" });
+
+    await publishing(false);
+    await expect.poll(kept.live).toEqual([]);
+    const previous = kept.starts().length;
+    expect(await fromWorkbench(page, "mcp.sources.check", sourceRef(kept.source))).toMatchObject({ state: "ready" });
+    expect(kept.starts()).toHaveLength(previous + 1);
+    expect(kept.live()).toEqual([]);
+    await publishing(true);
+    await (await openClient(page, second))("tools/list");
+    expect(kept.live().length).toBeGreaterThan(0);
+    await call(page, "plugins.setEnabled", { id: "mcp", enabled: false });
+    try {
+      await expect.poll(kept.live).toEqual([]);
+      expect((await mcpRequest(url, first, mcpRpc("tools/list"), old.handle)).ok).toBe(false);
+    } finally {
+      await call(page, "plugins.setEnabled", { id: "mcp", enabled: true });
+    }
+    await publishing(true);
+    const beforeSwitch = await openClient(page, second);
+    expect((await beforeSwitch("tools/list")).result.tools).toContainEqual(expect.objectContaining({ name: "kept__echo" }));
+
+    const open = async (location: string, kind: "new" | "open") => {
+      const opened = await page.evaluate(([location, kind]) => window.huhuHost.vault.open(location, { kind }), [location, kind] as const);
+      expect(opened, JSON.stringify(opened)).toMatchObject({ ok: true });
+      await page.reload();
+      await gateway(page);
+    };
+    mkdirSync(path.join(sandbox, "other"));
+    await open(path.join(sandbox, "other"), "new");
+    expect(kept.live()).toEqual([]);
+    await publishing(true);
+    const secondVault = await openClient(page, await issue("Lifecycle other Vault"));
+    expect((await secondVault("tools/list")).result.tools.map(({ name }: { name: string }) => name)).not.toContain("kept__echo");
+    const otherUrl = (await status()).mcp.url;
+    expect((await mcpRequest(otherUrl, second, mcpRpc("tools/call", input("kept", "wrong Vault")), old.handle)).ok).toBe(false);
+    await open(vault, "open");
+    await publishing(true);
+    const fresh = await openClient(page, second);
+    expect((await fresh("tools/call", input("kept", "fresh"))).result.structuredContent).toEqual({ value: "fresh" });
+    expect(removed.calls()).toEqual([{ value: "fixture-disconnect" }]);
+    expect(kept.calls()).toEqual([{ value: "peer" }, { value: "fresh" }]);
+  } finally {
+    try { await close(); }
+    finally { rmTree(sandbox); }
   }
 });
 

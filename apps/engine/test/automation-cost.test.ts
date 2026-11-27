@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { PlanSummary } from "@huhu/contracts";
@@ -10,6 +10,7 @@ import { AutomationsService } from "@huhu/plugin-automations/engine";
 import { expect, test, vi } from "vitest";
 import { WebSocket } from "ws";
 import { ObservationPlans } from "../../../plugins/automations/src/engine/observations.js";
+import { fixtureProcessRunning } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
 import { boot, type RunningEngine } from "../src/boot.js";
 
 const fixture = vi.hoisted(() => ({
@@ -34,6 +35,17 @@ vi.mock("@huhu/plugin-agent-cli/engine", async (original) => {
 const bin = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../../desktop/resources/herdr/linux-x64/herdr-core");
 const title = "AU18 固定活动观察";
 const fixtureCore = () => fixture.core;
+
+function coreResources(pid: number) {
+  const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+  const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+  const status = readFileSync(`/proc/${pid}/status`, "utf8");
+  return {
+    cpuTicks: Number(fields[11]) + Number(fields[12]),
+    rssBytes: Number(/^VmRSS:\s+(\d+) kB$/m.exec(status)?.[1]) * 1024,
+    voluntaryContextSwitches: Number(/^voluntary_ctxt_switches:\s+(\d+)$/m.exec(status)?.[1]),
+  };
+}
 
 async function call<T>(engine: RunningEngine, capability: string, input: object, intentKey?: string) {
   const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
@@ -80,7 +92,9 @@ test.skipIf(process.platform !== "linux" || !existsSync(bin))("AU18 a shared Eng
   const rpc = vi.spyOn(HerdrClient.prototype, "call");
   const notify = vi.spyOn(NotificationStore.prototype, "create");
   const history = vi.spyOn(AutomationsService.prototype, "activations");
+  const assertCosts = process.env.HUHU_AUTOMATION_COST_ASSERT !== "0";
   const samples = [];
+  const cleanup = [];
   try {
     for (const historyCount of [0, 1_000, 10_000]) {
       fixture.now = new Date("2030-02-01T01:00:00.000Z");
@@ -88,13 +102,30 @@ test.skipIf(process.platform !== "linux" || !existsSync(bin))("AU18 a shared Eng
       observations = undefined;
       const dir = mkdtempSync(path.join(tmpdir(), "huhu-au18-"));
       let engine: RunningEngine | undefined;
+      let corePid: number | undefined;
+      let endpoint: string | undefined;
+      let shellPid: number | undefined;
       const sockets: ReturnType<typeof subscribe>[] = [];
       try {
         const running = engine = await boot({ vaultPath: dir, create: true });
         const [space] = (await call<{ id: string; revision: number }[]>(running, "agent.spaces.list", {})).data;
         const session = (await call<{ id: string }>(running, "agent.sessions.launch", {
-          provider: "shell", spaceId: space!.id, spaceRevision: space!.revision, command: "sleep 90", requestId: randomUUID(),
+          provider: "shell", spaceId: space!.id, spaceRevision: space!.revision,
+          command: 'printf "%s" "$$" > .au18-shell-pid; exec sleep 90', requestId: randomUUID(),
         })).data;
+        const pidFile = path.join(dir, ".au18-shell-pid");
+        await expect.poll(() => existsSync(pidFile) && Number(readFileSync(pidFile, "utf8"))).toBeGreaterThan(0);
+        shellPid = Number(readFileSync(pidFile, "utf8"));
+        const core = fixtureCore()!;
+        const { pid, version } = await core.statusIfRunning(false);
+        expect(pid).toEqual(expect.any(Number));
+        corePid = pid!;
+        endpoint = core.endpoint;
+        const coreClient = core.connected!;
+        const terminalList = () => coreClient.call<{ terminals: { state: string; labels?: Record<string, string> }[] }>("terminal.list", {});
+        const liveTerminals = (await terminalList()).terminals.filter(({ state, labels }) => state === "live" && labels?.["huhu.session"] === session.id);
+        expect(liveTerminals).toHaveLength(1);
+        expect(fixtureProcessRunning(shellPid)).toBe(true);
         const intentId = randomUUID();
         const plan = (await call<PlanSummary>(running, "automations.plans.createObservation", {
           title, target: { kind: "agent-session", id: session.id }, everySeconds: 1,
@@ -119,6 +150,10 @@ test.skipIf(process.platform !== "linux" || !existsSync(bin))("AU18 a shared Eng
           rpc.mockClear();
           notify.mockClear();
           history.mockClear();
+          const before = coreResources(pid!);
+          const started = performance.now();
+          const cpu = process.cpuUsage();
+          const wakes = tick.mock.calls.length;
           fixture.now = new Date(fixture.now.getTime() + 2_000);
           await realTick.call(observations);
           if (clients) await expect.poll(() => viewers.map(({ notices }) => notices.length)).toEqual(viewers.map(() => 1));
@@ -135,24 +170,50 @@ test.skipIf(process.platform !== "linux" || !existsSync(bin))("AU18 a shared Eng
           }));
           const terminalLists = rpc.mock.calls.filter(([method]) => method === "terminal.list").length;
           const notifications = notify.mock.calls.filter(([entry]) => entry.title.startsWith(title)).length;
+          const historyReads = history.mock.calls.length;
+          const after = coreResources(pid!);
+          const used = process.cpuUsage(cpu);
+          const wallMs = performance.now() - started;
+          const queryCounts: Record<string, number> = {};
+          for (const [method] of rpc.mock.calls) queryCounts[method] = (queryCounts[method] ?? 0) + 1;
           expect(terminalLists).toBeGreaterThan(0);
           expect(notifications).toBe(1);
-          expect(history.mock.calls).toHaveLength(clients ? 1 : 0);
+          if (assertCosts) expect(history.mock.calls).toHaveLength(clients ? 1 : 0);
           expect(new Set(viewers.flatMap(({ notices }) => notices.map(({ id }) => id))).size).toBe(Number(clients > 0));
+          const current = (await call<{ plans: PlanSummary[] }>(running, "automations.plans.list", {})).data.plans.find(({ planId }) => planId === plan.planId)!;
+          const id = current.lastOccurrence!.occurrenceId;
+          const occurrence = (await call<{ timing: { scheduledFor: string }; acceptedAt: string; state: string }>(running, "automations.plans.readOccurrence", { occurrenceId: id })).data;
+          expect(occurrence.state).toBe("completed");
+          const dueErrorMs = Date.parse(occurrence.acceptedAt) - Date.parse(occurrence.timing.scheduledFor);
+          expect(dueErrorMs).toBeGreaterThanOrEqual(0);
+          const schedulerWakeups = tick.mock.calls.length - wakes;
           viewers.forEach(({ close }) => close());
-          return { historyCount, clients, terminalLists, notifications, historyReads: history.mock.calls.length, results };
+          return {
+            historyCount, clients, terminalLists, notifications, historyReads, results,
+            activeRules: 1, liveSessions: liveTerminals.length, coreVersion: version, dueErrorMs,
+            schedulerWakeups, measuredTicks: 1, wallMs,
+            engineCpuMs: (used.user + used.system) / 1000, engineRssBytes: process.memoryUsage.rss(),
+            core: { queryCounts, cpuTicks: after.cpuTicks - before.cpuTicks, rssBytes: after.rssBytes,
+              voluntaryContextSwitches: after.voluntaryContextSwitches - before.voluntaryContextSwitches },
+          };
         };
         const one = await sample(1, 0);
         const three = await sample(3, 1);
-        expect(three.terminalLists).toBe(one.terminalLists);
-        expect(three.historyReads).toBe(one.historyReads);
         const closed = await sample(0, 2);
-        expect(closed.terminalLists).toBe(one.terminalLists);
+        if (assertCosts) {
+          expect(three.terminalLists).toBe(one.terminalLists);
+          expect(three.historyReads).toBe(one.historyReads);
+          expect(closed.terminalLists).toBe(one.terminalLists);
+        }
         samples.push(one, three, closed);
       } finally {
         sockets.forEach(({ close }) => close());
         try {
-          await fixtureCore()?.stop();
+          await fixtureCore()?.stop({ requireConfirmation: true });
+          if (corePid && endpoint) {
+            await expect.poll(() => !existsSync(endpoint!) && !fixtureProcessRunning(corePid!) && !!shellPid && !fixtureProcessRunning(shellPid)).toBe(true);
+            cleanup.push({ historyCount, socketRemoved: true, coreReaped: true, sessionReaped: true });
+          }
         } finally {
           await engine?.shutdown();
           rmSync(dir, { recursive: true, force: true });
@@ -162,7 +223,7 @@ test.skipIf(process.platform !== "linux" || !existsSync(bin))("AU18 a shared Eng
     const out = process.env["HUHU_AUTOMATION_COST_OUTPUT"];
     if (out) {
       mkdirSync(path.dirname(out), { recursive: true });
-      writeFileSync(out, JSON.stringify({ node: process.version, samples }, null, 2) + "\n");
+      writeFileSync(out, JSON.stringify({ node: process.version, cleanup, samples }, null, 2) + "\n");
     }
   } finally {
     tick.mockRestore();

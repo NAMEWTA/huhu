@@ -28,7 +28,7 @@ const RecordSchema = z.strictObject({
   task: z.enum(["disabled", "pending", "created", "unavailable"]),
   source: z.enum(["task-reminder", "observation", "focus-deadline"]).optional(),
   targetTask: z.string().optional(),
-  comment: z.enum(["pending", "written", "unavailable"]).optional(),
+  comment: z.enum(["pending", "writing", "written", "unavailable"]).optional(),
   focusSettled: z.literal(true).optional(),
   cancelled: z.boolean().optional(),
 });
@@ -52,7 +52,7 @@ const reminderTaskId = (id: string) => `task-${digest(["reminder", id]).slice(0,
 const notificationId = (id: string) => `ntf-${digest(["reminder", id])}`;
 const commentId = (id: string) => `c-${digest(["observation", id])}`;
 
-/** A reminder occurrence has two separately checkpointed effects. */
+/** A reminder occurrence checkpoints each effect independently. */
 export class ReminderDeliveries {
   private readonly owner: string | null;
   private readonly active = new Map<string, Promise<ReminderRecord | null>>();
@@ -74,6 +74,7 @@ export class ReminderDeliveries {
     private readonly writeComment?: (taskId: string, commentId: string, body: string) => Promise<unknown>,
     private readonly focus?: Pick<FocusDeadlinePlans, "current" | "settle">,
     private readonly allowsSchedule: (slot: string) => boolean = () => true,
+    private readonly readComment?: (taskId: string, id: string, body: string) => boolean | undefined,
   ) {
     const stat = statSync(files.root, { bigint: true });
     const identity = filesystemIdentity(stat);
@@ -147,9 +148,12 @@ export class ReminderDeliveries {
     }
     if (row.comment && row.targetTask) {
       const effectId = commentId(id);
-      const state = row.comment === "written" ? "completed" : row.comment === "pending" ? "not-accepted" : "failed";
+      const state = row.comment === "written" ? "completed" : row.comment === "pending" ? "not-accepted"
+        : row.comment === "writing" ? "unknown" : "failed";
       effects.push({ effectId, kind: "task-comment", target: { kind: "task", id: row.targetTask }, operationId: null, state,
-        receiptId: state === "completed" ? effectId : null, ...(canRetry && state === "failed" && this.writeComment && { recovery: "retry" as const }) });
+        receiptId: state === "completed" ? effectId : null,
+        ...(canRecover && state === "unknown" && this.readComment && { recovery: "verify" as const }),
+        ...(canRetry && state === "failed" && this.writeComment && { recovery: "retry" as const }) });
     }
     return {
       occurrenceId: id,
@@ -171,7 +175,7 @@ export class ReminderDeliveries {
       signal.throwIfAborted();
       this.lifetime.signal.throwIfAborted();
       this.files.assertWritable();
-      const row = this.load(occurrenceId);
+      let row = this.load(occurrenceId);
       if (!row || row.data.ruleId !== planId || !this.owns(row.data)) throw errors.notFound("可恢复的原发生");
       const occurrence = this.readPlanOccurrence(occurrenceId)!;
       const effect = occurrence.effects.find((entry) => entry.effectId === effectId);
@@ -182,10 +186,23 @@ export class ReminderDeliveries {
       if (effect.recovery === "verify" && effect.kind === "notification") {
         if (!this.notifications.has(effectId)) return occurrence;
         updated = { ...data, notification: "sent" };
+      } else if (effect.recovery === "verify" && effect.kind === "task-comment" && data.targetTask) {
+        const written = this.readComment?.(data.targetTask, effectId, data.text);
+        if (written === undefined) return occurrence;
+        const canContinue = !written && this.current(data);
+        updated = {
+          ...data, comment: written ? "written" : "pending",
+          finishedAt: canContinue ? null : data.finishedAt ?? this.now().toISOString(),
+          ...(!written && !canContinue && { cancelled: true }),
+        };
       } else if (effect.recovery === "retry") {
         if (effect.kind === "task-create") updated = { ...data, task: await this.createTask(data) };
-        else if (effect.kind === "task-comment" && data.targetTask) updated = { ...data, comment: await this.commentTask(data, data.targetTask) };
-        else throw errors.invalidInput("原效果不可重试");
+        else if (effect.kind === "task-comment" && data.targetTask) {
+          row = await this.save({ ...data, comment: "writing" }, row.version);
+          signal.throwIfAborted();
+          this.lifetime.signal.throwIfAborted();
+          updated = { ...row.data, comment: await this.commentTask(row.data, data.targetTask) };
+        } else throw errors.invalidInput("原效果不可重试");
       } else throw errors.invalidInput("原效果当前不可重试");
       const saved = await this.save(updated, row.version);
       this.onChanged(this.view(saved.data));
@@ -324,7 +341,17 @@ export class ReminderDeliveries {
     }
     if (row.data.comment === "pending" && row.data.targetTask && this.current(row.data)) {
       if (!this.writeComment) return row.data;
-      row = await this.save({ ...row.data, comment: await this.commentTask(row.data, row.data.targetTask) }, row.version);
+      const taskId = row.data.targetTask;
+      row = await this.save({ ...row.data, comment: "writing" }, row.version);
+      this.lifetime.signal.throwIfAborted();
+      if (this.current(row.data)) {
+        row = await this.save({ ...row.data, comment: await this.commentTask(row.data, taskId) }, row.version);
+      } else {
+        row = await this.save({ ...row.data, comment: "pending", cancelled: true }, row.version);
+      }
+    } else if (row.data.comment === "pending" && row.data.targetTask && this.readComment?.(row.data.targetTask, commentId(id), row.data.text)) {
+      // Older interrupted attempts recorded only "pending", even after a successful comment write.
+      row = await this.save({ ...row.data, comment: "written" }, row.version);
     }
     const cancelled = row.data.cancelled || ((row.data.notification === "pending" || row.data.task === "pending" || row.data.comment === "pending") && !this.current(row.data));
     const completed = (await this.save({ ...row.data, ...(cancelled && { cancelled }), finishedAt: this.now().toISOString() }, row.version)).data;
@@ -395,7 +422,8 @@ export class ReminderDeliveries {
 
   private view(data: ReminderRecord): ActivationRecord {
     const { id, ruleId, startedAt, finishedAt, scheduledFor, task, notification } = data;
-    const state = !finishedAt ? "pending" : notification === "unknown" ? "unknown" : data.cancelled ? "cancelled" : task === "unavailable" || data.comment === "unavailable" ? "failed" : "succeeded";
+    const state = data.comment === "writing" ? "unknown" : !finishedAt ? "pending" : notification === "unknown" ? "unknown"
+      : data.cancelled ? "cancelled" : task === "unavailable" || data.comment === "unavailable" ? "failed" : "succeeded";
     const summary = { state, notification, task, ...(notification === "sent" && { notificationId: notificationId(id) }), ...(task === "created" && { taskId: reminderTaskId(id) }) };
     return {
       activationId: id,

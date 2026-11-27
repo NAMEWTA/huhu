@@ -405,6 +405,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         },
         focus,
         gate.allows,
+        (taskId, id, body) => taskReminders.task(taskId)?.comments.some((comment) =>
+          comment.id === id && comment.event === "observation" && comment.source === "system" && comment.body === body),
       )
     : undefined;
   if (reminders) api.provide("automationReminderDeliveries", reminders);
