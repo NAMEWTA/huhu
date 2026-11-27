@@ -935,8 +935,10 @@ test("首页看板：触摸中断回滚，下一次拖动可保存并在重载�
 test("首页看板：概览读取失败由卡片重试，近期笔记、专注和规则摘要仍可用", async () => {
   const { page, close, vault } = await openApp();
   let failSummary = true;
+  let lastSummaryRead = 0;
   try {
     await page.route("**/api/v1/call", async (route) => {
+      if (route.request().postDataJSON()?.capability === "home.summary") lastSummaryRead = Date.now();
       if (failSummary && route.request().postDataJSON()?.capability === "home.summary") {
         await route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*" }, json: { ok: false, error: { code: "INTERNAL", message: "fixture: summary unavailable" } } });
       } else await route.continue();
@@ -957,6 +959,10 @@ test("首页看板：概览读取失败由卡片重试，近期笔记、专注�
     await expect(page.getByTestId("card-focus")).toBeVisible();
     await expect(page.getByTestId("card-recent")).toBeVisible();
     const beforeRetry = (await call("home.dashboard.get")).data.board;
+    // Creating the rule changes Automations/, which refetches the summary. Let that refetch fail first,
+    // so the card stays on its error state until the explicit retry below.
+    await expect.poll(() => Date.now() - lastSummaryRead, { timeout: 10_000 }).toBeGreaterThan(1_000);
+    await expect(metrics.getByRole("alert")).toHaveText("无法读取卡片数据");
     failSummary = false;
     await metrics.getByRole("button", { name: "重试" }).click();
     await expect(metrics.getByTestId("card-notes")).toBeVisible();
