@@ -1,5 +1,5 @@
 import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
-import { accessSync, constants, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -25,6 +25,22 @@ export function linuxProtectedPtyEnvironment(): { HUHU_AGENT_PTY_HOST: string } 
   return { HUHU_AGENT_PTY_HOST: helper };
 }
 
+let historyRoot: string | undefined;
+/**
+ * Empty per-worker native history profiles. Without them the Engine scans the developer's real
+ * ~/.codex, ~/.claude and ~/.pi history, which makes history and dashboard timing depend on the host.
+ * An explicit environment value or test override still wins.
+ */
+function isolatedHistory(): Record<string, string> {
+  historyRoot ??= mkdtempSync(path.join(tmpdir(), "huhu-e2e-history-"));
+  const dir = (name: string) => {
+    const target = path.join(historyRoot!, name);
+    mkdirSync(target, { recursive: true });
+    return target;
+  };
+  return { CLAUDE_CONFIG_DIR: dir("claude"), CODEX_HOME: dir("codex"), PI_CODING_AGENT_DIR: dir("pi") };
+}
+
 /** 以临时 Vault 启动桌面应用；返回应用、首个窗口与清理函数。 */
 export async function openApp(extraEnv: Record<string, string> = {}, prepareVault?: (vault: string) => void, applicationRoot = root): Promise<{ app: ElectronApplication; page: Page; vault: string; close(): Promise<void> }> {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
@@ -32,7 +48,7 @@ export async function openApp(extraEnv: Record<string, string> = {}, prepareVaul
   let page: Page;
   try {
     prepareVault?.(vault);
-    app = await electron.launch({ args: [applicationRoot, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
+    app = await electron.launch({ args: [applicationRoot, "--no-sandbox", USER_DATA_ARG], env: { ...isolatedHistory(), ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
     page = await app.firstWindow();
   } catch (error) {
     await app?.close().catch(() => {});

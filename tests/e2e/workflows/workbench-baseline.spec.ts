@@ -792,8 +792,9 @@ async function launchWorkspacePane(page: Page, launch: Locator) {
   return pane;
 }
 
-async function lastRow(terminal: Locator, marker = "U0-LAST-ROW") {
-  const line = terminal.locator(".xterm-rows > div").filter({ hasText: marker }).last();
+async function lastRow(terminal: Locator, marker = "U0-LAST-ROW", anchored = false) {
+  // Anchored markers must start the row, so the echoed command line that names the marker cannot match first.
+  const line = terminal.locator(".xterm-rows > div").filter({ hasText: anchored ? new RegExp(`^\\s*${marker}`, "u") : marker }).last();
   await expect(line).toContainText(marker, { timeout: 15_000 });
   return line.evaluate((element) => {
     const screen = element.closest(".xterm-screen")!.getBoundingClientRect();
@@ -953,7 +954,8 @@ test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", a
         }, { message: `${name} ${step}: xterm must settle on the controlling connection` }).toMatchObject({ rows: expect.any(Number), cols: expect.any(Number) });
         await page.keyboard.type(`sh .ux08-terminal.sh ${marker} ${expected!.rows} ${expected!.cols}`);
         await page.keyboard.press("Enter");
-        observation = await lastRow(terminal, marker);
+        observation = await lastRow(terminal, marker, true);
+        await expect.poll(() => existsSync(output) && readFileSync(output, "utf8").trim().length > 0, { message: `${name} ${step}: stty sample written` }).toBe(true);
         pty = readFileSync(output, "utf8").trim().split(/\s+/u).map(Number);
         expect(grid(), `${name} ${step}: grid changed during PTY sampling`).toEqual(expected);
         expect(pty, `${name} ${step}: stty rows and columns`).toEqual([expected!.rows, expected!.cols]);
