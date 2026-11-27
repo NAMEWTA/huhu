@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "7b0cac6114b4b82f645430f71f3a57221480d290d95ed59df389222332f0a158",
+      "sha256": "05d600f973829c5e1948f464a17d266b71ba41c92f35c911b17aa052559d6ee5",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -44,7 +44,7 @@
       "blob": "b6f505055ac2f8c1fafcf3d637a163ebb9c1efef",
       "sha256": "a25deecf6ddf057fc7d11f75e08ad3e8ee88e3eaba082e47949c5aa6f9429569",
       "method": "patch",
-      "description": "PATCHES.md:25 - P-S4-11 `app/src/comments/CommentBubbleButton.tsx`、`app/src/comments/PropertyCommentButton.tsx`：只读时收起选区与属性写入口；`app/src/comments/ThreadCard.tsx` 收起重新选址及删除确认。"
+      "description": "PATCHES.md:29 - P-S4-11 `app/src/comments/CommentBubbleButton.tsx`、`app/src/comments/PropertyCommentButton.tsx`：只读时收起选区与属性写入口；`app/src/comments/ThreadCard.tsx` 收起重新选址及删除确认。"
     },
     {
       "target": "app/src/comments/CommentListPanel.tsx",
@@ -52,7 +52,7 @@
       "blob": "5579239427ab484dcd90db3495f34af8cd4ce7e5",
       "sha256": "988fba32331c19ec5f61a4998c7956174729f979e908ba28bd45975386772cda",
       "method": "patch",
-      "description": "PATCHES.md:18 - P-S4-04 `app/src/comments/CommentListPanel.tsx`：不渲染 `CommentSendFooter`（AI 派发发送栏，Q2 不接）。"
+      "description": "PATCHES.md:21 - P-S4-04 `app/src/comments/CommentListPanel.tsx`：不渲染 AI 派发发送栏。"
     },
     {
       "target": "app/src/comments/CommentMarginRail.tsx",
@@ -60,7 +60,7 @@
       "blob": "b60177b86dbcdb7e491991778ea25f31e5b9a750",
       "sha256": "455ca2f54d193e1532642ffdf626f8786e94003b3163baad5d848a44d392aae4",
       "method": "patch",
-      "description": "PATCHES.md:23 - P-S4-09 `app/src/comments/CommentMarginRail.tsx`：宿主中将评论边缘按钮挂到编辑器的 `.ok-root`。窄屏详情浮层遮住右侧留白时使用左侧留白，保留上游的引用定位与线程打开行为。"
+      "description": "PATCHES.md:27 - P-S4-09 `app/src/comments/CommentMarginRail.tsx`：宿主中将评论边缘按钮挂到编辑器的 `.ok-root`。窄屏详情浮层遮住右侧留白时使用左侧留白，保留上游的引用定位与线程打开行为。"
     },
     {
       "target": "app/src/comments/CommentMarkdown.dom.test.tsx",
@@ -68,7 +68,7 @@
       "blob": null,
       "sha256": "00a8bd6de54df75168cc5439344fe32e0cce0cd093c8a54748346fc453bf964e",
       "method": "local",
-      "description": "PATCHES.md:600 - `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。"
+      "description": "PATCHES.md:605 - `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。"
     },
     {
       "target": "app/src/comments/CommentMarkdown.tsx",
@@ -76,7 +76,7 @@
       "blob": null,
       "sha256": "32860ce9713764324e809a8466885dd39801698aa9fc10897496d04f4a6fc4f5",
       "method": "local",
-      "description": "PATCHES.md:599 - `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。宿主回调限定在评论渲染范围。"
+      "description": "PATCHES.md:604 - `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。宿主回调限定在评论渲染范围。"
     },
     {
       "target": "app/src/comments/CommentProjectPanel.tsx",
@@ -89,9 +89,9 @@
       "target": "app/src/comments/CommentSelectionAffordance.tsx",
       "upstream": "packages/app/src/comments/CommentSelectionAffordance.tsx",
       "blob": "1ac120109b8a0b62e820c0ef92f8b58a4ffa1dd5",
-      "sha256": "b30ec2a280d9368add503e4d7a1161d43f1e4f2f4cfac87cd41f3d86d339802b",
+      "sha256": "f3f41b02db7fef35795bda35073a5a8915040112429f3f1fc9535bd0480e3847",
       "method": "patch",
-      "description": "PATCHES.md:24 - P-S4-10 `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/anchor-decorations.tsx`：发起时冻结会话 revision 和编辑器文档，在取消、脱离视图或卸载时清理临时标记，回执只在同一活动视图触发导航。"
+      "description": "PATCHES.md:28 - P-S4-10 `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/anchor-decorations.tsx`：发起时冻结会话 revision 和编辑器文档，在取消、脱离视图或卸载时清理临时标记，回执只在同一活动视图触发导航。"
     },
     {
       "target": "app/src/comments/CommentSendFooter.tsx",
@@ -99,7 +99,7 @@
       "blob": "3e7398982114305d282136b239afab9e2073e58d",
       "sha256": "dcd567fc9a456674cde20b5862e420108f445ab76ac25d8fa30c17efe6945b38",
       "method": "patch",
-      "description": "PATCHES.md:631 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
+      "description": "PATCHES.md:636 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
     },
     {
       "target": "app/src/comments/CommentedDocContext.tsx",
@@ -121,7 +121,7 @@
       "blob": "5495bef1caaa8283666e30ebfcd7ccc301c768a1",
       "sha256": "fc2eb44ce25790e46cab42a26c34b7a2e155fe8ab5d3c61ca4511935d1751307",
       "method": "patch",
-      "description": "PATCHES.md:604 - `app/src/comments/CommentsPanel.tsx`：单篇批注读取失败时保留已加载的线程，显示错误和重试入口。未成功读取时隐藏空列表文案。"
+      "description": "PATCHES.md:609 - `app/src/comments/CommentsPanel.tsx`：单篇批注读取失败时保留已加载的线程，显示错误和重试入口。未成功读取时隐藏空列表文案。"
     },
     {
       "target": "app/src/comments/CommentsTab.tsx",
@@ -136,7 +136,7 @@
       "blob": "7d8f3cea95e4b6a6c71f744ef713ccff0e3b968a",
       "sha256": "50e3098adfc4485475892764df66cd718d6e93ccffc6c00e25c1930a15ec0097",
       "method": "patch",
-      "description": "PATCHES.md:25 - P-S4-11 `app/src/comments/CommentBubbleButton.tsx`、`app/src/comments/PropertyCommentButton.tsx`：只读时收起选区与属性写入口；`app/src/comments/ThreadCard.tsx` 收起重新选址及删除确认。"
+      "description": "PATCHES.md:29 - P-S4-11 `app/src/comments/CommentBubbleButton.tsx`、`app/src/comments/PropertyCommentButton.tsx`：只读时收起选区与属性写入口；`app/src/comments/ThreadCard.tsx` 收起重新选址及删除确认。"
     },
     {
       "target": "app/src/comments/QueueNewChatRow.tsx",
@@ -149,9 +149,9 @@
       "target": "app/src/comments/ThreadCard.tsx",
       "upstream": "packages/app/src/comments/ThreadCard.tsx",
       "blob": "829fc7310feed64d843e6e9701f4761d3800725e",
-      "sha256": "5a7f7507091caa07f2d378bab898fa05e5a7b9400aa87a962bb9feae9836b59b",
+      "sha256": "c252d89a5d315e12c3167cb0fe4dc04c2700a5779f11430ae871ea0408e73929",
       "method": "patch",
-      "description": "PATCHES.md:19 - P-S4-05 `app/src/comments/ThreadCard.tsx`（含 e2e 用的 data-testid：comment-thread / comment-orphaned / thread-*）：去掉“发送”勾选与点击卡片切换发送；铅笔编辑入口换成“标记为已解决”（Huhu 的消息是追加式记录，没有编辑）；回复列表与回复输入；删除两步确认；整篇笔记批注的标签。"
+      "description": "PATCHES.md:22 - P-S4-05 `app/src/comments/ThreadCard.tsx`：Huhu 显示单条可编辑批注、定位和删除两步确认。"
     },
     {
       "target": "app/src/comments/active-thread.test.ts",
@@ -166,7 +166,7 @@
       "blob": "11a3de2c7b72692a8138b34d151efd7c402a68d5",
       "sha256": "76cf89865869978a03adbf7cdb0fe81bdf6a857b8f2c84e4056f5fdd29cfe43c",
       "method": "patch",
-      "description": "PATCHES.md:24 - P-S4-10 `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/anchor-decorations.tsx`：发起时冻结会话 revision 和编辑器文档，在取消、脱离视图或卸载时清理临时标记，回执只在同一活动视图触发导航。"
+      "description": "PATCHES.md:28 - P-S4-10 `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/anchor-decorations.tsx`：发起时冻结会话 revision 和编辑器文档，在取消、脱离视图或卸载时清理临时标记，回执只在同一活动视图触发导航。"
     },
     {
       "target": "app/src/comments/anchor-layers.test.ts",
@@ -202,7 +202,7 @@
       "blob": "3dd6014f09a651c4f675fd420b320345ff8735f6",
       "sha256": "4358c165c563620aaaa964b9e1207587377beac25fee8e0c848102753969e408",
       "method": "patch",
-      "description": "PATCHES.md:27 - P-S4-13 `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-search.test.ts`、`app/src/comments/types.ts`：Huhu 线程在缓冲编辑期间也拒绝同分候选和上下文不足的同文，覆盖显示、边缘按钮和定位。"
+      "description": "PATCHES.md:31 - P-S4-13 `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-search.test.ts`、`app/src/comments/types.ts`：Huhu 线程在缓冲编辑期间也拒绝同分候选和上下文不足的同文，覆盖显示、边缘按钮和定位。"
     },
     {
       "target": "app/src/comments/anchor-search.ts",
@@ -210,7 +210,7 @@
       "blob": "9649ba838b5398e85c53691f2f45a19a56a0fc2e",
       "sha256": "691125776df8e553cdae152f893bec38a3b213184f115ac90f5593051b099168",
       "method": "patch",
-      "description": "PATCHES.md:27 - P-S4-13 `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-search.test.ts`、`app/src/comments/types.ts`：Huhu 线程在缓冲编辑期间也拒绝同分候选和上下文不足的同文，覆盖显示、边缘按钮和定位。"
+      "description": "PATCHES.md:31 - P-S4-13 `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-search.test.ts`、`app/src/comments/types.ts`：Huhu 线程在缓冲编辑期间也拒绝同分候选和上下文不足的同文，覆盖显示、边缘按钮和定位。"
     },
     {
       "target": "app/src/comments/anchor-transaction-effect.test.ts",
@@ -232,7 +232,7 @@
       "blob": "f1587996308b8423d1145ea4ade248c8faa0e8b0",
       "sha256": "c454e368087471e759299b814780ac8f09adb3d287352e7f7d2dbcf198930931",
       "method": "patch",
-      "description": "PATCHES.md:631 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
+      "description": "PATCHES.md:636 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
     },
     {
       "target": "app/src/comments/comment-hue-contrast.test.ts",
@@ -252,9 +252,9 @@
       "target": "app/src/comments/comments-client.ts",
       "upstream": "packages/app/src/comments/comments-client.ts",
       "blob": "d8a1c77e5f8cb13a13a3b2333b92cde691b09694",
-      "sha256": "87055b8c162140bd391374e0a15f9c81e988029821dadc81d80ec9de87d73b42",
+      "sha256": "603025f4cca58a930cda3e2f6fabc7937107dd1082eb676a1ef7b4f7fa959c31",
       "method": "patch",
-      "description": "PATCHES.md:17 - P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：`toThread` 携带 scope / messages；新增 `createFileThread` / `replyToThread` / `resolveThread`（对应 `/api/comment` 的 `reply` / `resolve` 动作与 `wholeFile` 创建参数）。"
+      "description": "PATCHES.md:20 - P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：提交批注编辑时带上开始编辑的版本，写入失败保留编辑内容；保留整篇笔记批注入口。"
     },
     {
       "target": "app/src/comments/comments-panel-visibility.ts",
@@ -311,7 +311,7 @@
       "blob": "87d304fb872ee07d40505ee9cac19a80f01c64ec",
       "sha256": "2fa2b0d54b87de7d2de0e24f0f75e83f260c439bfdbb52093561752719504087",
       "method": "patch",
-      "description": "PATCHES.md:276 - `app/src/comments/property-anchor-click.dom.test.tsx`：原样迁入固定上游 DOM 用例。"
+      "description": "PATCHES.md:280 - `app/src/comments/property-anchor-click.dom.test.tsx`：原样迁入固定上游 DOM 用例。"
     },
     {
       "target": "app/src/comments/property-anchor-click.test.ts",
@@ -326,7 +326,7 @@
       "blob": "8ef5062f2bfc92224d9b297f981be10214e4802c",
       "sha256": "74c93319e119789144948e58d5c169a48744390921d15ccb95db00f412c480de",
       "method": "patch",
-      "description": "PATCHES.md:631 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
+      "description": "PATCHES.md:636 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
     },
     {
       "target": "app/src/comments/property-row-rect.dom.test.tsx",
@@ -451,17 +451,17 @@
       "target": "app/src/comments/store.ts",
       "upstream": "packages/app/src/comments/store.ts",
       "blob": "e5b6e5154a419f3138a42549a8adffcfbf94fd09",
-      "sha256": "7092ecc4c33677cf4b88353e717e973fbd70001c6d856e7e110da61714bad82b",
+      "sha256": "7cef4bd9210788145a31eb900ad3e9db0d0b3ce97de3588ba21a98361cfcb3fb",
       "method": "patch",
-      "description": "PATCHES.md:17 - P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：`toThread` 携带 scope / messages；新增 `createFileThread` / `replyToThread` / `resolveThread`（对应 `/api/comment` 的 `reply` / `resolve` 动作与 `wholeFile` 创建参数）。"
+      "description": "PATCHES.md:20 - P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：提交批注编辑时带上开始编辑的版本，写入失败保留编辑内容；保留整篇笔记批注入口。"
     },
     {
       "target": "app/src/comments/types.ts",
       "upstream": "packages/app/src/comments/types.ts",
       "blob": "a283814652ade7bef305776f0cad7b6b8f9d7004",
-      "sha256": "a23a90c5a86330a46606bc0fa96e84d3acf2e21e51c6ba3a694a26111a338f7f",
+      "sha256": "7a339715f272f1e6e68a51f0388007e33d67056876724bc68a40c0a044cd6dfc",
       "method": "patch",
-      "description": "PATCHES.md:16 - P-S4-02 `app/src/comments/types.ts`：`CommentThread` 加可选 `scope` / `messages`。"
+      "description": "PATCHES.md:19 - P-S4-01 `core/src/schemas/api/comments.ts`、P-S4-02 `app/src/comments/types.ts`：Huhu 批注携带所属范围与编辑版本。"
     },
     {
       "target": "app/src/comments/use-comment-agent-picker.ts",
@@ -483,7 +483,7 @@
       "blob": "f7e8655fb6a91e31d6932febf5c712c68ee54014",
       "sha256": "fe38a35d51285d88036e49be060d817dcca7185a3732d47d7fc6090e8dc1dd3f",
       "method": "patch",
-      "description": "PATCHES.md:631 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
+      "description": "PATCHES.md:636 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
     },
     {
       "target": "app/src/comments/visible-scope.ts",
@@ -498,7 +498,7 @@
       "blob": "05afa75ad90349e97b679572701a54ef2bfa66ce",
       "sha256": "48fd31e6d32ec49e3fab00a9d4a4b1f06019779cef4de945c079fbcfe93bfacb",
       "method": "patch",
-      "description": "PATCHES.md:338 - `app/src/components/ActivityModeContent.tsx`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:343 - `app/src/components/ActivityModeContent.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/ActivityPanelBurstRow.test.tsx",
@@ -604,7 +604,7 @@
       "blob": "c569048dfa16cb97cf6ae8bc5ad3911f7cecb2cf",
       "sha256": "8f9bcfadcf917a39d69852eb10a89d5d050c0d4ea039712ff0eba48fcd241c93",
       "method": "patch",
-      "description": "PATCHES.md:62 - P-S5-04 `app/src/components/FileTargetMenuItems.tsx`、`app/src/components/FileTree.tsx`、`app/src/lib/host-hidden.ts`：宿主可追加菜单项（`setHostMenuExtras`），用于 Huhu 既有的“移动到…”“星标”“保存版本…”。"
+      "description": "PATCHES.md:66 - P-S5-04 `app/src/components/FileTargetMenuItems.tsx`、`app/src/components/FileTree.tsx`、`app/src/lib/host-hidden.ts`：宿主可追加菜单项（`setHostMenuExtras`），用于 Huhu 既有的“移动到…”“星标”“保存版本…”。"
     },
     {
       "target": "app/src/components/FileTree.tsx",
@@ -612,7 +612,7 @@
       "blob": "49eda5b8d8f398d63804162d3eaf850080b797b2",
       "sha256": "177b08943571da1cae3bb215891b4ff72f3500a638ae65cbf3919f0b67b72c28",
       "method": "patch",
-      "description": "PATCHES.md:59 - P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。"
+      "description": "PATCHES.md:63 - P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。"
     },
     {
       "target": "app/src/components/FileTreeFilteredToZeroNotice.dom.test.tsx",
@@ -669,7 +669,7 @@
       "blob": "bf3086afd3b87a2aab6cd064cc650bf97ec5f569",
       "sha256": "cb6cc70dc16499fee2e98db795f383fae9bc0c4aa93b7b6b298967ce65ff9867",
       "method": "patch",
-      "description": "PATCHES.md:339 - `app/src/components/GraphPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:344 - `app/src/components/GraphPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/GraphView.tsx",
@@ -677,7 +677,7 @@
       "blob": "8a6e893ca1d75dbf39d5ed0d423ea1f28b4f5bfc",
       "sha256": "ba04ad192f20f84a136880716ec580237b8cd407d916dd8851584e218712888d",
       "method": "patch",
-      "description": "PATCHES.md:340 - `app/src/components/GraphView.tsx`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:345 - `app/src/components/GraphView.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/InteractionPropPanel.tsx",
@@ -692,7 +692,7 @@
       "blob": "604a80c7c80d5c73f27a0cf472e45c59a5ebe579",
       "sha256": "c2a0bf3c86d6ca271e66772946eebb5bce5c5dfb617c0c15d626c6c97788b1e5",
       "method": "patch",
-      "description": "PATCHES.md:341 - `app/src/components/LinksPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:346 - `app/src/components/LinksPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/NewItemDialog.test.ts",
@@ -707,7 +707,7 @@
       "blob": "abe24dc998e0181e607412a279b32aa8fdff0bf5",
       "sha256": "acef4e909f8cc9b5b4c5c45e9769b128a5bc6e9f58dc7e6d9b356837f26c279a",
       "method": "patch",
-      "description": "PATCHES.md:633 - `app/src/components/FileTree.tsx`、`app/src/components/file-tree-listing-transport.ts`、`app/src/components/use-file-tree-listing.ts`、`app/src/components/NewItemDialog.tsx`、`app/src/hooks/use-folder-config.ts`、`app/src/lib/folder-config-api.ts`、`app/src/lib/create-page-request.ts`、`app/src/lib/use-workspace.ts`：树列举、写操作和对话框使用各自根传入的请求。"
+      "description": "PATCHES.md:638 - `app/src/components/FileTree.tsx`、`app/src/components/file-tree-listing-transport.ts`、`app/src/components/use-file-tree-listing.ts`、`app/src/components/NewItemDialog.tsx`、`app/src/hooks/use-folder-config.ts`、`app/src/lib/folder-config-api.ts`、`app/src/lib/create-page-request.ts`、`app/src/lib/use-workspace.ts`：树列举、写操作和对话框使用各自根传入的请求。"
     },
     {
       "target": "app/src/components/ObjectWidget.tsx",
@@ -743,7 +743,7 @@
       "blob": "a2520b387ee64cbacd0d8ac074860a3f48b78830",
       "sha256": "6808c1685c463435920bdfc5e2a1e52aa3918342765a9d1196531d0a73ccda35",
       "method": "patch",
-      "description": "PATCHES.md:342 - `app/src/components/OutlinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:347 - `app/src/components/OutlinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/PageHeaderWidgets.tsx",
@@ -765,7 +765,7 @@
       "blob": "5cd8389b4831ee2f1c5394572bd21d64b4ca1a36",
       "sha256": "3f2155f2f7d1b22928f1149ffa05cb863a43e590d07d194199e9d338edb8f802",
       "method": "patch",
-      "description": "PATCHES.md:343 - `app/src/components/PageListContext.tsx`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:348 - `app/src/components/PageListContext.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/PanelScopeHeader.tsx",
@@ -864,7 +864,7 @@
       "blob": "e2c9d6cb6e4e14f130209d4076d452af863b8f6c",
       "sha256": "ad97f036c9f1fe6af2d0d240e67393d0089f5c433810055fab5c855c584609f0",
       "method": "patch",
-      "description": "PATCHES.md:264 - `app/src/editor/extensions/tag-click-plugin.ts`、`app/src/components/PropertyWidgets.tsx`：随标签事件携带点击元素，隔离多个编辑面并支持关闭后焦点恢复。"
+      "description": "PATCHES.md:268 - `app/src/editor/extensions/tag-click-plugin.ts`、`app/src/components/PropertyWidgets.tsx`：随标签事件携带点击元素，隔离多个编辑面并支持关闭后焦点恢复。"
     },
     {
       "target": "app/src/components/ReadonlyPropertyPanel.dom.test.tsx",
@@ -900,7 +900,7 @@
       "blob": "6d663c4abacfdde342bb8bd055f0f7a019436b7c",
       "sha256": "1a295cf15d3881d216909bab30fcdf50792b427f0e4c787672d57c7917fa2948",
       "method": "patch",
-      "description": "PATCHES.md:344 - `app/src/components/TimelinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:349 - `app/src/components/TimelinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/TrashFailureModal.dom.test.tsx",
@@ -1006,7 +1006,7 @@
       "blob": "19c2ec17d73d5377245a52053e26176627f9a40e",
       "sha256": "fb26996e0d1745a04537695f008fbd07d27a17c1b56b6b8600267d778afb8885",
       "method": "patch",
-      "description": "PATCHES.md:258 - `app/src/components/emoji-picker.tsx`：按编辑器语言加载离线表情名称和分类，中文数据保留英文搜索别名。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。"
+      "description": "PATCHES.md:262 - `app/src/components/emoji-picker.tsx`：按编辑器语言加载离线表情名称和分类，中文数据保留英文搜索别名。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。"
     },
     {
       "target": "app/src/components/extension-picker-utils.test.ts",
@@ -1077,7 +1077,7 @@
       "blob": "bdf5e3af2ebd4cc01ab403d8a7b49dd287698fb0",
       "sha256": "c758a944c7de9e04aa5e78d1d337cd6bd770fc49c46db7bf6e27722d5bb0c573",
       "method": "patch",
-      "description": "PATCHES.md:69 - P-S5-09 `app/src/components/file-tree-icon-sprite.ts`、`app/src/components/file-tree-extension-badge.ts`：由共享图标表生成树的 sprite、扩展名类别和文件夹图形，保留 OK 的扩展名角标。受限标识使用本地锁图形。"
+      "description": "PATCHES.md:73 - P-S5-09 `app/src/components/file-tree-icon-sprite.ts`、`app/src/components/file-tree-extension-badge.ts`：由共享图标表生成树的 sprite、扩展名类别和文件夹图形，保留 OK 的扩展名角标。受限标识使用本地锁图形。"
     },
     {
       "target": "app/src/components/file-tree-icon-sprite.ts",
@@ -1085,7 +1085,7 @@
       "blob": "4840ad23e057d0197f7032167cb8a7c8d67781b7",
       "sha256": "956c8868b71ce2b900de8180a5086caf176e19ad0331fb2278bd827b4f6b880a",
       "method": "patch",
-      "description": "PATCHES.md:69 - P-S5-09 `app/src/components/file-tree-icon-sprite.ts`、`app/src/components/file-tree-extension-badge.ts`：由共享图标表生成树的 sprite、扩展名类别和文件夹图形，保留 OK 的扩展名角标。受限标识使用本地锁图形。"
+      "description": "PATCHES.md:73 - P-S5-09 `app/src/components/file-tree-icon-sprite.ts`、`app/src/components/file-tree-extension-badge.ts`：由共享图标表生成树的 sprite、扩展名类别和文件夹图形，保留 OK 的扩展名角标。受限标识使用本地锁图形。"
     },
     {
       "target": "app/src/components/file-tree-listing-transport.test.ts",
@@ -1100,7 +1100,7 @@
       "blob": "b20a1dfced75e67415d0824ef17f21e816828c47",
       "sha256": "59f37c076fd2f75da9247d49258e7be677b108a57ce258d5eadb58d889e32854",
       "method": "patch",
-      "description": "PATCHES.md:345 - `app/src/components/file-tree-listing-transport.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:350 - `app/src/components/file-tree-listing-transport.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/file-tree-merge.test.ts",
@@ -1136,7 +1136,7 @@
       "blob": "7ac566b6b625015b6aa6cd18a40f03f6278e651e",
       "sha256": "e135ee98cfe8d42bf56747345d7fe1bbd50fb6155f304f20f01ccd6a9aee5d7a",
       "method": "patch",
-      "description": "PATCHES.md:68 - P-S5-08 `app/src/components/file-tree-operations.ts`：复制普通文件后用原资产条目更新树。"
+      "description": "PATCHES.md:72 - P-S5-08 `app/src/components/file-tree-operations.ts`：复制普通文件后用原资产条目更新树。"
     },
     {
       "target": "app/src/components/file-tree-path-helpers.test.ts",
@@ -1256,7 +1256,7 @@
       "blob": "2b2b71930f1d4dff6b4655d6b5dbf22c92cb7a2d",
       "sha256": "5e752802067a22f9a93a9ad624f4b58bdf6bf0340fe34e6dd61197c8b063a6dd",
       "method": "patch",
-      "description": "PATCHES.md:67 - P-S5-07 `core/src/schemas/api/document-read.ts`、`app/src/components/file-tree-utils.ts`：目录列举保留受保护类别、链接失效和祖先链接循环标记。"
+      "description": "PATCHES.md:71 - P-S5-07 `core/src/schemas/api/document-read.ts`、`app/src/components/file-tree-utils.ts`：目录列举保留受保护类别、链接失效和祖先链接循环标记。"
     },
     {
       "target": "app/src/components/frontmatter-error-utils.ts",
@@ -1432,7 +1432,7 @@
       "blob": "74cf5151136cff4702e45f7a30d9d91ca50f13cc",
       "sha256": "ddc9c1894eab292fb79c4ed3ea842ebc0272b7f4f3a9837297f0d3fe5f3b7d9a",
       "method": "patch",
-      "description": "PATCHES.md:346 - `app/src/components/handoff/useInstalledAgents.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:351 - `app/src/components/handoff/useInstalledAgents.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/icons/AgentIcon.tsx",
@@ -1580,7 +1580,7 @@
       "blob": null,
       "sha256": "7d96f8d2f23e3661bb09f85f5994063e2c00e39b17d432b3d52eb39073ee126b",
       "method": "local",
-      "description": "PATCHES.md:393 - `app/src/components/page-header-media.test.ts`：检查图标、封面 URL 编码及无效 Vault 路径。"
+      "description": "PATCHES.md:398 - `app/src/components/page-header-media.test.ts`：检查图标、封面 URL 编码及无效 Vault 路径。"
     },
     {
       "target": "app/src/components/page-header-utils.ts",
@@ -1588,7 +1588,7 @@
       "blob": "6cf7e62f4c3752687c459b0bbd4fe74f7b28b144",
       "sha256": "a12fe6e93210174865f30caea99c009f9d53df58505d2f9bdc2a83724ce1a0ca",
       "method": "patch",
-      "description": "PATCHES.md:392 - `app/src/components/page-header-utils.ts`：图标和封面改用 Huhu 已有受保护的 Vault 媒体 URL，逐段编码。两处消费者此前使用当前宿主未提供的 `/api/asset`。"
+      "description": "PATCHES.md:397 - `app/src/components/page-header-utils.ts`：图标和封面改用 Huhu 已有受保护的 Vault 媒体 URL，逐段编码。两处消费者此前使用当前宿主未提供的 `/api/asset`。"
     },
     {
       "target": "app/src/components/page-membership.ts",
@@ -1631,7 +1631,7 @@
       "blob": "57407fa67af612b0705498b653e507f5aed02d3f",
       "sha256": "b931bc586f95b5409f7c3adb0266370a02a8388e00280dd6eb9d59116d6b7ad8",
       "method": "patch",
-      "description": "PATCHES.md:289 - `app/src/components/properties-collapsed-store.dom.test.tsx`：为 Node/jsdom 测试注入隔离 Storage，保留持久化断言。"
+      "description": "PATCHES.md:293 - `app/src/components/properties-collapsed-store.dom.test.tsx`：为 Node/jsdom 测试注入隔离 Storage，保留持久化断言。"
     },
     {
       "target": "app/src/components/properties-collapsed-store.test.ts",
@@ -1814,7 +1814,7 @@
       "blob": "5d5c6e3235236e9a12725a9e437080244aaf7016",
       "sha256": "f4daa6e7054bc9b461abbbbb8396b576fc388b14065238e3cd9e439ac360882c",
       "method": "patch",
-      "description": "PATCHES.md:64 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
+      "description": "PATCHES.md:68 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
     },
     {
       "target": "app/src/components/ui/badge.tsx",
@@ -1892,7 +1892,7 @@
       "blob": "71e81f0c1cef39ebfd1e92f779af4fd4659328c9",
       "sha256": "0b37e6f6d01f6f22d63c6946f9d4cf6fbd656859ba717b7980f318a11d8c4722",
       "method": "patch",
-      "description": "PATCHES.md:64 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
+      "description": "PATCHES.md:68 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
     },
     {
       "target": "app/src/components/ui/dropdown-menu.dom.test.tsx",
@@ -1907,7 +1907,7 @@
       "blob": "f944509997ab35a966f2e141ec177a7881b51de7",
       "sha256": "e22b00c345eaefe66678870300c6521ee11262df3402724c99206fa79dabffb2",
       "method": "patch",
-      "description": "PATCHES.md:64 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
+      "description": "PATCHES.md:68 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
     },
     {
       "target": "app/src/components/ui/electron-drag-strip.tsx",
@@ -2020,7 +2020,7 @@
       "blob": "15ebba41e2f3512d96328fafe89fb5c777a82bfe",
       "sha256": "7b49789fb09c9d0dde4749f34f9ef494a21b39d8ff5049b1ef47e53ed17dd128",
       "method": "patch",
-      "description": "PATCHES.md:64 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
+      "description": "PATCHES.md:68 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
     },
     {
       "target": "app/src/components/ui/select.dom.test.tsx",
@@ -2035,7 +2035,7 @@
       "blob": "b1d203e85c8b153be1d94e52d3324f91ca32c42a",
       "sha256": "4d23c044c9e813cfdbc6920ddabebd56fa2329af7214a8349811d50daa1ab129",
       "method": "patch",
-      "description": "PATCHES.md:64 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
+      "description": "PATCHES.md:68 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
     },
     {
       "target": "app/src/components/ui/separator.tsx",
@@ -2141,7 +2141,7 @@
       "blob": "bd18798e551d91ac8f3f75fc9deaf3f026e2a67a",
       "sha256": "74a2c0aea6b7edabfa6e03160d96249d07880536360b9517b06e71fb8bb96a1c",
       "method": "patch",
-      "description": "PATCHES.md:64 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
+      "description": "PATCHES.md:68 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
     },
     {
       "target": "app/src/components/use-file-tree-listing.dom.test.tsx",
@@ -2156,7 +2156,7 @@
       "blob": "7a895f427619de3999e68acb5cc4aa219f0f583d",
       "sha256": "5f55483f715ad6487a93f1a23b46a35e59b7ef551a1328053514268d21b7a1d8",
       "method": "patch",
-      "description": "PATCHES.md:633 - `app/src/components/FileTree.tsx`、`app/src/components/file-tree-listing-transport.ts`、`app/src/components/use-file-tree-listing.ts`、`app/src/components/NewItemDialog.tsx`、`app/src/hooks/use-folder-config.ts`、`app/src/lib/folder-config-api.ts`、`app/src/lib/create-page-request.ts`、`app/src/lib/use-workspace.ts`：树列举、写操作和对话框使用各自根传入的请求。"
+      "description": "PATCHES.md:638 - `app/src/components/FileTree.tsx`、`app/src/components/file-tree-listing-transport.ts`、`app/src/components/use-file-tree-listing.ts`、`app/src/components/NewItemDialog.tsx`、`app/src/hooks/use-folder-config.ts`、`app/src/lib/folder-config-api.ts`、`app/src/lib/create-page-request.ts`、`app/src/lib/use-workspace.ts`：树列举、写操作和对话框使用各自根传入的请求。"
     },
     {
       "target": "app/src/components/use-selection-mirror.ts",
@@ -2178,7 +2178,7 @@
       "blob": "e2d1234ee9e0da1806a3fe70d0eb2739d680b845",
       "sha256": "bf7e52a2c89723e4440ba8f34252d0ff58cbaea5650f8bb2c1a76f6ec22acc7d",
       "method": "patch",
-      "description": "PATCHES.md:7 - P-S2a-02 `app/src/editor/DocumentContext.tsx`：上游 1868 行（标签 / 分屏 / 协作连接 / 会话恢复）→ 再导出 Huhu 宿主版 `packages/editor/src/host/document-context.tsx`（只保留 vendor 组件实际读取的 17 个成员）。"
+      "description": "PATCHES.md:9 - P-S2a-02 `app/src/editor/DocumentContext.tsx`：上游 1868 行（标签 / 分屏 / 协作连接 / 会话恢复）→ 再导出 Huhu 宿主版 `packages/editor/src/host/document-context.tsx`（只保留 vendor 组件实际读取的 17 个成员）。"
     },
     {
       "target": "app/src/editor/EditorContent.dom.test.tsx",
@@ -2186,7 +2186,7 @@
       "blob": "42c056350f7837dfdfbe51c247d76249b6dbd5bb",
       "sha256": "fb220c1261f99629fa9060128da5a570ac7f934f57da2862c766476ac241e1af",
       "method": "patch",
-      "description": "PATCHES.md:291 - `app/src/editor/EditorContent.dom.test.tsx`：原样迁入固定上游 DOM 用例。"
+      "description": "PATCHES.md:295 - `app/src/editor/EditorContent.dom.test.tsx`：原样迁入固定上游 DOM 用例。"
     },
     {
       "target": "app/src/editor/EditorContent.tsx",
@@ -2194,7 +2194,7 @@
       "blob": "8aeec51bf6dbea381945724675e0f66a28d77b47",
       "sha256": "17b18fd78120493569eaadfc04d88a2e7641a054e30ec9cdd6a8b998cabc0b60",
       "method": "patch",
-      "description": "PATCHES.md:644 - `app/src/editor/EditorContent.tsx`、`app/src/editor/components/snapshot-url-pool.ts`：待挂载的 Blob URL 在已连接或由 TipTap 停放的画板中保留。文档和停放树中的图片移除或更换源时，最后一个消费者离场即释放旧 URL。停放树随 EditorContent 重接、换绑或 TipTap 视图销毁结束观察。"
+      "description": "PATCHES.md:649 - `app/src/editor/EditorContent.tsx`、`app/src/editor/components/snapshot-url-pool.ts`：待挂载的 Blob URL 在已连接或由 TipTap 停放的画板中保留。文档和停放树中的图片移除或更换源时，最后一个消费者离场即释放旧 URL。停放树随 EditorContent 重接、换绑或 TipTap 视图销毁结束观察。"
     },
     {
       "target": "app/src/editor/SourceEditor.dom.test.tsx",
@@ -2202,7 +2202,7 @@
       "blob": "c5f5daab14b82cb80e14c780427eeaac974ad4a9",
       "sha256": "50b44878a7a0309987f6f9ad2ba7f765431615e6fd9ad9e11faeaeb8d1e8fec6",
       "method": "patch",
-      "description": "PATCHES.md:292 - `app/src/editor/SourceEditor.dom.test.tsx`：移除 OK 专属 Ask AI 与 Problems 组，保留源码行为。"
+      "description": "PATCHES.md:296 - `app/src/editor/SourceEditor.dom.test.tsx`：移除 OK 专属 Ask AI 与 Problems 组，保留源码行为。"
     },
     {
       "target": "app/src/editor/SourceEditor.tsx",
@@ -2210,7 +2210,7 @@
       "blob": "215ddcd7c554201341b0ee5533bc9f81b908ecee",
       "sha256": "cb26ef8f7bf269d17f3a8b6997831ac014c848dec1c8312b39894749d0a181b0",
       "method": "patch",
-      "description": "PATCHES.md:347 - `app/src/editor/SourceEditor.tsx`：源码与富文本使用相同的文档撤销管理器。"
+      "description": "PATCHES.md:352 - `app/src/editor/SourceEditor.tsx`：源码与富文本使用相同的文档撤销管理器。"
     },
     {
       "target": "app/src/editor/TiptapEditor.tsx",
@@ -2218,7 +2218,7 @@
       "blob": "dc5884c87bff1042f17c535856abaecb5dd61a1a",
       "sha256": "2f566340e30f21bc75b813a0bea3a39f2e9d918c2a82e3cd28b722660c26fead",
       "method": "patch",
-      "description": "PATCHES.md:322 - P-F09-07 `app/src/editor/TiptapEditor.tsx`：本地扩展 Tiptap Placeholder，只有严格处于非空顶层文本块内部的单光标能直接返回空装饰。其他情况调用上游插件。"
+      "description": "PATCHES.md:326 - P-F09-07 `app/src/editor/TiptapEditor.tsx`：本地扩展 Tiptap Placeholder，只有严格处于非空顶层文本块内部的单光标能直接返回空装饰。其他情况调用上游插件。"
     },
     {
       "target": "app/src/editor/active-editor.test.ts",
@@ -2352,7 +2352,7 @@
       "blob": "533db2757133934371abd966746659ffa9c7fbf0",
       "sha256": "5f1be8558b156e7a8b5e60f26e2e6684b3a41048808710d1d1816ee77eb38d7e",
       "method": "patch",
-      "description": "PATCHES.md:594 - P-H06-01 `app/src/editor/awareness-heartbeat.ts`：当前 awareness 解绑时停止 ticker，避免最后一个编辑器离开后 Worker 仍运行；下一次挂载按现有入口重启。"
+      "description": "PATCHES.md:599 - P-H06-01 `app/src/editor/awareness-heartbeat.ts`：当前 awareness 解绑时停止 ticker，避免最后一个编辑器离开后 Worker 仍运行；下一次挂载按现有入口重启。"
     },
     {
       "target": "app/src/editor/awareness-heartbeat.worker.ts",
@@ -2393,8 +2393,9 @@
       "target": "app/src/editor/block-ux/keyboard-nav.ts",
       "upstream": "packages/app/src/editor/block-ux/keyboard-nav.ts",
       "blob": "eb48334af37daa0b99c4af2ddeb3a1bcfebb9241",
-      "sha256": "5b0308774c74ce4e6402a583713dc8fb6d51b1cf61fd421248f3ccea9f1ecf62",
-      "method": "copy"
+      "sha256": "e79edb333a530e67f9d57e3fa1a7c892af40476ff8c0ecf23d8eddf7c2cfeb93",
+      "method": "patch",
+      "description": "PATCHES.md:7 - `app/src/editor/block-ux/keyboard-nav.ts`：原生 Dialog 内的编辑器用关闭请求转发候选菜单未处理的 Escape。独立文档保留块选择与退出键。"
     },
     {
       "target": "app/src/editor/bubble-menu/BlockTypeSelector.tsx",
@@ -2409,7 +2410,7 @@
       "blob": "9f6b3d8e2baf23063543be4e48c7d03650ce1027",
       "sha256": "a6f64967df19b200cf24d86ee0311d2711ad6526f77ee12d80dfccce5c0dcddc",
       "method": "patch",
-      "description": "PATCHES.md:328 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
+      "description": "PATCHES.md:332 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/bubble-menu/FileBubbleButtons.tsx",
@@ -2417,7 +2418,7 @@
       "blob": "c3d5611c3a5b56b8247a7b81aaf8873225fba3e9",
       "sha256": "b1e5cdb7362c1e7c6b3a1b634e0861cb8a0d8fda47eab08f612e128394d11374",
       "method": "patch",
-      "description": "PATCHES.md:116 - `app/src/editor/bubble-menu/FileBubbleButtons.tsx`：本地下载经宿主读取笔记相对路径的附件字节，通知失败，并支持按键激活。切换选择、卸载或新的下载请求会使旧结果失效。"
+      "description": "PATCHES.md:120 - `app/src/editor/bubble-menu/FileBubbleButtons.tsx`：本地下载经宿主读取笔记相对路径的附件字节，通知失败，并支持按键激活。切换选择、卸载或新的下载请求会使旧结果失效。"
     },
     {
       "target": "app/src/editor/bubble-menu/FootnoteBubbleButton.dom.test.tsx",
@@ -2453,7 +2454,7 @@
       "blob": "3d19a817569c783d4f8147d78efd86204970734d",
       "sha256": "5501d2227f11c03111326b57c7a16c3c7f43ff5ec013b42f855d22431fc389c5",
       "method": "patch",
-      "description": "PATCHES.md:99 - `app/src/editor/bubble-menu/InlineFormatButtons.tsx`：用 Lingui 的格式名称同时标记读屏按钮与气泡提示。"
+      "description": "PATCHES.md:103 - `app/src/editor/bubble-menu/InlineFormatButtons.tsx`：用 Lingui 的格式名称同时标记读屏按钮与气泡提示。"
     },
     {
       "target": "app/src/editor/bubble-menu/LinkEditPopover.dom.test.tsx",
@@ -2524,7 +2525,7 @@
       "blob": "b05bf37fc5d108f67b34fa55ad789541750c331c",
       "sha256": "35bb348e9c3873f5385e2e2b7671ea3e52403a7bf4515950774f34087af04ac6",
       "method": "patch",
-      "description": "PATCHES.md:323 - P-F09-08 `app/src/editor/caret-label-layer.ts`：首次注册协作光标标签前跳过编辑 DOM 的扫描，标签层仍在原时机创建和放置。"
+      "description": "PATCHES.md:327 - P-F09-08 `app/src/editor/caret-label-layer.ts`：首次注册协作光标标签前跳过编辑 DOM 的扫描，标签层仍在原时机创建和放置。"
     },
     {
       "target": "app/src/editor/client-persistence.ts",
@@ -2616,7 +2617,7 @@
       "blob": "12b092700ee912377e5a91496bbf0e31591a0258",
       "sha256": "38a5597399ab20509ae56f120ca9b9d914604a3287cd5e2c1fab1e3173bdc633",
       "method": "patch",
-      "description": "PATCHES.md:150 - `app/src/editor/clipboard/comment-clipboard-contract.test.ts`"
+      "description": "PATCHES.md:154 - `app/src/editor/clipboard/comment-clipboard-contract.test.ts`"
     },
     {
       "target": "app/src/editor/clipboard/comment-scrub.ts",
@@ -2638,7 +2639,7 @@
       "blob": "93ecec3074831f0de4f43e39bf17d1af87a0938b",
       "sha256": "2cb9fc735455fccb51c28072a96234efaafd9d5e267446bedb7dc1fcd6548a71",
       "method": "patch",
-      "description": "PATCHES.md:606 - `app/src/editor/clipboard/copy-image.ts`：浏览器剪贴板回退失败时经已有通知组件显示错误。"
+      "description": "PATCHES.md:611 - `app/src/editor/clipboard/copy-image.ts`：浏览器剪贴板回退失败时经已有通知组件显示错误。"
     },
     {
       "target": "app/src/editor/clipboard/detect-source.test.ts",
@@ -2674,7 +2675,7 @@
       "blob": "b4fde4222b74f9c0004410f952c18b5ba4d85aa2",
       "sha256": "ca9e0ec4e48555aa73f3e9c688ab059d67deecf6bb131ab16c0fb7115507da0a",
       "method": "patch",
-      "description": "PATCHES.md:154 - `app/src/editor/clipboard/handle-paste.list-placement.test.ts`"
+      "description": "PATCHES.md:158 - `app/src/editor/clipboard/handle-paste.list-placement.test.ts`"
     },
     {
       "target": "app/src/editor/clipboard/handle-paste.mixed-payload-placement.test.ts",
@@ -2682,7 +2683,7 @@
       "blob": "3f51801763883b1a29c088b4e4fd35e40173b64f",
       "sha256": "51c79599cb50890baf1d3024ad9f71af37e81ea2851b81439fb3c1219c271e71",
       "method": "patch",
-      "description": "PATCHES.md:155 - `app/src/editor/clipboard/handle-paste.mixed-payload-placement.test.ts`"
+      "description": "PATCHES.md:159 - `app/src/editor/clipboard/handle-paste.mixed-payload-placement.test.ts`"
     },
     {
       "target": "app/src/editor/clipboard/handle-paste.test.ts",
@@ -2690,7 +2691,7 @@
       "blob": "7d69545075e7787fc80ac45ee268ce3438e6fd56",
       "sha256": "778c0d2a08919e7374ebed5499b6fb94f36cb5df8d199cfab205dd988ef45002",
       "method": "patch",
-      "description": "PATCHES.md:156 - `app/src/editor/clipboard/handle-paste.test.ts`"
+      "description": "PATCHES.md:160 - `app/src/editor/clipboard/handle-paste.test.ts`"
     },
     {
       "target": "app/src/editor/clipboard/handle-paste.ts",
@@ -2712,7 +2713,7 @@
       "blob": "4edec727019df3bcfa0bdaea2eaa732c0d844041",
       "sha256": "902bd32ab48a64fac9a060f8ae8bc9ea762b19ea5759b8d2f9abbaea0b8d78e9",
       "method": "patch",
-      "description": "PATCHES.md:157 - `app/src/editor/clipboard/instrument.test.ts`"
+      "description": "PATCHES.md:161 - `app/src/editor/clipboard/instrument.test.ts`"
     },
     {
       "target": "app/src/editor/clipboard/instrument.ts",
@@ -2755,7 +2756,7 @@
       "blob": "55ab6276ddbbf593f825b5b5dd176f21d60d569e",
       "sha256": "3d4f1e5589b559e9d686690494324403f4452302d3541805b86ef5884cc966a9",
       "method": "patch",
-      "description": "PATCHES.md:160 - `app/src/editor/clipboard/non-portable-descriptors.test-helper.ts`"
+      "description": "PATCHES.md:164 - `app/src/editor/clipboard/non-portable-descriptors.test-helper.ts`"
     },
     {
       "target": "app/src/editor/clipboard/non-portable-render-source-fallback.test.ts",
@@ -2840,7 +2841,7 @@
       "blob": "211b3bbf62779d657fe1039dfb8cecac33c4ae62",
       "sha256": "1084dfcab061e53e167cdb4a90097c1f831d616378cc99f55842cf59231916fc",
       "method": "patch",
-      "description": "PATCHES.md:168 - `app/src/editor/clipboard/source-clipboard-recovery.test.ts`"
+      "description": "PATCHES.md:172 - `app/src/editor/clipboard/source-clipboard-recovery.test.ts`"
     },
     {
       "target": "app/src/editor/clipboard/source-clipboard.test.ts",
@@ -2862,7 +2863,7 @@
       "blob": "5845b7e9d8f2ae54fc3ca91da0987a6de232e539",
       "sha256": "b2b9c7b934ac2cfa48b6d9f9d096101554bf9dad50a4a4de4e01cb820e741850",
       "method": "patch",
-      "description": "PATCHES.md:170 - `app/src/editor/clipboard/wysiwyg-stop-rule.test.ts`"
+      "description": "PATCHES.md:174 - `app/src/editor/clipboard/wysiwyg-stop-rule.test.ts`"
     },
     {
       "target": "app/src/editor/code-mirror-content-attributes.ts",
@@ -2891,7 +2892,7 @@
       "blob": "a6c0cdc5d797516e0606e458d146547bd3a3b912",
       "sha256": "6f6b421e29a8b1fd6f0265c3b2981a013b66efe5abb32b46b90cc9957d6436d8",
       "method": "patch",
-      "description": "PATCHES.md:94 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。"
+      "description": "PATCHES.md:98 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。"
     },
     {
       "target": "app/src/editor/components/AlignBlock.tsx",
@@ -2941,7 +2942,7 @@
       "blob": "1f284bd3ad6e12bfb901804ea090dae2b073b202",
       "sha256": "972b1bda8c644ea05173f1b56977301d0b92886e423d33e4a434fd37efeeea8a",
       "method": "patch",
-      "description": "PATCHES.md:118 - `app/src/editor/components/CodePreviewEditModal.tsx`：保持 CodeMirror 的挂载 ref 稳定，输入触发渲染时不销毁正在编辑的视图。"
+      "description": "PATCHES.md:122 - `app/src/editor/components/CodePreviewEditModal.tsx`：保持 CodeMirror 的挂载 ref 稳定，输入触发渲染时不销毁正在编辑的视图。"
     },
     {
       "target": "app/src/editor/components/ColorPickerInput.test.ts",
@@ -2956,7 +2957,7 @@
       "blob": "c3f32f659dde4dce40f671fed0f8cefb8f529b70",
       "sha256": "82790b0762bd92d4ac83be4c6a491c7dea9869457dec0105f48503faa4db4af6",
       "method": "patch",
-      "description": "PATCHES.md:95 - `app/src/editor/components/ColorPickerInput.tsx`、`app/src/editor/components/IconPickerInput.tsx`、`app/src/editor/components/componentMap.tsx`：翻译输入示例与折叠块默认标题。"
+      "description": "PATCHES.md:99 - `app/src/editor/components/ColorPickerInput.tsx`、`app/src/editor/components/IconPickerInput.tsx`、`app/src/editor/components/componentMap.tsx`：翻译输入示例与折叠块默认标题。"
     },
     {
       "target": "app/src/editor/components/DescriptorPlaceholder.tsx",
@@ -2978,7 +2979,7 @@
       "blob": "386dd38d568e5ac1ffcc67e140dd3e5e0535f914",
       "sha256": "f7a1290a90ee991ee7f542894dcb8285364f5e13a1dbd1624fc2d81b3648beca",
       "method": "patch",
-      "description": "PATCHES.md:114 - `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。"
+      "description": "PATCHES.md:118 - `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。"
     },
     {
       "target": "app/src/editor/components/EmojiInsertPopover.dom.test.tsx",
@@ -2993,7 +2994,7 @@
       "blob": "5b1dbca8b267aae19d0f92539e596b1e017eb059",
       "sha256": "c98fb08a66d4e4f15c941a802a26cbb793d98000950ff253fbc76775254e07fe",
       "method": "patch",
-      "description": "PATCHES.md:261 - `app/src/editor/components/EmojiInsertPopover.tsx`：允许按编辑区限制事件归属，Radix 关闭时沿用选中或取消分支各自的焦点行为。"
+      "description": "PATCHES.md:265 - `app/src/editor/components/EmojiInsertPopover.tsx`：允许按编辑区限制事件归属，Radix 关闭时沿用选中或取消分支各自的焦点行为。"
     },
     {
       "target": "app/src/editor/components/ExcalidrawEmbed.dom.test.tsx",
@@ -3001,7 +3002,7 @@
       "blob": "6d97843a9e71392d6b5d2b2d14561daae5439927",
       "sha256": "ddcc00517e0fc6788d747f8b589de430b950987c08c9a6b2c671537abe3db885",
       "method": "patch",
-      "description": "PATCHES.md:618 - `app/src/editor/components/ExcalidrawEmbed.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。"
+      "description": "PATCHES.md:623 - `app/src/editor/components/ExcalidrawEmbed.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。"
     },
     {
       "target": "app/src/editor/components/ExcalidrawEmbed.tsx",
@@ -3009,7 +3010,7 @@
       "blob": "1b327ceff1fbbd2ffa85ac312add5fa73a2b55f1",
       "sha256": "570f4c537e3bed55747b9f9e140c2742da9bfd9a044d5047d36fc08276bde159",
       "method": "patch",
-      "description": "PATCHES.md:360 - `app/src/editor/components/ExcalidrawEmbed.tsx`：接受桌面工作台中同宿主的画板地址。"
+      "description": "PATCHES.md:365 - `app/src/editor/components/ExcalidrawEmbed.tsx`：接受桌面工作台中同宿主的画板地址。"
     },
     {
       "target": "app/src/editor/components/File.test.tsx",
@@ -3031,7 +3032,7 @@
       "blob": "afff03a277c1ad49468f6d056812e9497561fab6",
       "sha256": "9805b3422275e4a56fac9a371bb8127ca53e02e2a50b856f2272bfbcc228f726",
       "method": "patch",
-      "description": "PATCHES.md:95 - `app/src/editor/components/ColorPickerInput.tsx`、`app/src/editor/components/IconPickerInput.tsx`、`app/src/editor/components/componentMap.tsx`：翻译输入示例与折叠块默认标题。"
+      "description": "PATCHES.md:99 - `app/src/editor/components/ColorPickerInput.tsx`、`app/src/editor/components/IconPickerInput.tsx`、`app/src/editor/components/componentMap.tsx`：翻译输入示例与折叠块默认标题。"
     },
     {
       "target": "app/src/editor/components/Image.dom.test.tsx",
@@ -3046,7 +3047,7 @@
       "blob": "0a37de560170fd8d12f1f351fe992c0fead3cfd0",
       "sha256": "50031bb2469fc6245992f4a6837fa9e83abb1f89286032ee9b80a9bed47ecc0c",
       "method": "patch",
-      "description": "PATCHES.md:328 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
+      "description": "PATCHES.md:332 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/components/Math.test.tsx",
@@ -3117,7 +3118,7 @@
       "blob": "26083bde2287fa2bc5df19ff0bbf95f6a72f9ab1",
       "sha256": "d8c5212d6914222b4b59db3ceef7bebe78824d041794ecefcb7b346bd9e90716",
       "method": "patch",
-      "description": "PATCHES.md:363 - `app/src/editor/components/Pdf.tsx`：本地 PDF 从 Vault 读取，按失效通知重载，撤销请求并销毁旧任务。"
+      "description": "PATCHES.md:368 - `app/src/editor/components/Pdf.tsx`：本地 PDF 从 Vault 读取，按失效通知重载，撤销请求并销毁旧任务。"
     },
     {
       "target": "app/src/editor/components/PreviewBlockedNotice.dom.test.tsx",
@@ -3132,7 +3133,7 @@
       "blob": "5c82e8e33fae58765ef19547ebaee76cbd2c130a",
       "sha256": "f5927ae638014591f16b085a519924d9fd78b9f8e54948280ceb7b8cc5b0b25b",
       "method": "patch",
-      "description": "PATCHES.md:114 - `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。"
+      "description": "PATCHES.md:118 - `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。"
     },
     {
       "target": "app/src/editor/components/PropPanel.dom.test.tsx",
@@ -3140,7 +3141,7 @@
       "blob": "2c7ed49d64a5a0eac36735c7c5c0868f76e43ffd",
       "sha256": "3355170ba59becf72b8bb7f01c20af8aa41f051c504ad3d11a94af4ff371c513",
       "method": "patch",
-      "description": "PATCHES.md:182 - `app/src/editor/components/PropPanel.dom.test.tsx`"
+      "description": "PATCHES.md:186 - `app/src/editor/components/PropPanel.dom.test.tsx`"
     },
     {
       "target": "app/src/editor/components/PropPanel.mirror.dom.test.tsx",
@@ -3155,7 +3156,7 @@
       "blob": "131e403c37049f0cae3c9b4541ca8deef2dd72bc",
       "sha256": "82b0a93f6aba576eedb746faad64bff5165d470f375ea710cfba7e45e6bd90b3",
       "method": "patch",
-      "description": "PATCHES.md:184 - `app/src/editor/components/PropPanel.test.tsx`"
+      "description": "PATCHES.md:188 - `app/src/editor/components/PropPanel.test.tsx`"
     },
     {
       "target": "app/src/editor/components/PropPanel.tsx",
@@ -3163,7 +3164,7 @@
       "blob": "e75da4dfd881994ed8fa4b73bdd9ddb4e0994370",
       "sha256": "c8cf24bf2b76bf9ceb059fec9f3bceaa9c3c6f05a7fa7c4f123db089388435cd",
       "method": "patch",
-      "description": "PATCHES.md:92 - `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。"
+      "description": "PATCHES.md:96 - `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。"
     },
     {
       "target": "app/src/editor/components/ResizeHandles.tsx",
@@ -3171,7 +3172,7 @@
       "blob": "a2e028e919ee6470c88286d5348c006196c59670",
       "sha256": "0f8df3140ed796d4abb03414ef261ba6569ee0465e4f9e1f78555634657dc92c",
       "method": "patch",
-      "description": "PATCHES.md:97 - `app/src/editor/extensions/internal-link.ts`、`app/src/editor/components/ResizeHandles.tsx`：翻译链接和预览缩放手柄的读屏名称。"
+      "description": "PATCHES.md:101 - `app/src/editor/extensions/internal-link.ts`、`app/src/editor/components/ResizeHandles.tsx`：翻译链接和预览缩放手柄的读屏名称。"
     },
     {
       "target": "app/src/editor/components/SrcAutocomplete.dom.test.tsx",
@@ -3179,7 +3180,7 @@
       "blob": "84ad1ca5b5786fd62d92dee429de8ac24b4f9b23",
       "sha256": "1d244a3e6d79a7ebf71614e5b58fcbdb8e4bcd49d82f64c2ee0302102dd8e246",
       "method": "patch",
-      "description": "PATCHES.md:185 - `app/src/editor/components/SrcAutocomplete.dom.test.tsx`"
+      "description": "PATCHES.md:189 - `app/src/editor/components/SrcAutocomplete.dom.test.tsx`"
     },
     {
       "target": "app/src/editor/components/SrcAutocomplete.tsx",
@@ -3222,7 +3223,7 @@
       "blob": "201a6e4d8f794d66b7819f1e6f082a9cc410878e",
       "sha256": "3c4a998400f63eb8c24a3b3b56db88ce7a01535ef5d5167bc271e0e5eef9cf5d",
       "method": "patch",
-      "description": "PATCHES.md:94 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。"
+      "description": "PATCHES.md:98 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。"
     },
     {
       "target": "app/src/editor/components/TagDialog.test.tsx",
@@ -3237,7 +3238,7 @@
       "blob": "6e748976cfa677255925f64c1aa4c661f76194d1",
       "sha256": "d83d3771367c3e2efb94463ff7e5812629a9a72b4e8d8586a013bcdaecea2fcb",
       "method": "patch",
-      "description": "PATCHES.md:263 - `app/src/editor/components/TagDialog.tsx`：迁入上游标签弹窗，按当前编辑面接收事件，通过宿主本地标签索引查询与打开笔记。"
+      "description": "PATCHES.md:267 - `app/src/editor/components/TagDialog.tsx`：迁入上游标签弹窗，按当前编辑面接收事件，通过宿主本地标签索引查询与打开笔记。"
     },
     {
       "target": "app/src/editor/components/TagView.dom.test.tsx",
@@ -3280,7 +3281,7 @@
       "blob": "b43a398b6e8633c4d7178dfe00fb15b212d0cc2c",
       "sha256": "9205db30e05ff1d13a8f8b512999e2851d4b3470ac7ef758b28811ebe6ded45d",
       "method": "patch",
-      "description": "PATCHES.md:95 - `app/src/editor/components/ColorPickerInput.tsx`、`app/src/editor/components/IconPickerInput.tsx`、`app/src/editor/components/componentMap.tsx`：翻译输入示例与折叠块默认标题。"
+      "description": "PATCHES.md:99 - `app/src/editor/components/ColorPickerInput.tsx`、`app/src/editor/components/IconPickerInput.tsx`、`app/src/editor/components/componentMap.tsx`：翻译输入示例与折叠块默认标题。"
     },
     {
       "target": "app/src/editor/components/image-target-existence.test.ts",
@@ -3288,7 +3289,7 @@
       "blob": "48af94e7f5744f3158220b9ba942a8d93ffb5a94",
       "sha256": "adeffb01262cefb77340cbf15b363bfd184c6ced9f8e27b95ce3a60d1864ed68",
       "method": "patch",
-      "description": "PATCHES.md:189 - `app/src/editor/components/image-target-existence.test.ts`"
+      "description": "PATCHES.md:193 - `app/src/editor/components/image-target-existence.test.ts`"
     },
     {
       "target": "app/src/editor/components/image-target-existence.ts",
@@ -3296,7 +3297,7 @@
       "blob": "3e266fb441a332705fc086830a03221eaa80bff1",
       "sha256": "c20103ce8e4a903142c25d5f5d35decaec109a9da54c974312c1c307b2accb9b",
       "method": "patch",
-      "description": "PATCHES.md:260 - `app/src/editor/components/image-target-existence.ts` 将桌面笔记索引之外的图片交给已有 Vault 媒体协议判定，避免将存在的相对路径图片标记为丢失。"
+      "description": "PATCHES.md:264 - `app/src/editor/components/image-target-existence.ts` 将桌面笔记索引之外的图片交给已有 Vault 媒体协议判定，避免将存在的相对路径图片标记为丢失。"
     },
     {
       "target": "app/src/editor/components/jsx-host-context.tsx",
@@ -3318,7 +3319,7 @@
       "blob": "b10a9b56827825dbded6dc12d6a1091fefb1dca5",
       "sha256": "227a5a310b5f3b09f33ce807ad3d47bb3030aade2f5511cebc31cf8f589fb183",
       "method": "patch",
-      "description": "PATCHES.md:361 - `app/src/editor/components/live-doc-pool.ts`：有本地宿主时通过 Vault 读取快照，订阅失效并取消旧请求。"
+      "description": "PATCHES.md:366 - `app/src/editor/components/live-doc-pool.ts`：有本地宿主时通过 Vault 读取快照，订阅失效并取消旧请求。"
     },
     {
       "target": "app/src/editor/components/lucide-icon-allowlist.test.ts",
@@ -3368,7 +3369,7 @@
       "blob": "a6a680c86a5626944d59413451b89a6feea91e05",
       "sha256": "e6623348108da9ca5c34c6f6a9abada1aabead7de5750cddc0d1d3548014352d",
       "method": "patch",
-      "description": "PATCHES.md:193 - `app/src/editor/components/snapshot-url-pool.dom.test.ts`"
+      "description": "PATCHES.md:197 - `app/src/editor/components/snapshot-url-pool.dom.test.ts`"
     },
     {
       "target": "app/src/editor/components/snapshot-url-pool.ts",
@@ -3376,7 +3377,7 @@
       "blob": "8744fcba5b34e026130cae34563f75db293e6c08",
       "sha256": "db05ed07de38c6c915dcf0c8c5c53ba9aaf2ab5f82d81402b33aae77fb839c23",
       "method": "patch",
-      "description": "PATCHES.md:644 - `app/src/editor/EditorContent.tsx`、`app/src/editor/components/snapshot-url-pool.ts`：待挂载的 Blob URL 在已连接或由 TipTap 停放的画板中保留。文档和停放树中的图片移除或更换源时，最后一个消费者离场即释放旧 URL。停放树随 EditorContent 重接、换绑或 TipTap 视图销毁结束观察。"
+      "description": "PATCHES.md:649 - `app/src/editor/EditorContent.tsx`、`app/src/editor/components/snapshot-url-pool.ts`：待挂载的 Blob URL 在已连接或由 TipTap 停放的画板中保留。文档和停放树中的图片移除或更换源时，最后一个消费者离场即释放旧 URL。停放树随 EditorContent 重接、换绑或 TipTap 视图销毁结束观察。"
     },
     {
       "target": "app/src/editor/components/use-app-color-mode.dom.test.tsx",
@@ -3384,7 +3385,7 @@
       "blob": null,
       "sha256": "f2075cd13ef732ce0e2ba577ff27cb8338e11ff25de8ecc76367a9e8590f7247",
       "method": "local",
-      "description": "PATCHES.md:108 - `app/src/editor/components/use-app-color-mode.dom.test.tsx`：Huhu 模式覆盖与挂载后切换回归。"
+      "description": "PATCHES.md:112 - `app/src/editor/components/use-app-color-mode.dom.test.tsx`：Huhu 模式覆盖与挂载后切换回归。"
     },
     {
       "target": "app/src/editor/components/use-app-color-mode.ts",
@@ -3392,7 +3393,7 @@
       "blob": "ec382f409f2b3ec42934129302396d61fd5ea966",
       "sha256": "edf230a56aff5ba31d37caa9eed24af2b5f6239449945db0d4e2132045cfbc98",
       "method": "patch",
-      "description": "PATCHES.md:107 - `app/src/editor/components/use-app-color-mode.ts`：读取并订阅 Huhu 已解析外观，保留 OK 根类名与系统模式回退。"
+      "description": "PATCHES.md:111 - `app/src/editor/components/use-app-color-mode.ts`：读取并订阅 Huhu 已解析外观，保留 OK 根类名与系统模式回退。"
     },
     {
       "target": "app/src/editor/components/use-mirror-source.dom.test.tsx",
@@ -3414,7 +3415,7 @@
       "blob": "72a99bede4ba3d20e1eb39f47df8e3a1a9d29265",
       "sha256": "cbfd623b38f5df6db9fac30c8237974b4256fcf25e05e58c1782d800ed7ee1eb",
       "method": "patch",
-      "description": "PATCHES.md:362 - `app/src/editor/components/use-mirror-source.ts`：复用镜像解析处理本地 Markdown 快照，保留固定上游协作路径。"
+      "description": "PATCHES.md:367 - `app/src/editor/components/use-mirror-source.ts`：复用镜像解析处理本地 Markdown 快照，保留固定上游协作路径。"
     },
     {
       "target": "app/src/editor/composer-mention/ComposerMentionMenu.tsx",
@@ -3464,7 +3465,7 @@
       "blob": null,
       "sha256": "ed2a2a24e12a51626b751047bbf2b40616fdce65d3b14c294d001c18c508add9",
       "method": "local",
-      "description": "PATCHES.md:376 - `app/src/editor/document-history.ts`：源码与富文本使用相同的文档撤销管理器。"
+      "description": "PATCHES.md:381 - `app/src/editor/document-history.ts`：源码与富文本使用相同的文档撤销管理器。"
     },
     {
       "target": "app/src/editor/document-scrollports.dom.test.ts",
@@ -3507,7 +3508,7 @@
       "blob": "daf2231fa470fa4e6af51e571d6435add8426229",
       "sha256": "b9a64c9c7580a8a8ad359c6567d46886b6e85abd897955e22c18a9d8aeabe4f8",
       "method": "patch",
-      "description": "PATCHES.md:11 - P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。H06：LRU 驱逐只释放 Tiptap / CodeMirror 视图与撤销资源，provider 与 Y.Doc 由宿主池释放。"
+      "description": "PATCHES.md:13 - P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。H06：LRU 驱逐只释放 Tiptap / CodeMirror 视图与撤销资源，provider 与 Y.Doc 由宿主池释放。"
     },
     {
       "target": "app/src/editor/editor-panes.test.ts",
@@ -3529,7 +3530,7 @@
       "blob": "a14f67cdc51a9ed4f1776d41cbf399783ae4b484",
       "sha256": "5e215191b6cf15d0046fcd15c12cf68eadfdc45b56259d0cd90ed344196340fe",
       "method": "patch",
-      "description": "PATCHES.md:196 - `app/src/editor/editor-rig.test-helper.ts`"
+      "description": "PATCHES.md:200 - `app/src/editor/editor-rig.test-helper.ts`"
     },
     {
       "target": "app/src/editor/editor-tabs.test.ts",
@@ -3551,7 +3552,7 @@
       "blob": "cb0da5ad5e7df62b230f56c4f5f94a831e48c897",
       "sha256": "954ffe8d83d65fd00d05d6ba86c85079ac82a1600f93c661a55a4faa90a055ca",
       "method": "patch",
-      "description": "PATCHES.md:254 - `app/src/editor/extensions/CodeBlockView.dom.test.tsx`：测试改动，按共享预览内页 URL 和隔离 CSP 校验发出的正文，继续断言无 `srcdoc`。"
+      "description": "PATCHES.md:258 - `app/src/editor/extensions/CodeBlockView.dom.test.tsx`：测试改动，按共享预览内页 URL 和隔离 CSP 校验发出的正文，继续断言无 `srcdoc`。"
     },
     {
       "target": "app/src/editor/extensions/CodeBlockView.tsx",
@@ -3559,7 +3560,7 @@
       "blob": "04aa276aad80ce66875b7adf3f3e0409a6fb6c64",
       "sha256": "a12f1a2f981f159621765be97e5941df52c26654848bda0d66f6377ce51c1ca2",
       "method": "patch",
-      "description": "PATCHES.md:42 - `app/src/editor/extensions/CodeBlockView.tsx`：用当前预览 iframe 的指针消息显示浮动工具栏，保持重开后可点击预览开关。"
+      "description": "PATCHES.md:46 - `app/src/editor/extensions/CodeBlockView.tsx`：用当前预览 iframe 的指针消息显示浮动工具栏，保持重开后可点击预览开关。"
     },
     {
       "target": "app/src/editor/extensions/ImageInlineZoomView.dom.test.tsx",
@@ -3574,7 +3575,7 @@
       "blob": "53f579e1d95f27068768a9494aeb98adaf5a86ad",
       "sha256": "7849e85aebc2590df75a357aa7e87302e43b2c49a20c7c2b32eb086c6b0415ae",
       "method": "patch",
-      "description": "PATCHES.md:328 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
+      "description": "PATCHES.md:332 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/extensions/ImageReferenceView.dom.test.tsx",
@@ -3596,7 +3597,7 @@
       "blob": "ad4ce50e9610060890518789694cb7d0807e728d",
       "sha256": "147040fa71a63d8555a5f9f663c2947f40fadb4a0c10906b73bde082cb4d3f5d",
       "method": "patch",
-      "description": "PATCHES.md:328 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
+      "description": "PATCHES.md:332 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/extensions/InternalLinkPropPanel.dom.test.tsx",
@@ -3618,7 +3619,7 @@
       "blob": "6d360443840d447f4df5a400b628d5673d08ca6e",
       "sha256": "71799f020fea812d734cd1b48e659cd99421dbdbf7c81009b6a2b75e4430e3bb",
       "method": "patch",
-      "description": "PATCHES.md:635 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
+      "description": "PATCHES.md:640 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
     },
     {
       "target": "app/src/editor/extensions/JsxComponentView.mirror.dom.test.tsx",
@@ -3633,7 +3634,7 @@
       "blob": "bc5c6f5d430c1db7f5cd1e44a1bf8732843a9157",
       "sha256": "c696a91f992b4ad7192f46118e3e40fe14e5d088dade02d0e0ebd1d0a6d26e2b",
       "method": "patch",
-      "description": "PATCHES.md:92 - `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。"
+      "description": "PATCHES.md:96 - `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。"
     },
     {
       "target": "app/src/editor/extensions/JsxInlineView.dom.test.tsx",
@@ -3641,7 +3642,7 @@
       "blob": "f7abe66cc8ca04adf1da01bbdd54d84db2775a85",
       "sha256": "1d3452645901ae3eae983bcae816fb4f267c6a016dab8e061ae12a9ffd95987e",
       "method": "patch",
-      "description": "PATCHES.md:197 - `app/src/editor/extensions/JsxInlineView.dom.test.tsx`"
+      "description": "PATCHES.md:201 - `app/src/editor/extensions/JsxInlineView.dom.test.tsx`"
     },
     {
       "target": "app/src/editor/extensions/JsxInlineView.tsx",
@@ -3719,7 +3720,7 @@
       "blob": "b641093c79371ffa92a1ea0d1e37eefdf441820d",
       "sha256": "77245301397e7e0f045b7563f851a5e1a6d43bd0ac7712c0e01cfa2da40e2f55",
       "method": "patch",
-      "description": "PATCHES.md:635 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
+      "description": "PATCHES.md:640 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
     },
     {
       "target": "app/src/editor/extensions/autonomous-fragment-edit.test.ts",
@@ -3748,7 +3749,7 @@
       "blob": "f6402876fed3b2fc9dbf951c838bd52864ccff9e",
       "sha256": "c0073fa1ef57ae153c7877f0bafdf2caf0a2f5c7f4aa539bd14260c62ac9f0ed",
       "method": "patch",
-      "description": "PATCHES.md:317 - P-F09-02 `app/src/editor/extensions/bare-html-image-decoration.tsx`：旧装饰为空时，检查插入所在段落的 HTML 和插入点的字面文本上下文。其余文档变更沿用原图片扫描和渲染。"
+      "description": "PATCHES.md:321 - P-F09-02 `app/src/editor/extensions/bare-html-image-decoration.tsx`：旧装饰为空时，检查插入所在段落的 HTML 和插入点的字面文本上下文。其余文档变更沿用原图片扫描和渲染。"
     },
     {
       "target": "app/src/editor/extensions/block-mover.test.ts",
@@ -3777,7 +3778,7 @@
       "blob": "4be26e6969bb73ac37473f3efb18af0db3b17625",
       "sha256": "1eb5ea23e3b477010c490a3f51e7c565f586f310073e899d74a0dc7d9afd108b",
       "method": "patch",
-      "description": "PATCHES.md:318 - P-F09-03 `app/src/editor/extensions/bridge-id-plugin.ts`：旧位置索引为空且事务无法新增 JSX 时保留已有插件状态，省去遍历 Yjs 映射与正文。"
+      "description": "PATCHES.md:322 - P-F09-03 `app/src/editor/extensions/bridge-id-plugin.ts`：旧位置索引为空且事务无法新增 JSX 时保留已有插件状态，省去遍历 Yjs 映射与正文。"
     },
     {
       "target": "app/src/editor/extensions/cell-insertion-gate.test.ts",
@@ -3785,7 +3786,7 @@
       "blob": "936f1f73df8ded767643b5a9ff52f8a70d35360c",
       "sha256": "8b1a538ca0c706b0619a9752dc14994ffa439b51ed41704d51bb8a3aa74ff0ee",
       "method": "patch",
-      "description": "PATCHES.md:203 - `app/src/editor/extensions/cell-insertion-gate.test.ts`"
+      "description": "PATCHES.md:207 - `app/src/editor/extensions/cell-insertion-gate.test.ts`"
     },
     {
       "target": "app/src/editor/extensions/cell-insertion-gate.ts",
@@ -3800,7 +3801,7 @@
       "blob": "5563795d364d321387961a7b60a200af9801dc17",
       "sha256": "778286077f605238a82daa69c908120a65a99262cbb8b05f11047a3ba12dda6e",
       "method": "patch",
-      "description": "PATCHES.md:204 - `app/src/editor/extensions/chunk-wrapper-decoration.test.ts`"
+      "description": "PATCHES.md:208 - `app/src/editor/extensions/chunk-wrapper-decoration.test.ts`"
     },
     {
       "target": "app/src/editor/extensions/chunk-wrapper-decoration.ts",
@@ -3808,7 +3809,7 @@
       "blob": "2a93b003e8570c64d79515cc53b1fa9b042eedcb",
       "sha256": "a027639a7ae947b6c5b1965b33647d3e4f896029bc556c4268ff5695c55179c7",
       "method": "patch",
-      "description": "PATCHES.md:75 - P-S3-03 `app/src/editor/extensions/chunk-wrapper-decoration.ts`、`app/src/globals.css`：不再给每个顶层块建 `Decoration.node`（5000 段 = 5000 个装饰，约 90 ms/键）；`content-visibility:auto` 改由 CSS 子选择器 `.ProseMirror > :where(:not(...))` 匹配，装饰只留给 `jsxComponent`（跳过）与选区所在块（`data-ok-selection-block`）。5000 段输入延迟 p95 ≈ 80 ms → ≈ 13 ms。"
+      "description": "PATCHES.md:79 - P-S3-03 `app/src/editor/extensions/chunk-wrapper-decoration.ts`、`app/src/globals.css`：不再给每个顶层块建 `Decoration.node`（5000 段 = 5000 个装饰，约 90 ms/键）；`content-visibility:auto` 改由 CSS 子选择器 `.ProseMirror > :where(:not(...))` 匹配，装饰只留给 `jsxComponent`（跳过）与选区所在块（`data-ok-selection-block`）。5000 段输入延迟 p95 ≈ 80 ms → ≈ 13 ms。"
     },
     {
       "target": "app/src/editor/extensions/cm-theme.ts",
@@ -3837,7 +3838,7 @@
       "blob": "d0e980befa4eca2bef69dae7281e8e67da3c693a",
       "sha256": "f06b062ee90fbd4f47faead8fabe6c24c43b46909ab9c01ee134974a0f0c7a03",
       "method": "patch",
-      "description": "PATCHES.md:320 - P-F09-05 `app/src/editor/extensions/code-block-lowlight-plugin.ts`：在普通段落插字且选区未涉及高亮块时映射已有装饰，保留可能改变高亮的事务的完整检查。"
+      "description": "PATCHES.md:324 - P-F09-05 `app/src/editor/extensions/code-block-lowlight-plugin.ts`：在普通段落插字且选区未涉及高亮块时映射已有装饰，保留可能改变高亮的事务的完整检查。"
     },
     {
       "target": "app/src/editor/extensions/code-block-meta.test.ts",
@@ -3859,7 +3860,7 @@
       "blob": "0f725f662b63127ada8f0b8d4f345b636cb76d7e",
       "sha256": "33c44665a5ba062b1c7dc51f5e700e2bd37c89924b14e0418209379fb6310777",
       "method": "patch",
-      "description": "PATCHES.md:45 - `app/src/editor/extensions/code-block-preview-csp.test.ts`：校验请求、子框架和表单限制。"
+      "description": "PATCHES.md:49 - `app/src/editor/extensions/code-block-preview-csp.test.ts`：校验请求、子框架和表单限制。"
     },
     {
       "target": "app/src/editor/extensions/code-block.test.ts",
@@ -3944,7 +3945,7 @@
       "blob": "902ebc9e608abd76aa158adb9f36143353adff54",
       "sha256": "0bfc7d7fa1413daf4f92fba8e0c5e01682706c8949cac9ae5156a9500a8935d7",
       "method": "patch",
-      "description": "PATCHES.md:321 - P-F09-06 `app/src/editor/extensions/heading-anchors.ts`：将标题装饰存入插件状态，普通顶层段落插字只映射位置，可能改变标题或结构时重新分配 slug。"
+      "description": "PATCHES.md:325 - P-F09-06 `app/src/editor/extensions/heading-anchors.ts`：将标题装饰存入插件状态，普通顶层段落插字只映射位置，可能改变标题或结构时重新分配 slug。"
     },
     {
       "target": "app/src/editor/extensions/image-inline-zoom.ts",
@@ -3966,7 +3967,7 @@
       "blob": "4717d4c535ac6054f0271c40b0158466cf9c5415",
       "sha256": "74f422ff5944b2c59e84b4bc0ba9a6c482ec639f379f2246cfb83e7be4409989",
       "method": "patch",
-      "description": "PATCHES.md:97 - `app/src/editor/extensions/internal-link.ts`、`app/src/editor/components/ResizeHandles.tsx`：翻译链接和预览缩放手柄的读屏名称。"
+      "description": "PATCHES.md:101 - `app/src/editor/extensions/internal-link.ts`、`app/src/editor/components/ResizeHandles.tsx`：翻译链接和预览缩放手柄的读屏名称。"
     },
     {
       "target": "app/src/editor/extensions/jsx-component.ts",
@@ -4086,7 +4087,7 @@
       "blob": "62224684626403ff96d93ff00a6c01c1b74b6942",
       "sha256": "eb385b9e24f1e3dbe0c80cea27bfaf0eeffe38c486cfbb88a2fbefaf05cae163",
       "method": "patch",
-      "description": "PATCHES.md:328 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
+      "description": "PATCHES.md:332 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/extensions/mark-identity-decoration.test.ts",
@@ -4115,7 +4116,7 @@
       "blob": "a5c564ba570262845e82ad043fa2cdb3b60cc4b5",
       "sha256": "b546fd55ad48bf16a65804466c167f949e82d8049fdc77a5f055109a6387c03f",
       "method": "patch",
-      "description": "PATCHES.md:319 - P-F09-04 `app/src/editor/extensions/mark-identity.ts`：旧标记 ID 表为空且仅插入无标记文本时保留插件状态，沿用原有注册与注销回调。"
+      "description": "PATCHES.md:323 - P-F09-04 `app/src/editor/extensions/mark-identity.ts`：旧标记 ID 表为空且仅插入无标记文本时保留插件状态，沿用原有注册与注销回调。"
     },
     {
       "target": "app/src/editor/extensions/mark-interaction-bridge.test.tsx",
@@ -4137,7 +4138,7 @@
       "blob": "5639997e070ec697888615d77ab8d69b05d32473",
       "sha256": "e104a602ce2191e7f843656fecf737058df454678a754016cc8d6af5310f9095",
       "method": "patch",
-      "description": "PATCHES.md:328 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
+      "description": "PATCHES.md:332 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/extensions/math-inline.ts",
@@ -4173,7 +4174,7 @@
       "blob": null,
       "sha256": "01c0df0d9afb887cac8c9ac8fbf839af820893b430c274203a34846046fa16ad",
       "method": "local",
-      "description": "PATCHES.md:324 - P-F09-09 `app/src/editor/extensions/paragraph-fast-path.test.ts`：新增装饰和 ID 等价性测试，覆盖输入守卫、占位提示及协作标签回退。"
+      "description": "PATCHES.md:328 - P-F09-09 `app/src/editor/extensions/paragraph-fast-path.test.ts`：新增装饰和 ID 等价性测试，覆盖输入守卫、占位提示及协作标签回退。"
     },
     {
       "target": "app/src/editor/extensions/preview-frame-policy.ts",
@@ -4181,7 +4182,7 @@
       "blob": null,
       "sha256": "9142b052f68449d3f4a6a68119d26eeaacdfb3f2d8071d22757ccf45dcc35bc0",
       "method": "local",
-      "description": "PATCHES.md:44 - `app/src/editor/extensions/preview-frame-policy.ts`：Electron 协议响应和 iframe 正文共享的安全策略。"
+      "description": "PATCHES.md:48 - `app/src/editor/extensions/preview-frame-policy.ts`：Electron 协议响应和 iframe 正文共享的安全策略。"
     },
     {
       "target": "app/src/editor/extensions/preview-frame.html",
@@ -4189,7 +4190,7 @@
       "blob": null,
       "sha256": "20901a95d30c44a255bcba2c3c0a84d0b8589a56d2b1105b99a3765b2980d407",
       "method": "local",
-      "description": "PATCHES.md:43 - `app/src/editor/extensions/preview-frame.html`：迁入并适配上游 public 内页，只接收可信父窗口发送的预览正文。"
+      "description": "PATCHES.md:47 - `app/src/editor/extensions/preview-frame.html`：迁入并适配上游 public 内页，只接收可信父窗口发送的预览正文。"
     },
     {
       "target": "app/src/editor/extensions/preview-iframe-csp-violation.test.ts",
@@ -4204,7 +4205,7 @@
       "blob": "d022fc659fa237f794bdd3475245c059a043c262",
       "sha256": "a847c4fc540df6ffcde47e4d9b817d5e60402f87feb179851e75497b9b6a23de",
       "method": "patch",
-      "description": "PATCHES.md:41 - `app/src/editor/extensions/preview-iframe-header.ts`：通过显式构建依赖提供浏览器内页；Electron 接入专用预览协议，内页只允许内联脚本和嵌入资源。转发沙箱 iframe 的鼠标进入和离开。"
+      "description": "PATCHES.md:45 - `app/src/editor/extensions/preview-iframe-header.ts`：通过显式构建依赖提供浏览器内页；Electron 接入专用预览协议，内页只允许内联脚本和嵌入资源。转发沙箱 iframe 的鼠标进入和离开。"
     },
     {
       "target": "app/src/editor/extensions/preview-iframe-theme.test.ts",
@@ -4212,7 +4213,7 @@
       "blob": "a9955de1c22a150c0306a54de44d0a82075faa3f",
       "sha256": "44360ae09f26174d1a6bb77d6e5c19a79bc4f0e2e5ee475cde14f7ea837b0ddd",
       "method": "patch",
-      "description": "PATCHES.md:252 - `app/src/editor/extensions/preview-iframe-theme.test.ts`"
+      "description": "PATCHES.md:256 - `app/src/editor/extensions/preview-iframe-theme.test.ts`"
     },
     {
       "target": "app/src/editor/extensions/preview-live-tokens.test.ts",
@@ -4276,7 +4277,7 @@
       "blob": "a968eb0f9b109e7ff98e9af942ce81f73bf0703e",
       "sha256": "d807f56b587477d992494af3a6ed8cde930db7328293cac5a25d3feb8a635b8d",
       "method": "patch",
-      "description": "PATCHES.md:214 - `app/src/editor/extensions/shared.dom.test.tsx`"
+      "description": "PATCHES.md:218 - `app/src/editor/extensions/shared.dom.test.tsx`"
     },
     {
       "target": "app/src/editor/extensions/shared.ts",
@@ -4284,7 +4285,7 @@
       "blob": "71f7c68a57373c7434551067183f5c84a73d2f75",
       "sha256": "ad6ae98171a570d3621f0c15f15e7cdf89d7e91a886ed9b2e14d363ec1cafc6d",
       "method": "patch",
-      "description": "PATCHES.md:96 - `core/src/extensions/footnote-definition.ts`、`app/src/editor/extensions/shared.ts`：由客户端注入脚注返回链接的读屏名称。"
+      "description": "PATCHES.md:100 - `core/src/extensions/footnote-definition.ts`、`app/src/editor/extensions/shared.ts`：由客户端注入脚注返回链接的读屏名称。"
     },
     {
       "target": "app/src/editor/extensions/skill-path-links.test.ts",
@@ -4313,7 +4314,7 @@
       "blob": "221c60abd1fa585297e0273ef6792507862f6fb1",
       "sha256": "c25ac2cec3329574a24444b5fddab8d4478125f3a44095a7acae8b725db4e854",
       "method": "patch",
-      "description": "PATCHES.md:385 - `app/src/editor/extensions/slash-command.ts`：组合输入期间将确认键交回输入法。"
+      "description": "PATCHES.md:390 - `app/src/editor/extensions/slash-command.ts`：组合输入期间将确认键交回输入法。"
     },
     {
       "target": "app/src/editor/extensions/source-dirty-flip.dom.test.tsx",
@@ -4328,7 +4329,7 @@
       "blob": "9e043d02b85324bf3828503b7e20c7cea0e22343",
       "sha256": "e61f6b0d17710918fa972677597e5102d1a656418c94490476379556a3652beb",
       "method": "patch",
-      "description": "PATCHES.md:217 - `app/src/editor/extensions/source-dirty-fold-atomicity.dom.test.tsx`"
+      "description": "PATCHES.md:221 - `app/src/editor/extensions/source-dirty-fold-atomicity.dom.test.tsx`"
     },
     {
       "target": "app/src/editor/extensions/source-dirty-observer.autonomous-swap.test.ts",
@@ -4390,9 +4391,9 @@
       "target": "app/src/editor/extensions/suggestion-floating-ui.ts",
       "upstream": "packages/app/src/editor/extensions/suggestion-floating-ui.ts",
       "blob": "dfa5fce22a9ffb8692077590a032b9bbcd0d569b",
-      "sha256": "6e7dae6a5d1f11cf0817a4e7355ec24975c1e2207a5a946873c6482644596155",
+      "sha256": "a315ae2417211cfa41216014098b3a33a624acd0eaea0c531e98ef6f2ae2c17f",
       "method": "patch",
-      "description": "PATCHES.md:328 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
+      "description": "PATCHES.md:332 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/extensions/suggestion-ime-triggers.dom.test.tsx",
@@ -4463,7 +4464,7 @@
       "blob": "5e77611d964b08d70cfb654ddf7dcf040700bb0d",
       "sha256": "c2cf60440cab6aa6996804bdba649a9a739735e8465d948dafae2d89ac6bc9c9",
       "method": "patch",
-      "description": "PATCHES.md:264 - `app/src/editor/extensions/tag-click-plugin.ts`、`app/src/components/PropertyWidgets.tsx`：随标签事件携带点击元素，隔离多个编辑面并支持关闭后焦点恢复。"
+      "description": "PATCHES.md:268 - `app/src/editor/extensions/tag-click-plugin.ts`、`app/src/components/PropertyWidgets.tsx`：随标签事件携带点击元素，隔离多个编辑面并支持关闭后焦点恢复。"
     },
     {
       "target": "app/src/editor/extensions/tag-suggestion.test.ts",
@@ -4478,7 +4479,7 @@
       "blob": "148db34132f3438fcc148d616d009e35112ff2d7",
       "sha256": "2e09d72b7c6f36853126429d2597574ceb0272036163a0e2a3232cb4dd630bfd",
       "method": "patch",
-      "description": "PATCHES.md:348 - `app/src/editor/extensions/tag-suggestion.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:353 - `app/src/editor/extensions/tag-suggestion.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/editor/extensions/tag-view.ts",
@@ -4493,7 +4494,7 @@
       "blob": null,
       "sha256": "183c29887000cfaf1e54be06346cc61e203f40c9d58320ed0e6ff47cdc925e35",
       "method": "local",
-      "description": "PATCHES.md:316 - P-F09-01 `app/src/editor/extensions/top-level-paragraph-insert.ts`：新增共享事务守卫，只接受一个闭合切片中的无标记文本插入，且位置在顶层段落内。历史和远端同步事务沿用完整计算。"
+      "description": "PATCHES.md:320 - P-F09-01 `app/src/editor/extensions/top-level-paragraph-insert.ts`：新增共享事务守卫，只接受一个闭合切片中的无标记文本插入，且位置在顶层段落内。历史和远端同步事务沿用完整计算。"
     },
     {
       "target": "app/src/editor/extensions/trailing-affordance.dom.test.ts",
@@ -4501,7 +4502,7 @@
       "blob": "99375effa77a5dcb3298297c43ebb7d4d97df73c",
       "sha256": "7745e5865acae5e6e01aa70e0ae8b79f2db8a47008d3758f597b74a907423fbf",
       "method": "patch",
-      "description": "PATCHES.md:228 - `app/src/editor/extensions/trailing-affordance.dom.test.ts`"
+      "description": "PATCHES.md:232 - `app/src/editor/extensions/trailing-affordance.dom.test.ts`"
     },
     {
       "target": "app/src/editor/extensions/trailing-affordance.ts",
@@ -4558,7 +4559,7 @@
       "blob": "f877214504cf1419e4ef507ea946f4c3d4cae66b",
       "sha256": "f419d8cceccc528c61192ab7ba8edd3e03a8994205d94921bf5e48acf75cd4a1",
       "method": "patch",
-      "description": "PATCHES.md:110 - `app/src/editor/extensions/wiki-link-suggestion.ts`：同一文档的快速标题查询共用在途请求，等待返回后用各自查询词过滤。"
+      "description": "PATCHES.md:114 - `app/src/editor/extensions/wiki-link-suggestion.ts`：同一文档的快速标题查询共用在途请求，等待返回后用各自查询词过滤。"
     },
     {
       "target": "app/src/editor/extensions/wiki-link.doc-activation.test.ts",
@@ -4566,7 +4567,7 @@
       "blob": "cac5306b08189d73f1acc51fbfaeb1cda0fd8ef0",
       "sha256": "c4389e37bd7b50e27cbbf8c2d318845ecad85a4e4205fbed78cb0b5a5a11d7a5",
       "method": "patch",
-      "description": "PATCHES.md:230 - `app/src/editor/extensions/wiki-link.doc-activation.test.ts`"
+      "description": "PATCHES.md:234 - `app/src/editor/extensions/wiki-link.doc-activation.test.ts`"
     },
     {
       "target": "app/src/editor/extensions/wiki-link.external-open.test.ts",
@@ -4574,7 +4575,7 @@
       "blob": "4b83db24d75b371d523a9ffa10ad1e60386503fb",
       "sha256": "a5ca8a3a3e830e520b29a38b2a788d5a0f6649c8ed95e6b4535cf434fd6ab4ef",
       "method": "patch",
-      "description": "PATCHES.md:231 - `app/src/editor/extensions/wiki-link.external-open.test.ts`"
+      "description": "PATCHES.md:235 - `app/src/editor/extensions/wiki-link.external-open.test.ts`"
     },
     {
       "target": "app/src/editor/extensions/wiki-link.resolution-cache.test.ts",
@@ -4589,7 +4590,7 @@
       "blob": "cf51a12c12f98a0901ae783064cf07ab714c5784",
       "sha256": "aab469e1bf4efc9441d6857efca08b5e9d7c3aa3b8b61914e907558c8974551c",
       "method": "patch",
-      "description": "PATCHES.md:639 - `app/src/editor/extensions/wiki-link.ts`：文档链接同窗口导航沿用资产分支的 `Location.hash`，在宿主带 `<base>` 时保留当前 pathname 和 query，避免片段链接解析到根页面并重载。来源仍为 R-46 / Open Knowledge `44a2e0a6acce5952da0764746e3693fded5025b4` / GPL-3.0-or-later；G07 回归检查真实点击、目标文档、HashChangeEvent 和页面 timeOrigin。"
+      "description": "PATCHES.md:644 - `app/src/editor/extensions/wiki-link.ts`：文档链接同窗口导航沿用资产分支的 `Location.hash`，在宿主带 `<base>` 时保留当前 pathname 和 query，避免片段链接解析到根页面并重载。来源仍为 R-46 / Open Knowledge `44a2e0a6acce5952da0764746e3693fded5025b4` / GPL-3.0-or-later；G07 回归检查真实点击、目标文档、HashChangeEvent 和页面 timeOrigin。"
     },
     {
       "target": "app/src/editor/find-replace/FindReplaceBar.tsx",
@@ -4597,7 +4598,7 @@
       "blob": "ec7aec3174d4c3ace08c8cfb4d1ae0fcaad913f7",
       "sha256": "a7f9dca43a2b849cc3140d0d13a29d1d7559a3c4af8dae6aea78f593dc41c44a",
       "method": "patch",
-      "description": "PATCHES.md:111 - `app/src/editor/find-replace/FindReplaceBar.tsx`：复用 OK 查找替换栏，组合输入期间放行由输入法占用的按键。"
+      "description": "PATCHES.md:115 - `app/src/editor/find-replace/FindReplaceBar.tsx`：复用 OK 查找替换栏，组合输入期间放行由输入法占用的按键。"
     },
     {
       "target": "app/src/editor/find-replace/FindReplaceController.tsx",
@@ -4605,7 +4606,7 @@
       "blob": "cc496c05ff37b3bffb62a6aff8591b42d06eb8ad",
       "sha256": "72475f6efec208011dfd286ce431dcf2e58de0f8a772337269f3341eaea14657",
       "method": "patch",
-      "description": "PATCHES.md:112 - `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。先匹配查找相关快捷键，再检查编辑面是否可见并尊重挂载在编辑器外的浮层，普通输入跳过这些 DOM 查询。"
+      "description": "PATCHES.md:116 - `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。先匹配查找相关快捷键，再检查编辑面是否可见并尊重挂载在编辑器外的浮层，普通输入跳过这些 DOM 查询。"
     },
     {
       "target": "app/src/editor/find-replace/find-types.ts",
@@ -4697,7 +4698,7 @@
       "blob": "6de6474a56eba56499f119679a757b36207c0ab4",
       "sha256": "059e35423f43ad5fd6484dddc87d486c7b40e279ee1301109ad8237b50bb3b0e",
       "method": "patch",
-      "description": "PATCHES.md:349 - `app/src/editor/image-upload/index.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:354 - `app/src/editor/image-upload/index.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/editor/image-upload/pickInsertShape.test.ts",
@@ -4747,7 +4748,7 @@
       "blob": "548c02c55c4733cf4ce5ae45b92d26de03e24fcf",
       "sha256": "a86b74960cc600bf870532e2b321b34ce603044b538d8b31e41789414e6d565f",
       "method": "patch",
-      "description": "PATCHES.md:350 - `app/src/editor/image-upload/upload-file.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:355 - `app/src/editor/image-upload/upload-file.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/editor/inline-link-input-rule.ts",
@@ -4844,9 +4845,9 @@
       "target": "app/src/editor/link-path-suggestions.tsx",
       "upstream": "packages/app/src/editor/link-path-suggestions.tsx",
       "blob": "ededf43e0975b532adb9a0b969bdd16cfd894dd0",
-      "sha256": "70d6b97cea99cb53db8e6c936599c4a6ab7cd9c4a4fe20ac4083f83f340f0f78",
+      "sha256": "6cfe3eafc9615adc1cef308360aff38152fb879bd23ac5d922588783f2ab0078",
       "method": "patch",
-      "description": "PATCHES.md:328 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
+      "description": "PATCHES.md:332 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/link-preview/ExternalLinkPreviewCard.dom.test.tsx",
@@ -4903,7 +4904,7 @@
       "blob": "106fcc31f82048a5fb0a4b06feed2366f6b72b25",
       "sha256": "0f5cf36b9ab32cb75559f6f2647c011eb90c18a95f433e6c7dd006b5af95e4a9",
       "method": "patch",
-      "description": "PATCHES.md:351 - `app/src/editor/link-preview/external-link-preview.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:356 - `app/src/editor/link-preview/external-link-preview.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/editor/link-preview/internal-doc-preview.test.ts",
@@ -4918,7 +4919,7 @@
       "blob": "480d80209a56977fe4a988db5a630425d1e21d86",
       "sha256": "d48fa9efc62b9e2533e4d2e2145092e24b4f4578e685d4411ccb4c142ae98902",
       "method": "patch",
-      "description": "PATCHES.md:352 - `app/src/editor/link-preview/internal-doc-preview.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:357 - `app/src/editor/link-preview/internal-doc-preview.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/editor/link-preview/use-external-link-preview.ts",
@@ -4926,7 +4927,7 @@
       "blob": "5e1e9004712f85f9942f721968316cb3c9050837",
       "sha256": "711eef8d2df01f7d4fa675701cba6fd8a1c56e9759c10700450630592657c181",
       "method": "patch",
-      "description": "PATCHES.md:635 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
+      "description": "PATCHES.md:640 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
     },
     {
       "target": "app/src/editor/link-preview/use-internal-doc-preview.dom.test.tsx",
@@ -4941,7 +4942,7 @@
       "blob": "ea2c789337f213e944f05dbc9275d1a8aeb322f0",
       "sha256": "23c43512684ef68aa2ac256ee5fcba45f773efed9a27351d144b58359a1df3f4",
       "method": "patch",
-      "description": "PATCHES.md:635 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
+      "description": "PATCHES.md:640 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
     },
     {
       "target": "app/src/editor/link-validation-policy.ts",
@@ -4956,7 +4957,7 @@
       "blob": "66fbc61b93c18943d070b2a4fbaa4c9abd7ddd59",
       "sha256": "050a0a865f0c8885b76665922f230ac554664c5d1aaafa56a9f4d807ffa313e5",
       "method": "patch",
-      "description": "PATCHES.md:86 - P-S3-07 `app/src/editor/validation-audit-client.ts`、`app/src/editor/lint-config-client.ts`、`app/src/lib/host-features.ts`（新增）：服务端 lint / audit 在 Huhu 不可用（Q2），宿主（`OkRoot`）调用 `setHostLintAvailable(features.lint)`，vendor 的 `fetchAudit` / `fetchLintConfig` 在不可用时直接返回 `null`，不再发出 `/api/audit`、`/api/lint/config` 请求再吃 404。上游默认可用，行为不变。"
+      "description": "PATCHES.md:90 - P-S3-07 `app/src/editor/validation-audit-client.ts`、`app/src/editor/lint-config-client.ts`、`app/src/lib/host-features.ts`（新增）：服务端 lint / audit 在 Huhu 不可用（Q2），宿主（`OkRoot`）调用 `setHostLintAvailable(features.lint)`，vendor 的 `fetchAudit` / `fetchLintConfig` 在不可用时直接返回 `null`，不再发出 `/api/audit`、`/api/lint/config` 请求再吃 404。上游默认可用，行为不变。"
     },
     {
       "target": "app/src/editor/literal-text-context.ts",
@@ -5090,7 +5091,7 @@
       "blob": "896e04c5200b98b56c10398c0a366095bbeb884e",
       "sha256": "b6766668a67c7aa5693d3f0b722bf7fe22b857b83130a4b13b99c11ebd31cdf9",
       "method": "patch",
-      "description": "PATCHES.md:268 - `app/src/editor/plugins/asset-context-menu.ts`：识别 File 组件的本地文件目标（包括 .txt）及已带扩展名的双链，供宿主编辑器菜单复用。"
+      "description": "PATCHES.md:272 - `app/src/editor/plugins/asset-context-menu.ts`：识别 File 组件的本地文件目标（包括 .txt）及已带扩展名的双链，供宿主编辑器菜单复用。"
     },
     {
       "target": "app/src/editor/plugins/flash-shared.ts",
@@ -5196,7 +5197,7 @@
       "blob": null,
       "sha256": "d70cb95809ca0c90a363b047e6db0847b006ac97063e9b28947abcb21405731c",
       "method": "local",
-      "description": "PATCHES.md:92 - `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。"
+      "description": "PATCHES.md:96 - `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。"
     },
     {
       "target": "app/src/editor/registry/file-icons.test.ts",
@@ -5246,7 +5247,7 @@
       "blob": "9334c227ce13ad2f54eb242e35e0321d5a4701c2",
       "sha256": "7209af664b5a46a3a966745dcb4ecd2efaf734c359ee59e88069346ae2bdd10b",
       "method": "patch",
-      "description": "PATCHES.md:92 - `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。"
+      "description": "PATCHES.md:96 - `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。"
     },
     {
       "target": "app/src/editor/registry/types.ts",
@@ -5373,7 +5374,7 @@
       "blob": "a4a7a32b6cbb82be8fa7ee7640df714f5018d7f4",
       "sha256": "38e0f9c59566a8b50cea989ab101baed392320a598fbfe3872ca64a84431b0d4",
       "method": "patch",
-      "description": "PATCHES.md:100 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。"
+      "description": "PATCHES.md:104 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。"
     },
     {
       "target": "app/src/editor/slash-command/apply-item.dom.test.tsx",
@@ -5388,7 +5389,7 @@
       "blob": "3a9d8c64a3d070716000bde999d3316cd5422f45",
       "sha256": "e7d67a4cffbf72432e97b9d90a7dd729743c026020b4de6b494b67e4f4560bbc",
       "method": "patch",
-      "description": "PATCHES.md:353 - `app/src/editor/slash-command/apply-item.ts`：在命令事务前后结束当前撤销分组。"
+      "description": "PATCHES.md:358 - `app/src/editor/slash-command/apply-item.ts`：在命令事务前后结束当前撤销分组。"
     },
     {
       "target": "app/src/editor/slash-command/auto-open-flag.test.ts",
@@ -5403,7 +5404,7 @@
       "blob": "033deba8e7f0d9be047027583419ce832e2f2f91",
       "sha256": "f773d018cf2d2ad2b093c4b15781f439bf34946b30c62dfef6706470df48cefc",
       "method": "patch",
-      "description": "PATCHES.md:100 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。"
+      "description": "PATCHES.md:104 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。"
     },
     {
       "target": "app/src/editor/slash-command/embed-starter-items.tsx",
@@ -5411,7 +5412,7 @@
       "blob": "d48e1adef3e378d5aadae00a8aabd38ac72340b6",
       "sha256": "0a7d24d70fb59656fe2750a5bb09ff6ade9fe1015222fcf29ddebdb0bb8cd925",
       "method": "patch",
-      "description": "PATCHES.md:100 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。"
+      "description": "PATCHES.md:104 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。"
     },
     {
       "target": "app/src/editor/slash-command/emoji-picker-event.ts",
@@ -5622,7 +5623,7 @@
       "blob": "ae51948cfd95daacbedc4f63c1de4e7976b40f42",
       "sha256": "3c2047575a8350737e9abcba130fcdef1502680bde85e154bc44b3b00eca8c51",
       "method": "patch",
-      "description": "PATCHES.md:241 - `app/src/editor/source-undo-mode-flip.test.ts`"
+      "description": "PATCHES.md:245 - `app/src/editor/source-undo-mode-flip.test.ts`"
     },
     {
       "target": "app/src/editor/source-undo-mode-flip.ts",
@@ -5721,7 +5722,7 @@
       "blob": "89d057dd5d46919dd9b19202cf06b70f79470c71",
       "sha256": "8b665eba371b21ccc5ec188b3f709963285d57bb671fe424230e5aaee094b0be",
       "method": "patch",
-      "description": "PATCHES.md:244 - `app/src/editor/undo-isolation.test.ts`"
+      "description": "PATCHES.md:248 - `app/src/editor/undo-isolation.test.ts`"
     },
     {
       "target": "app/src/editor/undo-isolation.ts",
@@ -5897,7 +5898,7 @@
       "blob": "f50d9da925020f9a958a63b20512ba73e0576b10",
       "sha256": "2725a4638f095310b3be92b1f90b62737cae14e28b28ec06f9d60df85d37c6fc",
       "method": "patch",
-      "description": "PATCHES.md:94 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。"
+      "description": "PATCHES.md:98 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。"
     },
     {
       "target": "app/src/editor/utils/validate-media-url.test.ts",
@@ -5912,7 +5913,7 @@
       "blob": "a7cfa8a1609035467b39ea7fda1f8738904d71f7",
       "sha256": "3eba256c7d6a1370ce81108d79a2d9ca67b1093c8a37a1a9fc76f33b7a01e7e7",
       "method": "patch",
-      "description": "PATCHES.md:94 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。"
+      "description": "PATCHES.md:98 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。"
     },
     {
       "target": "app/src/editor/validation-audit-client.ts",
@@ -5920,7 +5921,7 @@
       "blob": "59e78757fbe58ae71674e44be5088917fafba1fc",
       "sha256": "52c29c4af3d1f7abf65537733e3a04a0ff40fcbc19500fdd754915e88ec9b1fb",
       "method": "patch",
-      "description": "PATCHES.md:86 - P-S3-07 `app/src/editor/validation-audit-client.ts`、`app/src/editor/lint-config-client.ts`、`app/src/lib/host-features.ts`（新增）：服务端 lint / audit 在 Huhu 不可用（Q2），宿主（`OkRoot`）调用 `setHostLintAvailable(features.lint)`，vendor 的 `fetchAudit` / `fetchLintConfig` 在不可用时直接返回 `null`，不再发出 `/api/audit`、`/api/lint/config` 请求再吃 404。上游默认可用，行为不变。"
+      "description": "PATCHES.md:90 - P-S3-07 `app/src/editor/validation-audit-client.ts`、`app/src/editor/lint-config-client.ts`、`app/src/lib/host-features.ts`（新增）：服务端 lint / audit 在 Huhu 不可用（Q2），宿主（`OkRoot`）调用 `setHostLintAvailable(features.lint)`，vendor 的 `fetchAudit` / `fetchLintConfig` 在不可用时直接返回 `null`，不再发出 `/api/audit`、`/api/lint/config` 请求再吃 404。上游默认可用，行为不变。"
     },
     {
       "target": "app/src/editor/view-in-source-event.ts",
@@ -5942,7 +5943,7 @@
       "blob": null,
       "sha256": "c53746ecc3be8540dfbfa60af90916a0f0de6df9e90bd08c3c729fff20ae19a4",
       "method": "local",
-      "description": "PATCHES.md:245 - `app/src/editor/walk-currency.test-helper.ts`"
+      "description": "PATCHES.md:249 - `app/src/editor/walk-currency.test-helper.ts`"
     },
     {
       "target": "app/src/editor/wiki-link-suggestion/WikiLinkSuggestionMenu.dom.test.tsx",
@@ -5964,7 +5965,7 @@
       "blob": "500f40d9ead4aab2a02bc3e9842c02688bd1358f",
       "sha256": "75fedac52f32c18f6fd2904abaddd10fae1af4483432f2b46a81744efb5c4bae",
       "method": "patch",
-      "description": "PATCHES.md:35 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（保留来源文件，Huhu 样式构建不导入）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
+      "description": "PATCHES.md:39 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（保留来源文件，Huhu 样式构建不导入）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
     },
     {
       "target": "app/src/fontsource.d.ts",
@@ -5979,7 +5980,7 @@
       "blob": "8324f5ef9b5b1e31de4ae5ac6e654fbd828c5d64",
       "sha256": "1510272c39137c2c3aa8bc162bbf0853dfff10d17342533be67b36733f793f1f",
       "method": "patch",
-      "description": "PATCHES.md:35 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（保留来源文件，Huhu 样式构建不导入）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
+      "description": "PATCHES.md:39 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（保留来源文件，Huhu 样式构建不导入）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
     },
     {
       "target": "app/src/hooks/use-conflicts.tsx",
@@ -5987,7 +5988,7 @@
       "blob": "521f0bc292e0bfc81860ab31c15717b4ec6eea5b",
       "sha256": "b7263d3ff3e77f3fd628f4d1be74fb18474c0265b5e4e067374a724b898e575b",
       "method": "patch",
-      "description": "PATCHES.md:354 - `app/src/hooks/use-conflicts.tsx`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:359 - `app/src/hooks/use-conflicts.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/hooks/use-folder-config.ts",
@@ -5995,7 +5996,7 @@
       "blob": "bf36430e1f1a5cf3a8dd0078b3d71bea71d15d18",
       "sha256": "8692665d1462676964615e6c254bd163d26a9f0f4210c3046622b06a3adbf68b",
       "method": "patch",
-      "description": "PATCHES.md:355 - `app/src/hooks/use-folder-config.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:360 - `app/src/hooks/use-folder-config.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/hooks/use-git-sync-status.ts",
@@ -6003,7 +6004,7 @@
       "blob": "62492222a1e9e54ab83172a9609718dc09c422c1",
       "sha256": "8383f571c62dc7e7be70ec7874a3bad366bba0160192974d202f823683b6f213",
       "method": "patch",
-      "description": "PATCHES.md:356 - `app/src/hooks/use-git-sync-status.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:361 - `app/src/hooks/use-git-sync-status.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/hooks/use-is-embedded.test.ts",
@@ -6109,7 +6110,7 @@
       "blob": "4eac19a3369c632f454b9d019065ffe2e9a7f348",
       "sha256": "ee91b06e516f5b8b4db69719ce9be9fcd71628c354d6351cdbd4cc4638781901",
       "method": "patch",
-      "description": "PATCHES.md:9 - P-S2a-04 `app/src/lib/activate-locale.ts`、`app/src/lib/i18n.ts`、`app/src/lib/dev-pseudo-locale.ts`：只发布 en / zh-Hans（OP-D06），目录由 `@lingui/vite-plugin` 直接编译 `.po`；其余 locale 回退 en；pseudo 伪本地化不发布。"
+      "description": "PATCHES.md:11 - P-S2a-04 `app/src/lib/activate-locale.ts`、`app/src/lib/i18n.ts`、`app/src/lib/dev-pseudo-locale.ts`：只发布 en / zh-Hans（OP-D06），目录由 `@lingui/vite-plugin` 直接编译 `.po`；其余 locale 回退 en；pseudo 伪本地化不发布。"
     },
     {
       "target": "app/src/lib/activity-park.tsx",
@@ -6131,7 +6132,7 @@
       "blob": "1ff1279ad7b61b74a827b280caefc7984bec3645",
       "sha256": "1b39be7edda8f9741c805ea2d80a333d70888d6f4f9d269839ae889bd3a0d5e1",
       "method": "patch",
-      "description": "PATCHES.md:357 - `app/src/lib/agent-connections.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:362 - `app/src/lib/agent-connections.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/agent-diff-store.ts",
@@ -6174,7 +6175,7 @@
       "blob": "9bbba03c7690198604b8d93c1bc494c31e5dedca",
       "sha256": "8b7e5b56872e0b30d2e649aa85a965aad8bc38d1dbafcef8281526586f7c598f",
       "method": "patch",
-      "description": "PATCHES.md:358 - `app/src/lib/api-config.ts`：通过 OK 的局部请求入口访问宿主路由，接收当前根绑定的请求函数。"
+      "description": "PATCHES.md:363 - `app/src/lib/api-config.ts`：通过 OK 的局部请求入口访问宿主路由，接收当前根绑定的请求函数。"
     },
     {
       "target": "app/src/lib/bool-pref.ts",
@@ -6280,7 +6281,7 @@
       "blob": "ffd5701ef457e1b6dc8912248aa49457ca5fc534",
       "sha256": "814be1384d3fafc63de1ac1bd730e4bb72dd60750d7a48264b59b0157e792e78",
       "method": "patch",
-      "description": "PATCHES.md:8 - P-S2a-03 `app/src/lib/config-provider.tsx`：上游 346 行（经协作配置文档同步）→ 只保留 `useConfigContext` 再导出；提供者见 `host/config-provider.tsx`。"
+      "description": "PATCHES.md:10 - P-S2a-03 `app/src/lib/config-provider.tsx`：上游 346 行（经协作配置文档同步）→ 只保留 `useConfigContext` 再导出；提供者见 `host/config-provider.tsx`。"
     },
     {
       "target": "app/src/lib/copy-image.ts",
@@ -6288,7 +6289,7 @@
       "blob": "03aa28747176f1dc8b465f64465cf6026fe8edc9",
       "sha256": "093df6a0a1a013efea660b8c19d44cdc12fbdb36b131d0806e01411a62fe4e06",
       "method": "patch",
-      "description": "PATCHES.md:364 - `app/src/lib/copy-image.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:369 - `app/src/lib/copy-image.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/create-page-request.test.ts",
@@ -6303,7 +6304,7 @@
       "blob": "d27849d58f937321ddc3a9814b19784ed2aa0209",
       "sha256": "dd756420415ffb5578d242dc9987916cfc9c31aefbd615f5b5ffc749cde978d3",
       "method": "patch",
-      "description": "PATCHES.md:365 - `app/src/lib/create-page-request.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:370 - `app/src/lib/create-page-request.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/create-page.test.ts",
@@ -6318,7 +6319,7 @@
       "blob": "ac396fce8dc0fc7c0537be75524007a4a9f04b51",
       "sha256": "baf9cb3d5d5820e74b294d5ee937923a2a1116840a2df1bec1d59bc7931e4b07",
       "method": "patch",
-      "description": "PATCHES.md:366 - `app/src/lib/create-page.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:371 - `app/src/lib/create-page.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/css-color-to-hex.ts",
@@ -6340,7 +6341,7 @@
       "blob": "651fac95cb227695f4d1604655b8815a24c81505",
       "sha256": "d504e6e052af895d5b01fb235b9236261e7f43ef1f6dad486fe8b09203748753",
       "method": "patch",
-      "description": "PATCHES.md:9 - P-S2a-04 `app/src/lib/activate-locale.ts`、`app/src/lib/i18n.ts`、`app/src/lib/dev-pseudo-locale.ts`：只发布 en / zh-Hans（OP-D06），目录由 `@lingui/vite-plugin` 直接编译 `.po`；其余 locale 回退 en；pseudo 伪本地化不发布。"
+      "description": "PATCHES.md:11 - P-S2a-04 `app/src/lib/activate-locale.ts`、`app/src/lib/i18n.ts`、`app/src/lib/dev-pseudo-locale.ts`：只发布 en / zh-Hans（OP-D06），目录由 `@lingui/vite-plugin` 直接编译 `.po`；其余 locale 回退 en；pseudo 伪本地化不发布。"
     },
     {
       "target": "app/src/lib/diagnostic-breadcrumb.ts",
@@ -6411,7 +6412,7 @@
       "blob": "f5e84bd84d424714995ffc8cba01dde8fee72d87",
       "sha256": "7e06f2ad8922ab7c68f7c399e2394b8e48a75c2c726c41c86f16387515918f40",
       "method": "patch",
-      "description": "PATCHES.md:367 - `app/src/lib/documents-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:372 - `app/src/lib/documents-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/editor-hidden-focus.ts",
@@ -6489,7 +6490,7 @@
       "blob": "706bb6e7955050c6bae30b8de9f32c9e75027769",
       "sha256": "ab175ef4d3cb046ac1645aeadbc558fc8595755963af12115825149c23eb6aac",
       "method": "patch",
-      "description": "PATCHES.md:368 - `app/src/lib/folder-config-api.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:373 - `app/src/lib/folder-config-api.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/frontmatter-enum-constraints.test.ts",
@@ -6532,7 +6533,7 @@
       "blob": "adc3e8f20d680147b4f294283b351122972981b4",
       "sha256": "e290b791a8eacd466e095d552feef4d6f8563962e7563d45bebfab971c50fdbc",
       "method": "patch",
-      "description": "PATCHES.md:369 - `app/src/lib/handoff/cowork-skill-install.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:374 - `app/src/lib/handoff/cowork-skill-install.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/handoff/dispatch.ts",
@@ -6540,7 +6541,7 @@
       "blob": "6c09f89f28e74eaca00428812d0de9cf0ad0c18c",
       "sha256": "04909b207941ad29830bccb5b92a2917fa77dce1557d7e69f246261f81200994",
       "method": "patch",
-      "description": "PATCHES.md:370 - `app/src/lib/handoff/dispatch.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:375 - `app/src/lib/handoff/dispatch.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/handoff/install-detect.ts",
@@ -6562,7 +6563,7 @@
       "blob": "aef55176441a6b8d379a5ed45a6e675e6016e70f",
       "sha256": "f05cae61b4e0eb42653988bb7198defec19d7566968164031495c9f3fbebd180",
       "method": "patch",
-      "description": "PATCHES.md:371 - `app/src/lib/handoff/skill-installer.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:376 - `app/src/lib/handoff/skill-installer.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/handoff/targets.ts",
@@ -6584,7 +6585,7 @@
       "blob": null,
       "sha256": "dc12539b534bbe23194da45c5433bbc774441bbb41a26dee8e845f34e102f65f",
       "method": "local",
-      "description": "PATCHES.md:86 - P-S3-07 `app/src/editor/validation-audit-client.ts`、`app/src/editor/lint-config-client.ts`、`app/src/lib/host-features.ts`（新增）：服务端 lint / audit 在 Huhu 不可用（Q2），宿主（`OkRoot`）调用 `setHostLintAvailable(features.lint)`，vendor 的 `fetchAudit` / `fetchLintConfig` 在不可用时直接返回 `null`，不再发出 `/api/audit`、`/api/lint/config` 请求再吃 404。上游默认可用，行为不变。"
+      "description": "PATCHES.md:90 - P-S3-07 `app/src/editor/validation-audit-client.ts`、`app/src/editor/lint-config-client.ts`、`app/src/lib/host-features.ts`（新增）：服务端 lint / audit 在 Huhu 不可用（Q2），宿主（`OkRoot`）调用 `setHostLintAvailable(features.lint)`，vendor 的 `fetchAudit` / `fetchLintConfig` 在不可用时直接返回 `null`，不再发出 `/api/audit`、`/api/lint/config` 请求再吃 404。上游默认可用，行为不变。"
     },
     {
       "target": "app/src/lib/host-hidden.ts",
@@ -6592,7 +6593,7 @@
       "blob": null,
       "sha256": "7e509cc2c4077158f51c02212224a16176fab3b4e4ad7f75800c95d7fc66d77a",
       "method": "local",
-      "description": "PATCHES.md:59 - P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。"
+      "description": "PATCHES.md:63 - P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。"
     },
     {
       "target": "app/src/lib/i18n.ts",
@@ -6600,7 +6601,7 @@
       "blob": "6df0b50833f967d14def5af651534d0d4fd3a551",
       "sha256": "3d4b7cd66880a063372f0157a3c924d16988997a57bc84221ae1d6e7db500f7b",
       "method": "patch",
-      "description": "PATCHES.md:9 - P-S2a-04 `app/src/lib/activate-locale.ts`、`app/src/lib/i18n.ts`、`app/src/lib/dev-pseudo-locale.ts`：只发布 en / zh-Hans（OP-D06），目录由 `@lingui/vite-plugin` 直接编译 `.po`；其余 locale 回退 en；pseudo 伪本地化不发布。"
+      "description": "PATCHES.md:11 - P-S2a-04 `app/src/lib/activate-locale.ts`、`app/src/lib/i18n.ts`、`app/src/lib/dev-pseudo-locale.ts`：只发布 en / zh-Hans（OP-D06），目录由 `@lingui/vite-plugin` 直接编译 `.po`；其余 locale 回退 en；pseudo 伪本地化不发布。"
     },
     {
       "target": "app/src/lib/ime-composition.dom.test.tsx",
@@ -6727,7 +6728,7 @@
       "blob": null,
       "sha256": "e8ff9e9e9002d4ee2eee1226dca4a93dd598abbb1ef3fb0a34afa1ecebd90239",
       "method": "local",
-      "description": "PATCHES.md:377 - `app/src/lib/ok-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:382 - `app/src/lib/ok-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/ok-portal.ts",
@@ -6735,7 +6736,7 @@
       "blob": null,
       "sha256": "72d1b790b56e6e51adb615badb92db4c34cffc57c9f5bd8fb57a9b0c9696a2ec",
       "method": "local",
-      "description": "PATCHES.md:64 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
+      "description": "PATCHES.md:68 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
     },
     {
       "target": "app/src/lib/overlay-layers.dom.test.tsx",
@@ -7044,7 +7045,7 @@
       "blob": "7213f06c63b78d20eeced5fca02c800e6cea1265",
       "sha256": "6a026190bb6cceba63602e0999b4147a2131a3c916a8d264ec38ba703dd76f00",
       "method": "patch",
-      "description": "PATCHES.md:372 - `app/src/lib/saved-themes-client.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:377 - `app/src/lib/saved-themes-client.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/self-scheduling-poll.test.ts",
@@ -7178,7 +7179,7 @@
       "blob": "b80e9e05b14b4ad65bb81639246e2b862545c987",
       "sha256": "ea30b511ebc8f5559cac76b607b0349853f8a51f68847aa65322a13ed167714d",
       "method": "patch",
-      "description": "PATCHES.md:373 - `app/src/lib/skills-api.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:378 - `app/src/lib/skills-api.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/storage-scope.ts",
@@ -7270,7 +7271,7 @@
       "blob": "a2b2ebe12edf2acba4d5ed362a3cad3c13594fa7",
       "sha256": "5d2154597c84bbceb434885f2f0431b3b2ca5cc810e21d404ec37684e4296170",
       "method": "patch",
-      "description": "PATCHES.md:374 - `app/src/lib/use-activity-panel.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:379 - `app/src/lib/use-activity-panel.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/use-apply-config-color-theme.ts",
@@ -7306,7 +7307,7 @@
       "blob": "13d7dd465e7aaf8d37f4c93fcfeb40a72c03712b",
       "sha256": "c7a28e9eb86133335bb14587ea507a2f78422f3a758998b8bafab755c3c6e956",
       "method": "patch",
-      "description": "PATCHES.md:359 - `app/src/lib/use-collab-url.ts`：使用当前根的请求函数，本地引用模式跳过协作发现。"
+      "description": "PATCHES.md:364 - `app/src/lib/use-collab-url.ts`：使用当前根的请求函数，本地引用模式跳过协作发现。"
     },
     {
       "target": "app/src/lib/use-editor-pane-on-screen.ts",
@@ -7342,7 +7343,7 @@
       "blob": "91f015d11520683dba4e7e1cff1006408f85dd62",
       "sha256": "7e59e647c4b4e48aabdf46e5d699e61307aa3e7abbf063faf8e8b45bde29deb6",
       "method": "patch",
-      "description": "PATCHES.md:375 - `app/src/lib/use-workspace.ts`：通过 OK 的局部请求入口访问宿主路由。"
+      "description": "PATCHES.md:380 - `app/src/lib/use-workspace.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/utils.ts",
@@ -7399,7 +7400,7 @@
       "blob": "7e3974ca12795cc5cd9690eb4902095333bf74b5",
       "sha256": "fa34d6088816ce2bd19edb9c23a393a051bed7db739ca8c7b017111a15743b46",
       "method": "patch",
-      "description": "PATCHES.md:21 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。"
+      "description": "PATCHES.md:25 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。"
     },
     {
       "target": "app/src/locales/zh-Hans/messages.po",
@@ -7407,7 +7408,7 @@
       "blob": "e3ce9c9ab58688885c95ebbf973354413f654604",
       "sha256": "f65b72b7d2550e00710911e3b8ddf2af1f18b6d19bd548458f668380f178fbe3",
       "method": "patch",
-      "description": "PATCHES.md:21 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。"
+      "description": "PATCHES.md:25 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。"
     },
     {
       "target": "app/src/presence/identity.ts",
@@ -7443,7 +7444,7 @@
       "blob": "c83d7922c6ba979b2c18c2f2ab80a3fb21156206",
       "sha256": "93e05dc7a5cfe82034c4ddc59465fc15548afc481f2eaf9db501033589f8acaf",
       "method": "patch",
-      "description": "PATCHES.md:249 - `app/tests/lingui-macro-shim.tsx`"
+      "description": "PATCHES.md:253 - `app/tests/lingui-macro-shim.tsx`"
     },
     {
       "target": "core/src/acp/codex-legacy-notice.ts",
@@ -7738,7 +7739,7 @@
       "blob": "29a0e5675f7b7ed7e0aff65f21a84d972533d24b",
       "sha256": "c7c9d0867a9b8db2689c37b6aad86e55a7c9778da5c721d12bbfdcec9afef7a3",
       "method": "patch",
-      "description": "PATCHES.md:589 - `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。"
+      "description": "PATCHES.md:594 - `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。"
     },
     {
       "target": "core/src/bridge/bridge-invariant.ts",
@@ -7781,7 +7782,7 @@
       "blob": "8b66f34a05ab33492cf307138a7527350dad03d7",
       "sha256": "0631e5ba597ff1b840b8a7e69fe20a63a23dfa55523aef2d0bd85f9c573b6e54",
       "method": "patch",
-      "description": "PATCHES.md:77 - P-S3-04 `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：带前导零的数字样文本（`007`）按文本读写并原样保留（上游 `yaml` core schema 读成整数 7，改别的键时被悄悄改写）；显式加引号的 `\"007\"` 保持引号。spec C02。"
+      "description": "PATCHES.md:81 - P-S3-04 `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：带前导零的数字样文本（`007`）按文本读写并原样保留（上游 `yaml` core schema 读成整数 7，改别的键时被悄悄改写）；显式加引号的 `\"007\"` 保持引号。spec C02。"
     },
     {
       "target": "core/src/bridge/growth-detect.ts",
@@ -8468,7 +8469,7 @@
       "blob": "fdac7a18cdf2bccce7f96fed41b5edd80c93da23",
       "sha256": "93b5550aa657b22bab17f2818104103ac92d89336b466b5d927cb6b67f2cffb5",
       "method": "patch",
-      "description": "PATCHES.md:96 - `core/src/extensions/footnote-definition.ts`、`app/src/editor/extensions/shared.ts`：由客户端注入脚注返回链接的读屏名称。"
+      "description": "PATCHES.md:100 - `core/src/extensions/footnote-definition.ts`、`app/src/editor/extensions/shared.ts`：由客户端注入脚注返回链接的读屏名称。"
     },
     {
       "target": "core/src/extensions/footnote-reference.test.ts",
@@ -8497,7 +8498,7 @@
       "blob": "275b1a245271341d8a95fb497c91cb2752e31c30",
       "sha256": "58de0e5f9fefaa9e086d99d071bd08b62465d148a46bddeae67d89eb9b6bd845",
       "method": "patch",
-      "description": "PATCHES.md:589 - `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。"
+      "description": "PATCHES.md:594 - `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。"
     },
     {
       "target": "core/src/extensions/hard-break-fidelity.ts",
@@ -8806,7 +8807,7 @@
       "blob": "3eb7a17f7afc3d41e09f04d001a6ef7d569a8d24",
       "sha256": "e8edbb5c0773ad5c54af65bd73c3a2fc004115ebf1771a03e48027c82b835dc7",
       "method": "patch",
-      "description": "PATCHES.md:77 - P-S3-04 `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：带前导零的数字样文本（`007`）按文本读写并原样保留（上游 `yaml` core schema 读成整数 7，改别的键时被悄悄改写）；显式加引号的 `\"007\"` 保持引号。spec C02。"
+      "description": "PATCHES.md:81 - P-S3-04 `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：带前导零的数字样文本（`007`）按文本读写并原样保留（上游 `yaml` core schema 读成整数 7，改别的键时被悄悄改写）；显式加引号的 `\"007\"` 保持引号。spec C02。"
     },
     {
       "target": "core/src/git-pathspec.type-tests.ts",
@@ -9332,7 +9333,7 @@
       "blob": "787315157ea6126cbaa58d49f98128e162ab6db8",
       "sha256": "319191c5e9fc785a0e6e205781440292705e32bf600527de3de377dbb28bbd50",
       "method": "patch",
-      "description": "PATCHES.md:109 - `core/src/markdown/html-to-mdast.ts`：对可能超限的多字节 HTML 用 UTF-8 字节数执行上限。"
+      "description": "PATCHES.md:113 - `core/src/markdown/html-to-mdast.ts`：对可能超限的多字节 HTML 用 UTF-8 字节数执行上限。"
     },
     {
       "target": "core/src/markdown/image-promoter.ts",
@@ -9977,7 +9978,7 @@
       "blob": "caf7b35d9a00f8b15aa34dc3869b6a01cd9b827c",
       "sha256": "b85a4e17231c2dd583180667d9c6e4368b06a6a5d8d92fe1ff65b8e6d9399526",
       "method": "patch",
-      "description": "PATCHES.md:114 - `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。"
+      "description": "PATCHES.md:118 - `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。"
     },
     {
       "target": "core/src/registry/canonical-compat.test.ts",
@@ -10165,9 +10166,9 @@
       "target": "core/src/schemas/api/comments.ts",
       "upstream": "packages/core/src/schemas/api/comments.ts",
       "blob": "9227f97919db2050e9fe120654ff19bcc1a8bad7",
-      "sha256": "fd71fce3cc347b0346127b257de35cc6e0e2128162f61e1246a7143951511cde",
+      "sha256": "6994695e56acf8837ff5f08e73c9ac690dcd34a2e122af85ae8ee5d788750cf1",
       "method": "patch",
-      "description": "PATCHES.md:15 - P-S4-01 `core/src/schemas/api/comments.ts`：`CommentThreadMetaSchema` 加可选 `scope`（body / file / property）与 `messages`（Huhu 线程是消息列表，OK 只有 `latestComment`；整篇笔记批注是 Huhu 的 `target:\"file\"`）。"
+      "description": "PATCHES.md:19 - P-S4-01 `core/src/schemas/api/comments.ts`、P-S4-02 `app/src/comments/types.ts`：Huhu 批注携带所属范围与编辑版本。"
     },
     {
       "target": "core/src/schemas/api/doc-notices.ts",
@@ -10189,7 +10190,7 @@
       "blob": "c26ff005d41dbcb8ab4709748d37e380f8a1f137",
       "sha256": "157ae9876f42857e4df7508f9c348aa70a940e95d21a8650f8e6543dc0db714d",
       "method": "patch",
-      "description": "PATCHES.md:67 - P-S5-07 `core/src/schemas/api/document-read.ts`、`app/src/components/file-tree-utils.ts`：目录列举保留受保护类别、链接失效和祖先链接循环标记。"
+      "description": "PATCHES.md:71 - P-S5-07 `core/src/schemas/api/document-read.ts`、`app/src/components/file-tree-utils.ts`：目录列举保留受保护类别、链接失效和祖先链接循环标记。"
     },
     {
       "target": "core/src/schemas/api/embed-detect.ts",
@@ -10932,7 +10933,7 @@
       "blob": "b75ddbdcbfb093184d927379fa67f3e887c71762",
       "sha256": "35062b7da152416ffda759856ad66661079ddc9715997adde0ba7409ae574afd",
       "method": "patch",
-      "description": "PATCHES.md:80 - P-T-01 `core/src/y-prosemirror-patch.test.ts`（测试适配）：Huhu 不安装独立 `y-prosemirror`（`@tiptap/y-tiptap` 自带同源实现，补丁登记在 pnpm-workspace.yaml）：`REPO_ROOT` 改为向上找 `pnpm-workspace.yaml`；`import.meta.resolve` 换成 `createRequire(...).resolve`（vite-node 没有它）；去掉 `y-prosemirror` 的 4 个断言与补丁文件存在性检查，只校验 `@tiptap/y-tiptap` 的两份 bundle 与补丁文件、依赖树不变量（`reachedPackages` 只要求 `y-tiptap`）。"
+      "description": "PATCHES.md:84 - P-T-01 `core/src/y-prosemirror-patch.test.ts`（测试适配）：Huhu 不安装独立 `y-prosemirror`（`@tiptap/y-tiptap` 自带同源实现，补丁登记在 pnpm-workspace.yaml）：`REPO_ROOT` 改为向上找 `pnpm-workspace.yaml`；`import.meta.resolve` 换成 `createRequire(...).resolve`（vite-node 没有它）；去掉 `y-prosemirror` 的 4 个断言与补丁文件存在性检查，只校验 `@tiptap/y-tiptap` 的两份 bundle 与补丁文件、依赖树不变量（`reachedPackages` 只要求 `y-tiptap`）。"
     },
     {
       "target": "server-bridge/agent-activity.ts",
@@ -10940,7 +10941,7 @@
       "blob": "bc5a15c258784f1a532b75c69b890d26df67e359",
       "sha256": "58d9aaa3bb88cb942ecca4b579dc00abb357b55e2c89b3fbc99da4badcb61bd9",
       "method": "patch",
-      "description": "PATCHES.md:37 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+      "description": "PATCHES.md:41 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     },
     {
       "target": "server-bridge/agent-sessions.ts",
@@ -10948,7 +10949,7 @@
       "blob": "c96dad69f76899c061b4f75a137f20536ab4d46c",
       "sha256": "ba5d49f3f2ee8a96bb6e82bcae29963511ed31ac94b0f6c91f810023a2339b8f",
       "method": "patch",
-      "description": "PATCHES.md:37 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+      "description": "PATCHES.md:41 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     },
     {
       "target": "server-bridge/bridge-intake.ts",
@@ -10984,7 +10985,7 @@
       "blob": "ba525a9234006aff15682b7dbead23b1dd791857",
       "sha256": "b53df1f046859b59ffd945e6c400e9906166f1b72866af966d2f80f196d7bc84",
       "method": "patch",
-      "description": "PATCHES.md:37 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+      "description": "PATCHES.md:41 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     },
     {
       "target": "server-bridge/doc-extensions.ts",
@@ -10999,7 +11000,7 @@
       "blob": "32a64811f4b71dd72cc77af15fe891fa25cc4f2b",
       "sha256": "4236f47ea155134e593edecf902acec0c219763bd7a6152855c06b85b6d6f57d",
       "method": "patch",
-      "description": "PATCHES.md:37 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+      "description": "PATCHES.md:41 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     },
     {
       "target": "server-bridge/link-preview/guarded-fetch.ts",
@@ -11007,7 +11008,7 @@
       "blob": "7f7e7660e3b81226fbaba89fd78f4bf5b572fb7b",
       "sha256": "6bb9994632812a6e070efb34ee250d211bffe2793f8c391e096ad1cdc8ecadb6",
       "method": "patch",
-      "description": "PATCHES.md:378 - `server-bridge/link-preview/guarded-fetch.ts`：复用固定 OK 版本的主进程外链预览模块。"
+      "description": "PATCHES.md:383 - `server-bridge/link-preview/guarded-fetch.ts`：复用固定 OK 版本的主进程外链预览模块。"
     },
     {
       "target": "server-bridge/link-preview/html-metadata.ts",
@@ -11029,7 +11030,7 @@
       "blob": "b06da516e240a7a86a5bd0883e618c380cbcb330",
       "sha256": "5ecb0a002837a38fcada744f810d1cd91eb2f1423d7dadf19787d2581441d40e",
       "method": "patch",
-      "description": "PATCHES.md:37 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+      "description": "PATCHES.md:41 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     },
     {
       "target": "server-bridge/loss-capture.ts",
@@ -11037,7 +11038,7 @@
       "blob": "bace923f355056f1a72acd2ce31ed02cf2265861",
       "sha256": "9fb0824b6b857a2e7a591a8c35cc73b678498e28db06a6396fb8884f2bf63968",
       "method": "patch",
-      "description": "PATCHES.md:37 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+      "description": "PATCHES.md:41 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     },
     {
       "target": "server-bridge/map-driven-splice.ts",
@@ -11059,7 +11060,7 @@
       "blob": "f48f5ca318c441900a29832c03c8e05e6743668b",
       "sha256": "6923b9f0573c1980768f47956eb450d5134a65a4335e9edf83ef63b213c83c1d",
       "method": "patch",
-      "description": "PATCHES.md:37 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+      "description": "PATCHES.md:41 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     },
     {
       "target": "server-bridge/observer-origin.ts",
@@ -11067,7 +11068,7 @@
       "blob": null,
       "sha256": "b6bd006fea8d2aee98a21466ca05925228192afc99f391ac34cbf70adf5b9e32",
       "method": "local",
-      "description": "PATCHES.md:387 - `server-bridge/observer-origin.ts`：与撤销管理器共享桥投影事务身份。"
+      "description": "PATCHES.md:392 - `server-bridge/observer-origin.ts`：与撤销管理器共享桥投影事务身份。"
     },
     {
       "target": "server-bridge/pre-drain-discriminator.ts",
@@ -11082,7 +11083,7 @@
       "blob": "ab8b60c33a1ce854dfdff23bd770d28d23d05efe",
       "sha256": "e0305ca5adaf578d6fa5b65df711701c49db372df05a03a6e655cb1ecb24f31a",
       "method": "patch",
-      "description": "PATCHES.md:36 - P-S2a-srv 上游 server 文件原样复制：`server-bridge/server-observers.ts`、`server-bridge/map-driven-splice.ts`、`server-bridge/bridge-watchdog.ts`、`server-bridge/bridge-quiescence.ts`、`server-bridge/pre-drain-discriminator.ts`、`server-bridge/bridge-intake.ts`、`server-bridge/bridge-loss-detector.ts`、`server-bridge/doc-extensions.ts`、`server-bridge/md-manager.ts`。"
+      "description": "PATCHES.md:40 - P-S2a-srv 上游 server 文件原样复制：`server-bridge/server-observers.ts`、`server-bridge/map-driven-splice.ts`、`server-bridge/bridge-watchdog.ts`、`server-bridge/bridge-quiescence.ts`、`server-bridge/pre-drain-discriminator.ts`、`server-bridge/bridge-intake.ts`、`server-bridge/bridge-loss-detector.ts`、`server-bridge/doc-extensions.ts`、`server-bridge/md-manager.ts`。"
     },
     {
       "target": "server-bridge/server-workload-telemetry.ts",
@@ -11090,7 +11091,7 @@
       "blob": "495d2f01ea00ce4587278bcf37cc8057ba791ba0",
       "sha256": "e0f79bd94ef8b1242b24c912c8d57530d6678f835d1654446dff99c941614d09",
       "method": "patch",
-      "description": "PATCHES.md:37 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+      "description": "PATCHES.md:41 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     },
     {
       "target": "server-bridge/shadow-repo.ts",
@@ -11098,7 +11099,7 @@
       "blob": "cd623f82c8885544fa01d665513043e0602e1f06",
       "sha256": "7750b403bb08b2b5d67a3b147798300718ba756c8ae2e68177470d6bd9be95b9",
       "method": "patch",
-      "description": "PATCHES.md:37 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+      "description": "PATCHES.md:41 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     },
     {
       "target": "server-bridge/telemetry.ts",
@@ -11106,7 +11107,7 @@
       "blob": "3f6f5e14319ec292342315df84785ae26e78de0d",
       "sha256": "96d270bf22bf3f5e2a2a4a5f0e79fa2ef33e9c776127c7c3e2e0c0c292701b22",
       "method": "patch",
-      "description": "PATCHES.md:37 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+      "description": "PATCHES.md:41 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     }
   ]
 }

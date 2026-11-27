@@ -1129,6 +1129,9 @@ importers:
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
+      jsdom:
+        specifier: ^31.0.0
+        version: 31.0.0(@napi-rs/canvas@1.1.1)(@noble/hashes@2.4.0)
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -1197,6 +1200,9 @@ importers:
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
+      jsdom:
+        specifier: ^31.0.0
+        version: 31.0.0(@napi-rs/canvas@1.1.1)(@noble/hashes@2.4.0)
 
   plugins/agent-cli:
     dependencies:
@@ -1240,6 +1246,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
+      jsdom:
+        specifier: ^31.0.0
+        version: 31.0.0(@napi-rs/canvas@1.1.1)(@noble/hashes@2.4.0)
 
   plugins/agent-guide:
     dependencies:
@@ -1633,6 +1642,9 @@ importers:
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
+      jsdom:
+        specifier: ^31.0.0
+        version: 31.0.0(@napi-rs/canvas@1.1.1)(@noble/hashes@2.4.0)
       tsx:
         specifier: ^4.23.15
         version: 4.23.15

@@ -7,6 +7,7 @@
       "entry": [
         "scripts/*.mjs",
         "native/agent-pty/tests/*.cjs",
+        "tests/fixtures/*.cjs",
         "tests/e2e/*.spec.ts",
         "tests/e2e/workflows/*.spec.ts",
         "tests/parity-ok/playwright.config.ts",
@@ -14,7 +15,8 @@
         "tests/perf/vitest.config.ts",
         "tests/visual/*.spec.ts",
         "playwright.visual.config.ts"
-      ]
+      ],
+      "ignoreBinaries": ["volta"]
     },
     "packages/vault": {
       "entry": ["test/fixtures/*.mjs"],
