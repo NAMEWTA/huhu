@@ -74,7 +74,7 @@ test.skipIf(process.platform !== "linux" || process.arch !== "x64" || !coreBin |
       credentials.push(token);
       return token;
     });
-    const detect = vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
+    vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
     try {
       writeFileSync(path.join(home, "config.toml"), responses.config, { mode: 0o600 });
       vi.stubEnv("HUHU_HERDR_BIN", coreBin);
