@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
-import type { CapabilityResult, PlanOccurrence, TaskDto } from "../../../packages/contracts/src/index.js";
+import type { CapabilityResult, PlanOccurrence, TaskDto, TaskRunSummary } from "../../../packages/contracts/src/index.js";
 import type { TaskQuestionView } from "../../../plugins/tasks/src/engine/receipt-inbox.js";
 import type { z } from "zod";
 import type { AgentSettingsFile } from "../../../plugins/agent-cli/src/shared/settings.js";
@@ -111,6 +111,7 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
   const responses = await startCodexResponsesFixture(scheduled ? { result: message } : { seedReply: message });
   const sender = { id: 81, login: "outbound-fixture" };
   let posted: ReturnType<typeof githubCommentEvent> | undefined;
+  let copied: ReturnType<typeof githubCommentEvent> | undefined;
   let posts = 0;
   let lists = 0;
   let visibleComment = false;
@@ -127,7 +128,7 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
     else if (pathname === "/user") response.end(JSON.stringify(sender));
     else if (pathname === issuePath) response.end(JSON.stringify(githubIssue));
     else if (pathname === `${repository}/events`) {
-      const echo = posted && visibleEcho ? [githubCommentEvent("20152", posted.payload.comment.body, githubAuthor), posted] : [];
+      const echo = posted && copied && visibleEcho ? [copied, posted] : [];
       response.end(JSON.stringify([...echo, ...inbound.toReversed(), githubIssueEvent()]));
     } else if (pathname === `${issuePath}/comments` && request.method === "POST") {
       posts++;
@@ -206,7 +207,7 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByRole("button", { name: `打开任务 ${githubIssue.title}`, exact: true }).click();
     const detail = page.getByTestId("task-detail");
-    const getRuns = () => desktop<{ runId: string; result?: { receiptId: string; delivery: string } }[]>("tasks.runs", { id });
+    const getRuns = () => desktop<TaskRunSummary[]>("tasks.runs", { id });
     if (scheduled) {
       const scheduledFor = new Date(Date.now() + 6_000).toISOString();
       const followUp = await desktop<{ planId: string; followUpId: string }>("automations.followUps.schedule", { taskId: id, scheduledFor, expectedRevision: null });
@@ -232,7 +233,7 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
       expect(responses.requests).toHaveLength(1);
       inbound.push(githubCommentEvent("20121", answer));
       expect(await scan()).toMatchObject([{ taskId: id, state: "reply-accepted" }]);
-      await expect.poll(getRuns, { timeout: 45_000 }).toMatchObject([{ runId, result: { delivery: "delivered" } }]);
+      await expect.poll(getRuns, { timeout: 45_000 }).toMatchObject([{ id: runId, result: { delivery: "delivered" } }]);
       inbound.push(githubCommentEvent("20122", answer));
       expect(await scan()).toMatchObject([{ taskId: id, state: "reply-rejected" }]);
       expect((await desktop<TaskDto>("tasks.read", { id })).comments.filter(({ event }) => event === "answer")).toMatchObject([
@@ -243,19 +244,21 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
       await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
     }
     await expect.poll(getRuns, { timeout: 45_000 }).toMatchObject([{ result: { receiptId: expect.any(String), delivery: "delivered" } }]);
-    const [{ result }] = (await getRuns()) as [{ result: { receiptId: string } }];
-    const deliver = (exitCode = 0) => cli<{ deliveryId: string; state: string }>("github-task-delivery.mjs", ["--task", id, "--receipt", result.receiptId, "--issue-id", String(githubIssue.id), "--issue-number", String(githubIssue.number)], exitCode);
+    const [completedRun] = await getRuns();
+    const receiptId = completedRun!.result!.receiptId!;
+    const deliver = (exitCode = 0) => cli<{ deliveryId: string; state: string }>("github-task-delivery.mjs", ["--task", id, "--receipt", receiptId, "--issue-id", String(githubIssue.id), "--issue-number", String(githubIssue.number)], exitCode);
     const lost = mode === "list" || mode === "echo";
     const originalDelivery = await deliver(lost ? 2 : 0);
     expect(originalDelivery).toMatchObject({ state: lost ? "unknown" : "accepted" });
     expect(posts).toBe(1);
     expect(lists).toBe(Number(lost));
-    const key = { sourceId: source.sourceId, issueId: githubIssue.id, taskId: id, receiptId: result.receiptId };
+    const key = { sourceId: source.sourceId, issueId: githubIssue.id, taskId: id, receiptId };
     const readDelivery = () => desktop("tasks.github.deliveries.read", key);
     const runCard = detail.getByTestId("managed-task-run");
     await runCard.getByRole("button", { name: "展开结果", exact: true }).click();
     if (mode === "echo") {
       await expect(runCard.getByRole("button", { name: "核实原投递" })).toBeVisible();
+      copied = githubCommentEvent("20152", posted!.payload.comment.body, githubAuthor);
       visibleEcho = true;
       expect(await scan()).toMatchObject([
         { taskId: id, state: "echo" },
@@ -294,14 +297,14 @@ async function githubDeliveryJourney(mode: "list" | "echo" | "success" | "schedu
     await expect(runCard.getByRole("link", { name: "查看原评论", exact: true })).toHaveAttribute("href", posted!.payload.comment.html_url);
     expect(await readDelivery()).toMatchObject({ ...key, deliveryId: originalDelivery.deliveryId, state: "accepted" });
     expect(await deliver()).toMatchObject({ deliveryId: originalDelivery.deliveryId, state: "accepted" });
-    expect(await getRuns()).toMatchObject([{ result: { receiptId: result.receiptId } }]);
+    expect(await getRuns()).toMatchObject([{ id: completedRun!.id, result: { receiptId } }]);
     expect(posts).toBe(1);
     expect(responses.requests).toHaveLength(scheduled ? 2 : 1);
     const task = await desktop<TaskDto>("tasks.read", { id });
     expect(task.origin).toMatchObject({ kind: "external", github: { sourceId: source.sourceId, issueId: githubIssue.id, eventId: "20101" } });
     expect(task.comments.filter(({ event }) => event === "result")).toMatchObject([{ body: expect.stringContaining(message) }]);
-    expect(task.comments.filter(({ event }) => event === "github-comment")).toMatchObject(mode === "echo" ? [
-      { author: "GitHub @issue-author", body: posted!.payload.comment.body },
+    expect(task.comments.filter(({ event }) => event === "github-comment")).toMatchObject(copied ? [
+      { author: "GitHub @issue-author", body: [copied.payload.comment.html_url, posted!.payload.comment.body].join("\n\n") },
     ] : []);
   } finally {
     await withFixtureCleanup(async () => {}, [

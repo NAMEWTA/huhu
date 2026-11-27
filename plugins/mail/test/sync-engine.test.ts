@@ -153,8 +153,10 @@ engineTest(
       expect(await call("mail.messages.latest", folder)).toMatchObject({ message: { uid: 205 } });
       expect(notices.list()).toHaveLength(0);
 
+      // Let the successful sync finish after its slot so the next regular slot must still be eligible.
+      fault = async (uid) => { if (uid === 232) now += 1_000; };
       await tick(5000);
-      await expect.poll(() => nextDelay(), waitForImap).toBe(60_000);
+      await expect.poll(() => nextDelay(), waitForImap).toBe(59_000);
       await expect.poll(() => call("mail.sync.settings"), waitForImap).toMatchObject({ accounts: [{ accountId, phase: "ready" }] });
       expect(await call("mail.messages.latest", folder)).toMatchObject({ message: { uid: 232 } });
       expect(notices.list()).toHaveLength(2);
@@ -194,8 +196,10 @@ engineTest(
 
       fault = undefined;
       mailboxOptions.allowIdle = true;
-      await tick(60_000);
+      const beforeNextSlot = opens();
+      await tick(59_000);
       await expect.poll(imap.idleCount, waitForImap).toBe(1);
+      expect(opens()).toBeGreaterThan(beforeNextSlot);
       box.messages.push(message(234, true));
       imap.announceExists(box.messages.length);
       await expect.poll(() => nextDelay(), waitForImap).toBe(1000);

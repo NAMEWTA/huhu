@@ -254,10 +254,12 @@ test("关闭发布后短检结束即回收，停插件和切库无旧连接", as
     expect((await beforeSwitch("tools/list")).result.tools).toContainEqual(expect.objectContaining({ name: "kept__echo" }));
 
     const open = async (location: string, kind: "new" | "open") => {
-      expect(await page.evaluate(([location, kind]) => window.huhuHost.vault.open(location, { kind }), [location, kind] as const)).toMatchObject({ ok: true });
+      const opened = await page.evaluate(([location, kind]) => window.huhuHost.vault.open(location, { kind }), [location, kind] as const);
+      expect(opened, JSON.stringify(opened)).toMatchObject({ ok: true });
       await page.reload();
       await gateway(page);
     };
+    mkdirSync(path.join(sandbox, "other"));
     await open(path.join(sandbox, "other"), "new");
     expect(kept.live()).toEqual([]);
     await publishing(true);

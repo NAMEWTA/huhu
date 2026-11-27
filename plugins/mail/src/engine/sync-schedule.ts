@@ -155,7 +155,9 @@ export function registerMailSyncSchedule(
         if (signal.aborted) return;
         if (!plan.isCurrent() || accounts!.readDefinition(accountId)?.revision !== revision) continue;
         const follow = more ? 1_000 : period;
-        failures.set(accountId, { count: 0, next: now() + follow });
+        // A completed sync must be eligible at the next scheduled slot even if the IMAP work took time.
+        const next = more ? now() + follow : Date.parse(plan.scheduledFor) + follow;
+        failures.set(accountId, { count: 0, next });
         if (more) plan.wake(follow);
         states.set(accountId, { accountId, phase: "ready", at: new Date(now()).toISOString() });
         if (idle && !more) watchInbox(accountId, revision, idle, plan);

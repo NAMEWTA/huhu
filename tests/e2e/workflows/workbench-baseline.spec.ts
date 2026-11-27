@@ -887,16 +887,39 @@ test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", a
   test.setTimeout(180_000);
   await runOnHosts(info, async (page, name, vault, app) => {
     type Grid = { rows: number; cols: number };
-    const sizes = new Map<string, Grid>();
+    const sizes = new Map<string, { grid: Grid; changedAt: number }>();
+    const changes: { id: string; mode: string; grid: Grid; at: number }[] = [];
     page.on("websocket", (socket) => {
       const url = new URL(socket.url());
       if (!url.pathname.startsWith("/ws/terminal/")) return;
       const id = decodeURIComponent(url.pathname.split("/").at(-1)!);
-      sizes.set(id, { rows: Number(url.searchParams.get("rows")), cols: Number(url.searchParams.get("cols")) });
+      const connection = {
+        grid: { rows: Number(url.searchParams.get("rows")), cols: Number(url.searchParams.get("cols")) },
+        changedAt: performance.now(),
+      };
+      const record = (mode: string) => {
+        connection.changedAt = performance.now();
+        changes.push({ id, mode, grid: connection.grid, at: Math.round(connection.changedAt) });
+      };
+      record("connecting");
+      socket.on("framereceived", ({ payload }) => {
+        if (typeof payload !== "string") return;
+        const reply = JSON.parse(payload) as { type?: string; mode?: string };
+        if (reply.type !== "mode" || !reply.mode) return;
+        record(reply.mode);
+        if (reply.mode === "control") sizes.set(id, connection);
+        else if (sizes.get(id) === connection) sizes.delete(id);
+      });
       socket.on("framesent", ({ payload }) => {
         if (typeof payload !== "string") return;
         const resize = JSON.parse(payload) as Grid & { type?: string };
-        if (resize.type === "resize") sizes.set(id, { rows: resize.rows, cols: resize.cols });
+        if (resize.type !== "resize") return;
+        connection.grid = { rows: resize.rows, cols: resize.cols };
+        record("resize");
+      });
+      socket.on("close", () => {
+        record("closed");
+        if (sizes.get(id) === connection) sizes.delete(id);
       });
     });
     await showAgent(page);
@@ -907,35 +930,54 @@ test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", a
     const terminal = pane.getByTestId("terminal-view");
     await expect(terminal.getByTestId("terminal-observer")).toHaveCount(0);
     const session = (await pane.getAttribute("data-session-id"))!;
-    const grid = () => sizes.get(session);
-    const verify = async (step: string) => {
+    const grid = () => sizes.get(session)?.grid;
+    const screenRows = terminal.locator(".xterm-rows > div");
+    let reportedChanges = 0;
+    const verify = (step: string) => test.step(`${name}: ${step}`, async () => {
       const marker = `UX08-${step}`;
       const output = path.join(vault, `.${marker}`);
       const input = terminal.locator(".xterm-helper-textarea");
-      await expect.poll(grid).toMatchObject({ rows: expect.any(Number), cols: expect.any(Number) });
-      const { rows, cols } = grid()!;
-      await input.focus();
-      await expect(input).toBeFocused();
-      await page.keyboard.type(`sh .ux08-terminal.sh ${marker} ${rows} ${cols}`);
-      await page.keyboard.press("Enter");
-      const observation = await lastRow(terminal, marker);
-      expect(readFileSync(output, "utf8").trim().split(/\s+/u).map(Number)).toEqual([rows, cols]);
-      expect(grid()).toEqual({ rows, cols });
-      expect(observation.rows).toBe(rows);
-      expect(observation.clippingAncestors).toEqual([]);
-      expect(observation.hitInTerminal).toBe(true);
-      const cursor = terminal.locator(".xterm-rows > div").last().locator(".xterm-cursor");
-      await expect(cursor).toHaveText("#");
-      expect(await cursor.evaluate((node) => {
-        const cell = node.getBoundingClientRect();
-        const screen = node.closest(".xterm-screen")!.getBoundingClientRect();
-        const hit = document.elementFromPoint(cell.left + cell.width / 2, cell.top + cell.height / 2);
-        return cell.width > 0 && cell.right <= screen.right + 1 && cell.bottom <= screen.bottom + 1 && !!hit?.closest(".xterm-screen");
-      })).toBe(true);
-      await info.attach(`${name}-${step}`, { body: JSON.stringify({ ...observation, rows, cols }), contentType: "application/json" });
-      await page.keyboard.press("Enter"); // 回到原 shell 及其滚动回看
-      return { rows, cols };
-    };
+      let expected: Grid | undefined;
+      let pty: number[] | undefined;
+      let observation: Awaited<ReturnType<typeof lastRow>> | undefined;
+      try {
+        await input.focus();
+        await expect(input).toBeFocused();
+        // A focus or split change can send intermediate grids before the renderer settles.
+        await expect.poll(async () => {
+          const renderedRows = await screenRows.count();
+          const active = sizes.get(session);
+          if (!active || renderedRows !== active.grid.rows || performance.now() - active.changedAt < 150) return undefined;
+          expected = active.grid;
+          return expected;
+        }, { message: `${name} ${step}: xterm must settle on the controlling connection` }).toMatchObject({ rows: expect.any(Number), cols: expect.any(Number) });
+        await page.keyboard.type(`sh .ux08-terminal.sh ${marker} ${expected!.rows} ${expected!.cols}`);
+        await page.keyboard.press("Enter");
+        observation = await lastRow(terminal, marker);
+        pty = readFileSync(output, "utf8").trim().split(/\s+/u).map(Number);
+        expect(grid(), `${name} ${step}: grid changed during PTY sampling`).toEqual(expected);
+        expect(pty, `${name} ${step}: stty rows and columns`).toEqual([expected!.rows, expected!.cols]);
+        expect(observation.rows).toBe(expected!.rows);
+        expect(observation.clippingAncestors).toEqual([]);
+        expect(observation.hitInTerminal).toBe(true);
+        const cursor = screenRows.last().locator(".xterm-cursor");
+        await expect(cursor).toHaveText("#");
+        expect(await cursor.evaluate((node) => {
+          const cell = node.getBoundingClientRect();
+          const screen = node.closest(".xterm-screen")!.getBoundingClientRect();
+          const hit = document.elementFromPoint(cell.left + cell.width / 2, cell.top + cell.height / 2);
+          return cell.width > 0 && cell.right <= screen.right + 1 && cell.bottom <= screen.bottom + 1 && !!hit?.closest(".xterm-screen");
+        })).toBe(true);
+        await page.keyboard.press("Enter"); // 回到原 shell 及其滚动回看
+        return expected!;
+      } finally {
+        const timeline = changes.slice(reportedChanges).filter(({ id }) => id === session);
+        reportedChanges = changes.length;
+        const file = info.outputPath(`${name}-${step}-grid.json`);
+        writeFileSync(file, JSON.stringify({ expected, pty, latest: grid(), observation, timeline }));
+        await info.attach(`${name}-${step}`, { path: file, contentType: "application/json" });
+      }
+    });
     const initial = await verify("initial");
     await pane.getByTestId("workspace-split-down").click();
     const sibling = await launchWorkspacePane(page, page.getByTestId("launch-shell"));

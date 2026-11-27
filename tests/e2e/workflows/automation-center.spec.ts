@@ -45,8 +45,8 @@ async function invitePlans(desktop: Page, browser: Browser) {
 
 async function openDomainPlans(use: (fixture: {
   page: Page; vault: string; sandbox: string; mail: PlanSummary; git: PlanSummary; gitPull: PlanSummary; ssh: PlanSummary;
-  samples: () => { mail: number; git: number; ssh: number }; saveMail(label: string): Promise<unknown>;
-  configureGit(remote: string): Promise<void>; alternateRemote: string; deliverMail(): void;
+  samples: () => { mail: number; git: number; ssh: number }; saveMail(label: string): Promise<{ accountId: string }>;
+  configureGit(remote: string): Promise<void>; alternateRemote: string; deliverMail(): number; mailAccountId: string;
 }) => Promise<void>) {
   const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-plan-domains-"));
   let imap: Awaited<ReturnType<typeof openImapFixture>> | undefined;
@@ -59,6 +59,7 @@ async function openDomainPlans(use: (fixture: {
       const uid = mailbox.messages.length + 1;
       const subject = `周期邮件 ${uid}`;
       mailbox.messages.push({ uid, uidValidity: 42, subject, source: `From: Fixture <sender@example.test>\r\nSubject: ${subject}\r\n\r\nFixture body\r\n` });
+      return uid;
     };
     deliverMail();
     const imapFixture = imap = await openImapFixture({ allowIdle: false, windows: { INBOX: mailbox } });
@@ -93,9 +94,9 @@ async function openDomainPlans(use: (fixture: {
         settings: { provider: "custom_imap", email: `${label}@example.test`, label, auth: "password", imap: endpoint, smtpEnabled: false, smtp: endpoint },
         password: "synthetic-loopback-password",
       });
-      return call(page, "mail.accounts.save", { setupId, folders: ["INBOX"] });
+      return call<{ accountId: string }>(page, "mail.accounts.save", { setupId, folders: ["INBOX"] });
     };
-    await saveMail("original");
+    const { accountId: mailAccountId } = await saveMail("original");
     await call(page, "mail.sync.setInterval", { minutes: 1, expectedRevision: null });
     const { plan: mail } = await call<{ plan: PlanSummary }>(page, "mail.sync.settings", {});
 
@@ -113,13 +114,13 @@ async function openDomainPlans(use: (fixture: {
     const prompt = (await readPanel()).hosts[0]!.prompt!;
     await call(page, "ssh.hostKey.decide", { attemptId: prompt.attemptId, hop: prompt.hop, promptId: prompt.promptId, accept: true, remember: true });
     const samples = () => ({
-      mail: imapFixture.fetchRequests.length,
+      mail: imapFixture.commands.filter((command) => command === "EXAMINE" || command === "SELECT").length,
       git: existsSync(trace) ? readFileSync(trace, "utf8").split("\n").filter((line) => /run_command:.*git-upload-pack .*origin\.git/.test(line)).length : 0,
       ssh: counters.ssh,
     });
     const { periodics: { sync: gitSync, pull: gitPull } } = await getGit();
     await use({ page, vault, sandbox, mail, git: gitSync, gitPull, ssh: (await readPanel()).plan!, samples,
-      saveMail, configureGit, deliverMail, alternateRemote: remote("alternate.git") });
+      saveMail, configureGit, deliverMail, mailAccountId, alternateRemote: remote("alternate.git") });
   }, [
     ["关闭桌面", () => desktop?.close()],
     ["关闭 IMAP", () => imap?.close()],
@@ -590,18 +591,20 @@ test("同一 Vault 的双端目录列出每个来源并同步修订", async () =
 
 test("停用、换实例和切库后受阻状态正确，删除的计划不复活", async () => {
   test.setTimeout(300_000);
-  await openDomainPlans(async ({ page, vault, sandbox, mail, git, gitPull, ssh, samples, saveMail, configureGit, alternateRemote, deliverMail }) => {
+  await openDomainPlans(async ({ page, vault, sandbox, mail, git, gitPull, ssh, samples, saveMail, configureGit, alternateRemote, deliverMail, mailAccountId }) => {
     const read = (plan: PlanSummary) => readPlan(page, plan.planId);
     const original = samples();
     await expect.poll(async () => (await read(mail))!.lastOccurrence?.state, { timeout: 75_000, intervals: [1_000] }).toBe("completed");
     expect(samples().mail).toBeGreaterThan(original.mail);
-    // Require a second scheduled success and a new local IMAP fetch.
-    const firstMail = (await read(mail))!.lastOccurrence;
-    expect(firstMail?.state).toBe("completed");
+    const firstMail = (await read(mail))!.lastOccurrence!;
     const previousMailReads = samples().mail;
-    deliverMail();
-    await expect.poll(async () => (await read(mail))!.lastOccurrence?.occurrenceId, { timeout: 75_000, intervals: [1_000] }).not.toBe(firstMail!.occurrenceId);
-    await expect.poll(() => samples().mail).toBeGreaterThan(previousMailReads);
+    const uid = deliverMail();
+    await expect.poll(async () => {
+      const current = (await read(mail))!.lastOccurrence;
+      return current?.occurrenceId === firstMail.occurrenceId ? null : current;
+    }, { timeout: 75_000, intervals: [1_000] }).toMatchObject({ state: "completed" });
+    expect(samples().mail).toBeGreaterThan(previousMailReads);
+    expect(await call(page, "mail.messages.latest", { accountId: mailAccountId, folder: "INBOX" })).toMatchObject({ message: { uid } });
     expect(samples().git).toBeGreaterThan(original.git);
     expect(samples().ssh).toBeGreaterThan(original.ssh + 1);
     const firstGit = (await read(git))!.lastOccurrence!;
@@ -627,6 +630,7 @@ test("停用、换实例和切库后受阻状态正确，删除的计划不复�
     };
     const clone = path.join(sandbox, "copy");
     const other = path.join(sandbox, "other");
+    mkdirSync(other);
     await open(other, "new");
     expect((await listPlans(page)).plans.map(({ planId }) => planId)).not.toContain(git.planId);
     const paths = [".huhu/vault.json", ".huhu/automations/periodic-plans.json"];
