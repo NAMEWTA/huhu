@@ -1336,10 +1336,15 @@ test("受控 Task 只调用授权工具，结束和撤销后旧会话失效", as
       }
       return { result: "已处理撤权" };
     }, async ({ desktop: { page }, call, responses, root }) => {
-      await publishTaskEcho(call, allowed.url, "task_allowed");
-      await publishTaskEcho(call, other.url, "task_other");
+      const allowedSource = await publishTaskEcho(call, allowed.url, "task_allowed");
+      const otherSource = await publishTaskEcho(call, other.url, "task_other");
       await call("gateway.update", { capability: "vault.info", exposed: true });
       await call("gateway.mcp.update", { enabled: true });
+      // Enabling a source invalidates its temporary check. Rediscover the enabled revision before opening the read-only catalog.
+      for (const source of [allowedSource, otherSource]) {
+        expect(await call("mcp.sources.refresh", { sourceId: source.sourceId, expectedRevision: source.revision }))
+          .toMatchObject({ state: "ready", toolCount: 1 });
+      }
       const [space] = await call<{ id: string }[]>("agent.spaces.list");
       async function createAuthorizedTask(title: string) {
         const task = await call<TaskDto>("tasks.create", { title, body: "调用经授权的工具。", type: "agent", execution: { spaceId: space!.id, provider: "codex" } });
