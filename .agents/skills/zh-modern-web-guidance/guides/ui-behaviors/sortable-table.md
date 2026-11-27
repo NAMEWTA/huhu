@@ -35,9 +35,12 @@
 
 ```javascript
 table.addEventListener('command', (event) => {
-  if (event.command !== '--sort') return;
+  if (event.command === '--sort') sortBy(event.source);
+});
 
-  const th = event.source.closest('th');
+// button 是被激活的表头按钮。
+function sortBy(button) {
+  const th = button.closest('th');
   const direction = th.getAttribute('aria-sort') === 'ascending' ? 'descending' : 'ascending';
 
   for (const header of table.tHead.rows[0].cells) header.removeAttribute('aria-sort');
@@ -45,9 +48,9 @@ table.addEventListener('command', (event) => {
 
   const rows = sortRows([...tbody.rows], th.cellIndex, th.dataset.type, direction);
   reorderWithTransition(rows);
-  // One message per sort; the status element must already be in the DOM.
-  status.textContent = `Sorted by ${event.source.textContent.trim()}, ${direction}, ${rows.length} rows`;
-});
+  // 每次排序一条消息；状态元素必须已存在于 DOM 中。
+  status.textContent = `Sorted by ${button.textContent.trim()}, ${direction}, ${rows.length} rows`;
+}
 ```
 
 * 首次激活升序，重复激活切换方向；换列重新升序。
@@ -67,8 +70,8 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'bas
 
 function sortRows(rows, index, type, direction) {
   const factor = direction === 'ascending' ? 1 : -1;
-  // Prefer the raw value when the displayed text is formatted.
-  // This reads the DOM on every comparison; for large tables, read each row's value once before sorting.
+  // 显示文本经过格式化时，优先使用原始值。
+  // 此写法每次比较都读取 DOM；大表格应在排序前只读一次各行数值。
   const value = (row) => row.cells[index].dataset.value ?? row.cells[index].textContent.trim();
   return rows.sort((a, b) =>
     factor * (type === 'number' ? value(a) - value(b) : collator.compare(value(a), value(b)))
@@ -83,7 +86,7 @@ function sortRows(rows, index, type, direction) {
 **必须：** 在 `<tbody>` 内移动现有 `<tr>` 元素。不要通过 `innerHTML` 或重渲染重建表格或 `<tbody>`，这会丢失内部焦点和状态，并破坏按身份匹配元素的视图过渡。绝不移动标题行。
 
 ```javascript
-// Moving every row to the end in sorted order is enough; no need to compute minimal moves.
+// 按排序顺序将每行移到末尾就足够，无需计算最少移动次数。
 function reorder(container, orderedRows) {
   for (const row of orderedRows) container.moveBefore(row, null);
 }
@@ -99,7 +102,7 @@ function reorder(container, orderedRows) {
 
 ```css
 tbody tr {
-  /* Derives a unique name from each row's identity. */
+  /* 根据每行身份生成唯一名称。 */
   view-transition-name: match-element;
 }
 
@@ -113,7 +116,7 @@ tbody tr {
 ```
 
 ```javascript
-// Scoped to the table so the rest of the page stays interactive during the animation.
+// 作用域限定在表格，动画期间页面其余部分保持可交互。
 function reorderWithTransition(rows) {
   table.startViewTransition(() => reorder(tbody, rows));
 }
@@ -144,7 +147,21 @@ function reorderWithTransition(rows) {
 Invoker commands 的 Baseline 状态：新近可用。自 2025-12-12 起纳入 Baseline。
 支持版本：Chrome 135（2025 年 4 月）、Edge 135（2025 年 4 月）、Firefox 144（2025 年 10 月）和 Safari 26.2（2025 年 12 月）。
 
-目标 Baseline 不支持时，为每个表头按钮添加 `click` 监听器，运行同一个排序函数，行为相同。两种路径都依赖 JS，若表格必须无脚本也完全可读，应由脚本添加按钮。
+如果目标 Baseline 不支持调用命令，`command` 事件就不会触发，表头按钮也不会执行任何操作。先检测特性支持，仅在缺少支持时，为每个表头按钮添加调用同一排序函数的 `click` 监听器。这样鼠标、触摸和键盘激活具有一致行为，回退也忠实于此使用场景。
+
+```javascript
+// 仅在不支持调用命令时使用：支持的浏览器中，点击也会触发 command，
+// 无条件点击监听会排序两次，撤销第一次排序的结果。
+if (!('commandForElement' in HTMLButtonElement.prototype)) {
+  for (const button of table.tHead.querySelectorAll('button[command="--sort"]')) {
+    button.addEventListener('click', () => sortBy(button));
+  }
+}
+```
+
+**不要**用按钮上的 `pointer-events: none` 作为回退：按钮仍可获得焦点并通过键盘激活，键盘用户会遇到静默无效的控件。
+
+无论哪种路径，没有 JavaScript 时按钮都不起作用；如果表格必须无脚本也完全可读，应由脚本添加这些按钮。
 
 Element-scoped view transitions 的浏览器支持：有限可用。
 支持版本：Chrome 147（2026 年 4 月）和 Edge 147（2026 年 4 月）。

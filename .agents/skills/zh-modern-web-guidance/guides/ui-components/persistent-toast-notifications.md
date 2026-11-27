@@ -63,7 +63,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -81,6 +81,16 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 }
 ```
 
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
+}
+```
+
 <a id="fallbacks--browser-support-for-arianotify"></a>
 
 ### ariaNotify() 的回退方案和浏览器支持
@@ -94,7 +104,7 @@ ariaNotify() 的 Baseline 状态：新近可用。自 2026-09-14 起纳入 Basel
 使用 ARIA 实时区域，确保容器在页面加载时已存在，并在需要时将消息加入其中。
 
 ```html
-<!-- Pre-populated hidden live region container -->
+<!-- 预先填充的隐藏实时区域容器。 -->
 <div id="notification" aria-live="assertive"></div>
 ```
 
@@ -102,7 +112,7 @@ ariaNotify() 的 Baseline 状态：新近可用。自 2026-09-14 起纳入 Basel
 
 ```html
 <p class="inclusively-hidden">Screen reader announcements</p>
-<!-- Pre-populated hidden live region container -->
+<!-- 预先填充的隐藏实时区域容器。 -->
 <div id="notification" aria-live="assertive">
   Dynamic announcement injected into the existing container.
 </div>
@@ -129,7 +139,7 @@ Anchor positioning 的浏览器支持：有限可用。
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature-detect anchor positioning support before loading the polyfill.
+// 必须：加载 polyfill 前检测锚点定位支持。
 if (!CSS.supports("anchor-name: --a")) {
   import("@oddbird/css-anchor-positioning");
 }
@@ -138,7 +148,7 @@ if (!CSS.supports("anchor-name: --a")) {
 没有打包工具时，在 `<script type="module">` 内从 CDN 导入：
 
 ```html
-<!-- MANDATORY: Conditionally install the anchor positioning polyfill -->
+<!-- 必须：按条件安装锚点定位 polyfill。 -->
 <script type="module">
   if (!CSS.supports("anchor-name: --a")) {
     import("https://unpkg.com/@oddbird/css-anchor-positioning");
@@ -153,13 +163,13 @@ if (!CSS.supports("anchor-name: --a")) {
 
 ```css
 .trigger {
-  /* MANDATORY: Each trigger and positioned element pair must share a unique anchor name. */
+  /* 必须：每对触发器与定位元素共用一个唯一锚点名称。 */
   anchor-name: --my-trigger;
 }
 
 [popover].anchored-overlay {
   position-anchor: --my-trigger;
-  /* MANDATORY: Use anchor() on inset properties rather than position-area when using the polyfill on elements needing position-try-fallbacks. */
+  /* 必须：对需要 position-try-fallbacks 的元素使用此 polyfill 时，在 inset 属性上使用 anchor()，不要使用 position-area。 */
   inset: auto;
   top: anchor(bottom);
   left: anchor(left);
@@ -186,7 +196,7 @@ if (!CSS.supports("anchor-name: --a")) {
 }
 
 @supports not (position-area: block-end) {
-  /* Optional: override default popover centering with a fixed bottom bar */
+  /* 可选：用固定底栏覆盖浮层默认居中行为。 */
   [popover].anchored-overlay {
     position: fixed;
     inset: auto 0 0 0;

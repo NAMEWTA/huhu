@@ -15,6 +15,7 @@
   - 1.3 安全 Cookie
   - 1.4 点击劫持防护（Frame-Ancestors 与 X-Frame-Options）
   - 1.5 安全的窗口消息通信（postMessage）
+  - 1.6 安全 WebSocket 连接
 - 阶段 2：发现与数据收集（前置条件）
   - 2.1 检查应用
   - 2.2 部署仅报告策略
@@ -71,10 +72,10 @@
 
 **代码模式：**
 ```javascript
-// Unsafe
+// 不安全
 element.innerHTML = `Hello, ${untrustedName}!`;
 
-// Safe
+// 安全
 element.textContent = `Hello, ${untrustedName}!`;
 ```
 
@@ -123,17 +124,51 @@ Content-Security-Policy: frame-ancestors 'self' https://trusted-partner.com;
 - **应当**：在执行操作或将传入消息载荷写入 DOM 接收点之前，验证并净化其属性。无需手动进行 JSON 序列化，因为 `postMessage` 会在内部处理对象克隆。
 
 ```javascript
-// Receiver (Safe - traditional string check)
+// 接收端（安全的传统字符串检查）
 window.addEventListener('message', (event) => {
   if (event.origin !== 'https://trusted-origin.com') return;
   const data = event.data;
   if (data && data.action === 'update') {
-    // Process data safely
+    // 安全地处理数据。
   }
 });
 
-// Sender (Safe)
+// 发送端（安全）
 targetWindow.postMessage({ action: 'update' }, 'https://trusted-origin.com');
+```
+
+<a id="16-secure-websocket-connections"></a>
+### 1.6 安全 WebSocket 连接
+浏览器**不会**对 WebSocket 握手强制执行 CORS，仍会在升级请求中附带符合条件的 cookie（包括来自同站子域或端口的 `SameSite=Lax` 和 `SameSite=Strict` cookie、跨站的 `SameSite=None` cookie，以及未默认采用 `Lax` 的浏览器中的无属性 cookie），因此 WebSocket 端点必须在服务器端显式验证 `Origin`，防止跨站 WebSocket 劫持（CSWSH）。
+- **应当**：非本地的公共 WebSocket 端点使用 `wss://`（TLS）。虽然 `https://` 混合内容限制会阻止公共 `ws://` 连接，`http://` 页面和硬编码的 `ws://` 配置仍存在风险；仅将 `ws://` 用于回环地址开发，或明确符合 Local Network Access 豁免的场景（私有 IP 字面量和 `.local` mDNS 主机名；参见 `local-network-access`，通过 `npx -y modern-web-guidance@latest retrieve "local-network-access"` 获取）。
+- **应当**：在 WebSocket 握手处理器内（例如 HTTP/1.1 `upgrade` 或 HTTP/2 Extended `CONNECT` 处理器）将 `Origin` 标头与明确的可信源白名单严格比对；源缺失或不符合预期时，在完成握手前返回 HTTP `403`。
+- **不要**：在 WebSocket 握手中用 `Sec-Fetch-*` 标头代替 `Origin`。并非所有浏览器都会在 WebSocket 升级时发送 `Sec-Fetch-*`（拒绝缺少标头的请求会破坏连接，允许缺少标头的请求则无法保护这些浏览器），而且 `Sec-Fetch-Site: same-site` 仍允许不可信子域。
+- **不要**：在 WebSocket URL 查询参数（`wss://example.com/ws?token=...`）或 `Sec-WebSocket-Protocol` 标头中传递身份验证令牌或秘密；两者都会将凭据泄漏到服务器访问日志和代理中。
+- **应当**：将严格的服务器端 `Origin` 验证与加固的会话 cookie 配合使用，对 WebSocket 会话进行身份验证（§1.3；注意 `__Host-` cookie 仅属于当前主机，不会发送到独立的 WebSocket 子域；后者需要带 `Domain` 的 `__Secure-` cookie，或不依赖 cookie 的身份验证）。也可以要求通过 `wss://` 的第一条 WebSocket 消息完成身份验证，短暂超时后仍未认证则关闭连接。
+
+```javascript
+import { WebSocketServer } from 'ws';
+
+// 替换为应用的可信源。
+const ALLOWED_ORIGINS = new Set(['https://app.example.com']);
+// 使用 noServer，避免 ws 注册另一个可绕过检查的 upgrade 监听器。
+const wss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (req, socket, head) => {
+  // Node 在 upgrade 时移除默认 socket 错误处理器；避免未处理的 ECONNRESET 导致崩溃。
+  socket.on('error', () => {});
+
+  const origin = req.headers.origin;
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+    socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+    return;
+  }
+
+  // 验证加固的会话 cookie（§1.3），或强制第一条消息在短暂超时内完成认证。
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
+  });
+});
 ```
 
 <a id="phase-2-discovery--data-collection-prerequisites"></a>
@@ -252,7 +287,7 @@ const csp = [
   `script-src 'nonce-${nonce}' 'strict-dynamic' 'report-sample'`,
   "object-src 'none'",
   "base-uri 'none'",
-  "frame-ancestors 'none'", // or "frame-ancestors 'self'" if same-origin framing is needed
+  "frame-ancestors 'none'", // 需要同源框架嵌入时，也可以使用 "frame-ancestors 'self'"。
   "require-trusted-types-for 'script'",
   'report-to main-endpoint',
 ].join('; ');
@@ -260,9 +295,9 @@ const csp = [
 headers.set('Reporting-Endpoints', 'main-endpoint="https://reports.example/main"');
 headers.set('Content-Security-Policy', csp);
 
-// Pass the per-request nonce into your template/SSR rendering context (or replace an
-// explicit placeholder token in a static template before interpolating any user data):
-res.locals.nonce = nonce; // e.g., <script nonce="<%= nonce %>" src="/app.js"></script>
+// 将每个请求的 nonce 传入模板/SSR 渲染上下文，或在插入任何用户数据之前，
+// 替换静态模板中的显式占位词元：
+res.locals.nonce = nonce; // 例如：<script nonce="<%= nonce %>" src="/app.js"></script>
 ```
 
 对于无法为每个响应生成 nonce 的静态或缓存 HTML（SPA），使用基于哈希的 CSP：计算每个脚本的 `sha256-` 哈希，并在 `script-src` 中将这些哈希与 `'strict-dynamic' 'report-sample'` 一起列出。
@@ -315,14 +350,19 @@ const htmlPolicy = window.trustedTypes?.createPolicy('app-html', {
 
 这是部署时功能损坏风险最高的策略。只有应用需要依赖 `SharedArrayBuffer` 的功能，例如 WebAssembly 多线程或共享内存架构时，才需要部署这一基础设施。如果不需要，跳过此策略组。
 
-- **首选路径（Chromium 环境）**：启用 `Document-Isolation-Policy: isolate-and-credentialless`。它提供与 COEP 类似的客户端隔离，同时指示浏览器从非 CORS 跨源资源请求中移除 cookie 和身份验证凭据，而不是直接阻止这些请求。注意，它主要由 Chrome 142 及更高版本支持，其他厂商尚未表现出兴趣，因此应根据目标用户谨慎评估。如果应用需要*阻止*没有显式 CORP 许可的跨源资源，而不是移除凭据后加载，可以改用 `isolate-and-require-corp`。该方式更严格、更难部署，需要进行与下方跨浏览器路径相同的子资源审计。
-- **跨浏览器路径（复杂的强制实施）**：要求 `Cross-Origin-Opener-Policy: same-origin` 配合 `Cross-Origin-Embedder-Policy: require-corp`。每个嵌入的子资源，例如图片、样式和外部媒体，都必须提供显式的 `Cross-Origin-Resource-Policy` 标头，否则浏览器会阻止加载。
+- **应当（跨浏览器默认方案：COOP + COEP）**：文档同时提供 `Cross-Origin-Opener-Policy: same-origin` 和 `Cross-Origin-Embedder-Policy: require-corp`（或在支持时使用 `Cross-Origin-Embedder-Policy: credentialless`）。在 `require-corp` 下，每个跨源子资源（图片、脚本、样式、媒体）都必须通过 `Cross-Origin-Resource-Policy` 标头（`cross-origin` 或 `same-site`），或 CORS（`crossorigin` 属性配合 `Access-Control-Allow-Origin`）明确许可；嵌入的跨源 `<iframe>` 还必须同时发送 `Cross-Origin-Resource-Policy`（`cross-origin` 或 `same-site`）并强制实施 COEP，否则浏览器会阻止它。
 
 ```http
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 Cross-Origin-Resource-Policy: same-origin
 ```
+
+Document-Isolation-Policy 的浏览器支持：有限可用。
+支持版本：Chrome 137（2025 年 5 月）和 Edge 137（2025 年 5 月）。
+不支持：Firefox 和 Safari。
+
+- **应当（受支持时的替代方案：Document-Isolation-Policy）**：在支持的浏览器中，可对需要 `SharedArrayBuffer` 的文档提供 `Document-Isolation-Policy: isolate-and-credentialless`，实现文档级隔离，无需断开跨源 `window.opener` 弹窗引用，也不要求嵌入的第三方 iframe 部署 COEP，同时会从非 CORS 跨源子资源请求中移除 cookie 和凭据。如果需要阻止没有明确 CORP 或 CORS 许可的跨源子资源，则改用 `Document-Isolation-Policy: isolate-and-require-corp`。
 
 <a id="37-fetch-metadata-resource-isolation"></a>
 #### 3.7 Fetch Metadata（资源隔离）
@@ -333,6 +373,7 @@ Cross-Origin-Resource-Policy: same-origin
 - **应当**：包含 `Vary: Sec-Fetch-Dest, Sec-Fetch-Mode, Sec-Fetch-Site`，防止中间缓存（CDN）将缓存响应提供给攻击者。
 - **注意**：`same-site` 会信任 eTLD+1 下的每一个子域。如果任何子域托管用户生成内容、旧应用或其他不可信代码，应从白名单中移除 `same-site`，只接受 `same-origin` 和 `none`。
 - **注意**：这些检查若配置错误，会阻止来自跨站集成、SSO 处理器或 Webhook 的合法 API 请求。务必事先记录并测试 `Sec-Fetch-*` 约束。
+- **注意**：Fetch Metadata 中间件不覆盖 WebSocket 握手；应在 WebSocket 握手处理器中验证 `Origin`（见 §1.6）。
 
 ```javascript
 app.use((req, res, next) => {
@@ -342,11 +383,11 @@ app.use((req, res, next) => {
   const mode = req.get('Sec-Fetch-Mode');
   const dest = req.get('Sec-Fetch-Dest');
 
-  if (!site) return next(); // Fallback for legacy browsers
+  if (!site) return next(); // 旧浏览器回退。
 
   if (['same-origin', 'same-site', 'none'].includes(site)) return next();
 
-  // Allow standard navigate GET requests (link clicks)
+  // 允许标准的导航 GET 请求，例如链接点击。
   if (site === 'cross-site' && mode === 'navigate' && req.method === 'GET' && !['object', 'embed'].includes(dest)) {
     return next();
   }
@@ -377,16 +418,15 @@ app.use((req, res, next) => {
 <a id="permissions-policy"></a>
 #### Permissions Policy
 - **应当**：使用结构化字段语法，为页面和 iframe 禁用未使用的浏览器功能，例如摄像头、地理定位和麦克风。
-- **应当**：为第三方 iframe 禁用 `focus-without-user-activation`，防止抢夺焦点。
 - **应当**：向 iframe 委派功能时，*除了*标头外，还要使用 HTML 的 `allow` 属性。
 - **注意**：无意中阻止已委派的功能，会使第三方组件静默失败，例如嵌入式视频播放器或支付网关。阻止之前应审计第三方依赖。
 
 ```http
-Permissions-Policy: camera=(), geolocation=(), microphone=(), focus-without-user-activation=()
+Permissions-Policy: camera=(), geolocation=(), microphone=()
 ```
 
 ```html
-<iframe src="https://trusted-video.com/player" allow="fullscreen; camera; focus-without-user-activation 'none'"></iframe>
+<iframe src="https://trusted-video.com/player" allow="fullscreen"></iframe>
 ```
 
 <a id="subresource-integrity-sri"></a>

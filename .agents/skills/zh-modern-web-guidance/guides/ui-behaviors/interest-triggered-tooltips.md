@@ -25,18 +25,17 @@
 工具提示必须具有唯一 `id`：
 
 ```html
-<!-- MANDATORY: The tooltip element must have popover="hint" so it light-dismisses
-     without closing unrelated auto or manual popovers. -->
+<!-- 必须：工具提示元素具有 popover="hint"，使轻触关闭不会关闭无关的 auto 或 manual 浮层。 -->
 <div popover="hint" id="tooltip">Tooltip content</div>
 ```
 
 用户通过悬停或聚焦 `<a>` 或 `<button>` 表达兴趣。触发元素的 `interestfor` 必须匹配提示的 `id`。
 
 ```html
-<!-- The `interestfor` attribute can be applied to a `<button>` element: -->
+<!-- interestfor 属性可应用到 <button> 元素： -->
 <button interestfor="tooltip">Tooltip trigger</button>
 
-<!-- The `interestfor` attribute can also be applied to an `<a>` element (href is an example): -->
+<!-- interestfor 属性也可应用到 <a> 元素，href 是示例： -->
 <a interestfor="tooltip" href="/docs/dom">Tooltip trigger</a>
 ```
 
@@ -93,10 +92,10 @@
 
 ```css
 [popover] {
-  /* Implicit anchor from interestfor: no anchor-name or position-anchor needed */
+  /* interestfor 提供隐式锚点，无需 anchor-name 或 position-anchor。 */
   position-area: block-start;
   position-try-fallbacks: flip-block;
-  /* Override UA popover centering (`inset: 0; margin: auto`) so the tooltip sits adjacent to its anchor */
+  /* 覆盖用户代理的浮层居中设置（inset: 0; margin: auto），让提示贴近锚点。 */
   inset: auto;
   margin: 0;
 }
@@ -110,9 +109,9 @@
 
 ```html
 <label>Shipping <input name="shipping"></label>
-<!-- The name says what the button reveals; the "?" alone is not a name. -->
+<!-- 名称应说明按钮揭示的内容；单独的问号不是名称。 -->
 <button type="button" interestfor="shipping-help" popovertarget="shipping-help" popovertargetaction="show" aria-label="More about shipping">?</button>
-<!-- Right after the trigger, so it reads in sequence. -->
+<!-- 紧接触发器放置，保持阅读顺序。 -->
 <div id="shipping-help" popover="hint">Free shipping applies to orders over $50. Orders placed before 2pm ship the same day.</div>
 ```
 
@@ -139,7 +138,7 @@ Interest invokers 的浏览器支持：有限可用。
 ```html
 <script type="module">
   if (!("interestForElement" in HTMLButtonElement.prototype)) {
-    // CDN link only used for example, prefer bundling.
+    // CDN 链接仅用于示例，优先打包。
     await import("https://unpkg.com/interestfor@latest");
   }
 </script>
@@ -154,7 +153,7 @@ Interest invokers 的浏览器支持：有限可用。
 - **伪类：** polyfill 无法定义真正的 `:interest-source` 和 `:interest-target` 伪类，因此改用 `.interest-source` 和 `.interest-target` 类。**必须：** 用 `:is()` 组合原生与 polyfill 状态。
 
 ```css
-/* Styles to apply when the effect is being previewed */
+/* 预览效果时应用的样式。 */
 :is(:interest-source, .interest-source) { /* ... */ }
 :is(:interest-target, .interest-target) { /* ... */ }
 ```
@@ -162,7 +161,7 @@ Interest invokers 的浏览器支持：有限可用。
 - **CSS 属性：** 对 `interest-delay`、`interest-delay-start` 和 `interest-delay-end`，polyfill 要求使用 CSS 变量，因为它无法在所有浏览器中直接读取这些自定义属性。
 
 ```css
-/* Adjust the start and end delay for interest invokers */
+/* 调整兴趣调用器的开始和结束延迟。 */
 [interestfor] {
   --interest-delay-start: 0.2s;
   interest-delay-start: var(--interest-delay-start);
@@ -193,7 +192,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -211,6 +210,16 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 }
 ```
 
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
+}
+```
+
 <a id="fallbacks--browser-support-for-popoverhint"></a>
 
 ### `popover="hint"` 的回退方案和浏览器支持
@@ -224,7 +233,7 @@ popover="hint" 的浏览器支持：有限可用。
 切换提示也可仅通过点击打开，没有兴趣可失去，因此 `manual` 回退永远不会关闭。缺少 `hint` 时，在打开过程中将其改为 `popover="auto"`。**必须**在 `beforetoggle` 执行：浏览器在该事件后读取类型，而改变已打开浮层类型会使其关闭。`beforetoggle` 不冒泡，因此用捕获监听器委托：
 
 ```js
-// The `popover` property reports the state the browser actually uses: "manual" when `hint` is unsupported.
+// popover property 报告浏览器实际采用的状态，不支持 hint 时为 manual。
 const probe = document.createElement("div");
 probe.popover = "hint";
 if (probe.popover !== "hint") {
@@ -259,7 +268,7 @@ Anchor positioning 的浏览器支持：有限可用。
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature-detect anchor positioning support before loading the polyfill.
+// 必须：加载 polyfill 前检测锚点定位支持。
 if (!CSS.supports("anchor-name: --a")) {
   import("@oddbird/css-anchor-positioning");
 }
@@ -268,7 +277,7 @@ if (!CSS.supports("anchor-name: --a")) {
 没有打包工具时，在 `<script type="module">` 内从 CDN 导入：
 
 ```html
-<!-- MANDATORY: Conditionally install the anchor positioning polyfill -->
+<!-- 必须：按条件安装锚点定位 polyfill。 -->
 <script type="module">
   if (!CSS.supports("anchor-name: --a")) {
     import("https://unpkg.com/@oddbird/css-anchor-positioning");
@@ -283,13 +292,13 @@ if (!CSS.supports("anchor-name: --a")) {
 
 ```css
 .trigger {
-  /* MANDATORY: Each trigger and positioned element pair must share a unique anchor name. */
+  /* 必须：每对触发器与定位元素共用一个唯一锚点名称。 */
   anchor-name: --my-trigger;
 }
 
 [popover].anchored-overlay {
   position-anchor: --my-trigger;
-  /* MANDATORY: Use anchor() on inset properties rather than position-area when using the polyfill on elements needing position-try-fallbacks. */
+  /* 必须：对需要 position-try-fallbacks 的元素使用此 polyfill 时，在 inset 属性上使用 anchor()，不要使用 position-area。 */
   inset: auto;
   top: anchor(bottom);
   left: anchor(left);
@@ -316,7 +325,7 @@ if (!CSS.supports("anchor-name: --a")) {
 }
 
 @supports not (position-area: block-end) {
-  /* Optional: override default popover centering with a fixed bottom bar */
+  /* 可选：用固定底栏覆盖浮层默认居中行为。 */
   [popover].anchored-overlay {
     position: fixed;
     inset: auto 0 0 0;

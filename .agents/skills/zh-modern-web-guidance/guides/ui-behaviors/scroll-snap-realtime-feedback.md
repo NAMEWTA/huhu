@@ -22,15 +22,15 @@ const thumbnails = document.querySelectorAll('.thumbnail');
 const items = document.querySelectorAll('.gallery-item');
 
 container.addEventListener('scrollsnapchanging', (event) => {
-  // Highlight pending snap target during scroll for real-time feedback.
+  // 滚动期间高亮待定吸附目标，提供实时反馈。
   const pendingTarget = event.snapTargetInline;
   const index = [...items].indexOf(pendingTarget);
 
   if (index === -1 || !thumbnails[index]) return;
 
-  // Use lightweight class toggle to avoid layout thrashing during rapid events.
-  // Note: aria-current is NOT toggled here. It tracks the settled "current"
-  // item, which is updated in the scrollsnapchange handler below.
+  // 使用轻量类切换，避免频繁事件导致布局抖动。
+  // 注意：此处不切换 aria-current，它跟踪已经稳定的当前项，
+  // 由下方的 scrollsnapchange 处理器更新。
   thumbnails.forEach((thumb) => thumb.classList.remove('pending'));
   thumbnails[index].classList.add('pending');
 });
@@ -45,13 +45,13 @@ container.addEventListener('scrollsnapchanging', (event) => {
 
 ```javascript
 container.addEventListener('scrollsnapchange', (event) => {
-  // Promote pending state to active on scroll completion.
+  // 滚动结束后，将待定状态转为活动状态。
   const snappedTarget = event.snapTargetInline;
   const index = [...items].indexOf(snappedTarget);
 
   if (index === -1 || !thumbnails[index]) return;
 
-  // Establish final active state and clean up pending.
+  // 建立最终活动状态并清除待定状态。
   thumbnails.forEach((thumb) => {
     thumb.classList.remove('pending', 'active');
     thumb.removeAttribute('aria-current');
@@ -67,11 +67,11 @@ container.addEventListener('scrollsnapchange', (event) => {
 页面加载时，浏览器可能恢复滚动位置，例如历史导航或锚点链接。`scrollsnapchange` 和 `scroll` 都不会自动触发。执行一次几何检查，同步 UI 与初始位置。
 
 ```javascript
-// Note: For item.offsetLeft to be relative to the container, 
-// the container MUST be the offsetParent (e.g., `position: relative`).
+// 注意：要让 item.offsetLeft 相对于容器，
+// 容器必须是 offsetParent，例如设置 position: relative。
 const findClosestItemIndex = () => {
-  // Center-distance assumes scroll-snap-align: center on items.
-  // For start-aligned snap, compare scrollLeft to item.offsetLeft directly.
+  // 中心距离算法假定项目使用 scroll-snap-align: center。
+  // 起始边对齐的吸附，应直接比较 scrollLeft 和 item.offsetLeft。
   const containerCenter = container.scrollLeft + container.clientWidth / 2;
   let closestIndex = 0;
   let minDistance = Infinity;
@@ -138,11 +138,11 @@ Scroll snap 的 Baseline 状态：广泛可用。自 2020-01-15 起纳入 Baseli
 **要**用 `scroll` 监听器、`requestAnimationFrame` 和几何距离计算模拟 `scrollsnapchanging` 的实时特性，在用户滚动时确定最近目标。
 
 ```javascript
-if ('onscrollsnapchanging' in Element.prototype) {
-  // Use native scroll snap events
+if ('onscrollsnapchanging' in HTMLElement.prototype) {
+  // 使用原生滚动吸附事件。
 } else {
-  // Fallback: use scroll + requestAnimationFrame for eager feedback
-  // (assumes the same container, thumbnails, items defined in step 1)
+  // 回退：使用 scroll + requestAnimationFrame 提供即时反馈。
+  // 假定使用步骤 1 定义的相同 container、thumbnails 和 items。
   let scrollTimeout;
   let rafId = null;
 
@@ -164,17 +164,17 @@ if ('onscrollsnapchanging' in Element.prototype) {
       const closestIndex = findClosestItemIndex();
       if (!thumbnails[closestIndex]) return;
 
-      // DO NOT forget to clean up stale pending classes
+      // 不要忘记清除过期的待定状态类。
       thumbnails.forEach((thumb) => thumb.classList.remove('pending'));
       thumbnails[closestIndex].classList.add('pending');
     });
 
-    // Debounce fallback for browsers that don't support scrollend
+    // 不支持 scrollend 的浏览器使用防抖回退。
     clearTimeout(scrollTimeout);
     scrollTimeout = setTimeout(promotePendingToActive, 100);
   }, { passive: true });
 
-  // Fallback: use Baseline `scrollend` event to promote pending to active cleanly where supported
+  // 回退：在支持的浏览器中使用 Baseline scrollend 事件，将待定状态明确转为活动状态。
   container.addEventListener('scrollend', () => {
     clearTimeout(scrollTimeout);
     promotePendingToActive();

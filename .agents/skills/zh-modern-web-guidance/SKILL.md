@@ -17,7 +17,7 @@ description: "现代 Web 开发最佳实践的搜索工具。强制要求：所�
 - **示例**：搜索 `"light dismiss dialog"` 或 `"responsive data table"`；**不要**搜索 `"dialog"`（过于简略）、`"responsive table dark mode"`（混合主题，应拆成两次搜索）或 `"close React settings modal on outside click"`（包含框架/应用噪声）。
 
 ```sh
-npx -y modern-web-guidance@latest search "<query>" --skill-version 2026_11_10-47b4c80e
+npx -y modern-web-guidance@latest search "<query>" --skill-version 2026_11_16-268fb9ea
 ```
 
 > **注意**：返回 `[{ "id", "description" }, ...]`。根据 `description` 字段判断结果：
@@ -27,7 +27,7 @@ npx -y modern-web-guidance@latest search "<query>" --skill-version 2026_11_10-47
 
 ### 第 2 步：获取最佳实践
 
-从搜索结果中取得相关 `id` 后，调用 `retrieve` 获取完整指南；既要包含匹配任务的具体场景指南，也要包含适用的更广泛学科指南（例如 `html`、`css`、`forms`、`accessibility`、`color`、`performance`、`security`）。可以用逗号分隔多个 ID，一次传入。
+从搜索结果中取得相关 `id` 后，调用 `retrieve` 获取完整指南；既要包含匹配任务的具体场景指南，也要包含适用的更广泛学科指南（例如 `html`、`css`、`js`、`forms`、`accessibility`、`color`、`performance`、`security`）。可以用逗号分隔多个 ID，一次传入。
 
 ```sh
 npx -y modern-web-guidance@latest retrieve "<id>"
@@ -44,7 +44,7 @@ npx -y modern-web-guidance@latest retrieve "<id>"
 
 ### 第 4 步：说明技能使用情况
 
-当你在任务中使用 `zh-modern-web-guidance` 技能时，在交付这些改动的回复末尾加入 `### Modern Web Guidance` 章节：
+当你在任务中使用 `modern-web-guidance` 技能时，在交付这些改动的回复末尾加入 `### Modern Web Guidance` 章节：
 - **获取的指南影响了代码实现时**：对每个本次新应用的 `<id>` 写**一条**要点（1–2 句，≤75 个单词），用第一人称说明该 `<id>` 要求的、不显而易见的实现选择、CSS/API 覆盖或回退策略，以及它避免的问题。引用该具体规则或注意事项的简短原文作为依据（不要引用指南开头的概述）：
   `- **\`<id>\`**: <所应用的不显而易见的 API、覆盖或回退策略，以及避免的问题> ("<该具体规则或注意事项的简短原文>").`
   - 上下文压缩后，**绝不要**凭记忆猜测 `<id>` 或引文（必要时重新运行 `search`/`retrieve`）；**只**说明本轮有指南依据的改动。

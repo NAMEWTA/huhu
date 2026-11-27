@@ -11,4 +11,5 @@
 
 ## 产物模板
 
+- [来源报告与讨论快照](../assets/source-report.md)
 - [来源收集与需求汇总提示词](../assets/collection-prompt.md)

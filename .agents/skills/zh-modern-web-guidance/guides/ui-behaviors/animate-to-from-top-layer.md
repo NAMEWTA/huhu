@@ -37,17 +37,17 @@
 ## 示例
 
 ```css
-/* 1. Define the visible (open) state */
+/* 1. 定义可见（打开）状态。 */
 dialog[open],
 [popover]:popover-open {
   opacity: 1;
 
-  /* 2. Define the starting state for entry (must come after open state) */
+  /* 2. 定义进入时的起始状态，必须放在打开状态之后。 */
   @starting-style {
     opacity: 0;
   }
 
-  /* Scale only for users who haven't asked for reduced motion (see 5) */
+  /* 仅为未要求减少动态的用户缩放，见第 5 项。 */
   @media (prefers-reduced-motion: no-preference) {
     transform: scale(1);
 
@@ -57,16 +57,16 @@ dialog[open],
   }
 }
 
-/* 3. Define the base (closed/exit) state and transitions */
+/* 3. 定义基础（关闭/退出）状态和过渡。 */
 dialog,
 [popover] {
   opacity: 0;
 
-  /* MANDATORY: transition display and overlay for top-layer elements */
+  /* 必须：为顶层元素的 display 和 overlay 设置过渡。 */
   transition-property: opacity, transform, display, overlay;
   transition-duration: 0.3s;
   transition-timing-function: ease-out;
-  /* Separate after transition so a shorthand doesn't reset it or fail in older browsers */
+  /* 单独写在 transition 之后，避免简写重置此值或在旧浏览器中失效。 */
   transition-behavior: allow-discrete;
 
   @media (prefers-reduced-motion: no-preference) {
@@ -74,14 +74,14 @@ dialog,
   }
 }
 
-/* 4. Animate the backdrop */
+/* 4. 为背景遮罩添加动画。 */
 dialog::backdrop,
 [popover]::backdrop {
   background-color: rgba(0, 0, 0, 0);
   transition-property: background-color, display, overlay;
   transition-duration: 0.3s;
   transition-timing-function: ease-out;
-  /* Separate after transition so a shorthand doesn't reset it or fail in older browsers */
+  /* 单独写在 transition 之后，避免简写重置此值或在旧浏览器中失效。 */
   transition-behavior: allow-discrete;
 }
 
@@ -94,8 +94,7 @@ dialog[open]::backdrop,
   }
 }
 
-/* 5. Respect user preference for reduced motion: the scale above only applies
-   with no-preference, so this only shortens the fade */
+/* 5. 尊重减少动态偏好：上方缩放仅在 no-preference 时生效，因此此处只缩短淡出。 */
 @media (prefers-reduced-motion: reduce) {
   dialog,
   [popover] {
@@ -149,10 +148,10 @@ function canTransitionDisplay() {
     return false;
   }
   const probe = document.createElement('div');
-  // The shorthand is intentional here: browsers that don't parse allow-discrete
-  // drop the whole declaration, so display: none applies instantly and the probe
-  // correctly returns false. !important guards against global reduced-motion
-  // resets like `* { transition: none !important }`.
+  // 此处有意使用简写：不认识 allow-discrete 的浏览器
+  // 会丢弃整条声明，使 display: none 立即生效，探针
+  // 便能正确返回 false。!important 用于防止全局减少动态
+  // 重置，例如 `* { transition: none !important }`。
   probe.style.cssText = 'transition: display 1s allow-discrete !important; display: block;';
   document.body.appendChild(probe);
   getComputedStyle(probe).display;
@@ -198,8 +197,8 @@ function canTransitionDisplay() {
 ```
 
 ```javascript
-// Evaluate lazily: canTransitionDisplay() needs document.body, so a top-level
-// const would be permanently false if this script runs in <head>.
+// 延迟求值：canTransitionDisplay() 需要 document.body；若脚本在 <head> 中运行，
+// 顶层 const 会永久为 false。
 function supportsTopLayerExit() {
   return window.CSS?.supports?.('overlay', 'auto') && canTransitionDisplay();
 }
@@ -219,12 +218,12 @@ async function closeTopLayer(element) {
   }
 
   element.close();
-  // Or for popover:
+  // 或者用于浮层：
   // element.hidePopover();
 }
 
-// Route native close requests (Esc, closedby light dismiss) through the same
-// helper so they animate too, instead of closing instantly.
+// 将原生关闭请求（Esc、closedby 轻触关闭）交给同一个
+// 辅助函数，使其同样有动画，而非立即关闭。
 dialog.addEventListener('cancel', (event) => {
   event.preventDefault();
   closeTopLayer(dialog);
@@ -247,7 +246,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -262,5 +261,15 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 ```css
 [popover]:is(:popover-open, .\:popover-open) {
   display: block;
+}
+```
+
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
 }
 ```

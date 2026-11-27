@@ -46,8 +46,8 @@
 - 使用 `aspect-ratio` 为媒体预留空间，防止资源加载前发生布局偏移。
 
 ```css
-.sidebar       { inline-size: max-content; }    /* Size to longest unbreakable token. */
-.main-content  { inline-size: fit-content; }    /* Grow to available space, no further. */
+.sidebar       { inline-size: max-content; }    /* 按最长的不可拆分词元确定尺寸。 */
+.main-content  { inline-size: fit-content; }    /* 增长到可用空间，不再扩大。 */
 .media         { aspect-ratio: 16 / 9; inline-size: 100%; block-size: auto; }
 body.centered  { display: grid; place-content: center; min-block-size: 100dvb; }
 ```
@@ -88,8 +88,8 @@ flex-wrap: balance 的浏览器支持：有限可用。
 
 ```css
 .card-grid        { display: flex; flex-flow: row wrap; gap: 1rem; }
-.card-item        { flex: 1 1 250px; }                  /* grow, shrink, basis */
-.card-item-action { margin-inline-start: auto; }        /* Push to main-axis end. */
+.card-item        { flex: 1 1 250px; }                  /* 增长、收缩、基准尺寸 */
+.card-item-action { margin-inline-start: auto; }        /* 推向主轴末端。 */
 .toolbar          { display: flex; align-items: safe center; }
 .tag-list         { display: flex; flex-wrap: wrap; flex-wrap: balance; gap: 0.5rem; }
 ```
@@ -146,7 +146,7 @@ Subgrid 的 Baseline 状态：广泛可用。自 2023-09-15 起达到 Baseline�
 页面外壳：`<main class="page-layout">` 包含 `<header>`、`<aside>`、带有 `<div class="card">` 子项的 `<section class="card-grid">`，以及 `<footer>`。
 
 ```css
-/* Align grid-template-areas in rows and columns for readability. */
+/* 按行列对齐 grid-template-areas，提高可读性。 */
 .page-layout {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -165,14 +165,14 @@ footer  { grid-area: footer; }
   grid-area: main;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  grid-template-rows: auto 1fr; /* title block, body block */
+  grid-template-rows: auto 1fr; /* 标题块、正文块 */
   gap: 1rem;
 }
 
 .card {
   grid-row: span 2;
   display: grid;
-  /* Same-cascade fallback: ignored when subgrid is supported. */
+  /* 同层叠级别的回退：支持 subgrid 时忽略。 */
   grid-template-rows: auto 1fr;
   grid-template-rows: subgrid;
 }
@@ -206,7 +206,7 @@ footer  { grid-area: footer; }
 
 ```css
 .card-wrapper {
-  container: card / inline-size; /* shorthand for container-name / container-type */
+  container: card / inline-size; /* container-name / container-type 的简写 */
 }
 
 @container card (inline-size > 400px) {
@@ -217,7 +217,7 @@ footer  { grid-area: footer; }
 }
 
 .title {
-  /* Fluid type bound to the container width, not the viewport. */
+  /* 根据容器宽度而非视口调整的流体字号。 */
   font-size: clamp(1rem, 4cqi, 2rem);
 }
 ```
@@ -282,15 +282,15 @@ scrollbar-gutter 的 Baseline 状态：新近可用。自 2024-12-11 起达到 B
 .scrollable-list {
   max-block-size: 400px;
   overflow-y: auto;
-  scrollbar-gutter: stable;       /* Reserve scrollbar space. */
-  overscroll-behavior: contain;   /* No scroll chaining into the page. */
+  scrollbar-gutter: stable;       /* 预留滚动条空间。 */
+  overscroll-behavior: contain;   /* 不将滚动链传递到页面。 */
 }
 
 .snippet {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
-  line-clamp: 3;                  /* Ignored where unsupported. */
+  line-clamp: 3;                  /* 不支持时忽略。 */
   overflow: clip;
 }
 ```
@@ -314,7 +314,7 @@ scrollbar-gutter 的 Baseline 状态：新近可用。自 2024-12-11 起达到 B
 ## 8 Grid lanes（又称 masonry）
 
 Grid lanes 的浏览器支持：有限可用。
-支持：Safari 27.2。
+支持版本：Safari 27.2（2026 年 10 月）。
 不支持：Chrome、Edge 和 Firefox。
 
 规范以“grid lanes”为名开发中（例如 `display: grid-lanes`），早期实验原型则使用 `grid-template-rows: masonry`。

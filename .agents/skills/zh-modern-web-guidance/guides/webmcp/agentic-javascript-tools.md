@@ -39,7 +39,7 @@ await document.modelContext.registerTool({
   annotations: { readOnlyHint: true }
 }, { signal: controller.signal });
 
-// To unregister the tool (e.g., on component unmount):
+// 注销工具时，例如组件卸载时：
 controller.abort();
 ```
 
@@ -94,7 +94,7 @@ await document.modelContext.registerTool({
     required: ["width", "height"]
   },
   execute(input) {
-    // input is { width: 10, height: 20 }
+    // input 为 { width: 10, height: 20 }。
     return input.width * input.height;
   },
   annotations: { readOnlyHint: true }
@@ -115,7 +115,7 @@ const SORT_ORDERS = ["newest", "price_low_to_high"];
 
 await document.modelContext.registerTool({
   name: "search_products",
-  // Don't list the sort orders here, even via SORT_ORDERS: `enum` already does.
+  // 不要在这里列排序方式，即使通过 SORT_ORDERS 也不需要；enum 已经声明。
   description: "Searches the product catalog by keyword. Use when the user wants to find or compare products.",
   inputSchema: {
     type: "object",
@@ -135,6 +135,79 @@ await document.modelContext.registerTool({
 });
 ```
 
+
+<a id="declaring-return-values-with-outputschema"></a>
+
+## 用 `outputSchema` 声明返回值
+
+从 Chrome 159 开始，工具定义接受可选的 `outputSchema`：一个描述 `execute` 返回值的 JSON Schema 对象。
+
+* **分离意图与结构**：`description` 只说明工具做什么、何时调用。**不要**在 `description` 中列出返回属性名、类型或供后续调用使用的 ID；应在 `outputSchema` 中声明。
+* **有选择地使用 `outputSchema`**：用于返回多个字段的整合读取或搜索工具、返回更新后状态的修改操作（例如购物车更新后返回 `{ items, subtotal, total }`），以及返回其他工具需要的 ID 的工具。输出明显的窄范围读取（例如单个数字）、仅返回状态或确认的操作、UI 导航工具则省略，因为每个 schema 都会消耗提示词 token。
+* **保持 `execute()` 与 `outputSchema` 一致**：返回符合 schema、可 JSON 序列化的值。Agent 可以根据 `outputSchema` 校验结果，不匹配时向模型发送工具错误而非实际结果。结构化错误载荷也包括在内：如果 `execute` 可能返回 `{ error: "..." }`，就应在 `outputSchema` 中允许这种结构（例如使用 `anyOf`），否则 Agent 可能无法看到你的错误消息。
+
+```javascript
+await document.modelContext.registerTool({
+  name: "search_flights",
+  // 说明工具做什么、何时使用；结果结构由 outputSchema 描述。
+  description: "搜索两个机场之间的可用航班。预订航班前使用。",
+  inputSchema: {
+    type: "object",
+    properties: {
+      from: { type: "string", description: "出发机场的 IATA 代码。" },
+      to: { type: "string", description: "到达机场的 IATA 代码。" },
+    },
+    required: ["from", "to"],
+  },
+  outputSchema: {
+    anyOf: [
+      {
+        type: "object",
+        properties: {
+          flights: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                // 在这里声明，让 Agent 知道将它传给 book_flight。
+                flightId: { type: "string", description: "传给 book_flight。" },
+                departureTime: { type: "string", format: "date-time" },
+                price: { type: "number" },
+              },
+              required: ["flightId", "departureTime", "price"],
+            },
+          },
+        },
+        required: ["flights"],
+      },
+      // 允许结构化错误载荷，避免校验吞掉错误。
+      {
+        type: "object",
+        properties: { error: { type: "string" } },
+        required: ["error"],
+      },
+    ],
+  },
+  async execute({ from, to }, { signal }) {
+    if (typeof from !== "string" || typeof to !== "string") {
+      return { error: "Pass departure and arrival airport codes." };
+    }
+    try {
+      const flights = await flightService.search({ from, to }, { signal });
+      // 只返回声明的字段，与 outputSchema 一致。
+      return {
+        flights: flights.map(({ id, departureTime, price }) => ({ flightId: id, departureTime, price })),
+      };
+    } catch (err) {
+      // 执行取消时重新抛出异常，不返回错误值。
+      if (signal.aborted) throw err;
+      // 匹配 outputSchema 的 { error } 分支，让 Agent 看见消息。
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+  annotations: { readOnlyHint: true },
+});
+```
 
 <a id="execution-patterns"></a>
 
@@ -186,7 +259,7 @@ execute(input) {
 execute({ itemName }) {
   const item = menuItems.find((entry) => entry.name.toLowerCase() === itemName.toLowerCase());
   if (!item) {
-    // Return the error as a value instead of throwing, so the agent receives the message:
+    // 将错误作为值返回，而非抛出，让 Agent 收到消息：
     return {
       error: `Menu item "${itemName}" not found.`,
       availableItems: menuItems.map((entry) => entry.name),
@@ -228,7 +301,7 @@ await document.modelContext.registerTool({
     const output = document.querySelector("pre");
     output.textContent = "Loading…";
     try {
-      // Passing `signal` aborts the network request the moment execution is cancelled.
+      // 传入 signal 后，执行取消的瞬间就会终止网络请求。
       const response = await fetch(url, { priority, signal });
       if (!response.ok) {
         output.textContent = "";
@@ -238,13 +311,13 @@ await document.modelContext.registerTool({
       output.textContent = text;
       return text;
     } catch (err) {
-      // Roll back the UI state this execution set, so a cancelled run leaves no trace.
+      // 回滚本次执行设置的 UI 状态，让取消不留下痕迹。
       output.textContent = "";
       if (signal.aborted) {
-        // The execution was cancelled: re-throw instead of returning an error value.
+        // 执行已取消：重新抛出，而非返回错误值。
         throw err;
       }
-      // Return other errors as a value instead of throwing, so the agent receives the message.
+      // 其他错误作为值返回，而非抛出，让 Agent 收到消息。
       return { error: err instanceof Error ? err.message : String(err) };
     }
   },
@@ -272,13 +345,13 @@ await document.modelContext.registerTool({
     required: ['flightId', 'passengers'],
   },
   execute: async ({ flightId, passengers }, { signal }) => {
-    // Forward `signal` to the transaction API to honor cancellation:
+    // 将 signal 传给事务 API，遵守取消要求：
     return await bookFlightReservation({ flightId, passengers }, { signal });
   },
   annotations: {
-    readOnlyHint: false,      // This tool mutates state (it makes a booking).
-    consequentialHint: true,  // Spends money and is not trivially reversible.
-    untrustedContentHint: false, // Output is first-party data, not third-party content.
+    readOnlyHint: false,      // 此工具会修改状态，例如创建预订。
+    consequentialHint: true,  // 会花费金钱，且不容易撤销。
+    untrustedContentHint: false, // 输出是第一方数据，不是第三方内容。
   }
 });
 ```
@@ -300,8 +373,8 @@ await document.modelContext.registerTool({
     return appStore.getState();
   },
   annotations: {
-    readOnlyHint: true, // Only reads state.
-    debugging: true,    // Developer tooling, not an end-user action.
+    readOnlyHint: true, // 只读取状态。
+    debugging: true,    // 开发工具，不是最终用户操作。
   }
 });
 ```
@@ -327,10 +400,10 @@ await document.modelContext.registerTool({
 从 Chrome 155 开始，`RegisteredTool.inputSchema` 直接作为 JavaScript 对象返回（注册时所传 schema 的深拷贝）。修改此对象不会改变已注册工具的实际 schema。
 
 ```javascript
-// Example: An in-page AI assistant discovering tools available on the page:
+// 示例：页面内 AI 助手发现页面上的可用工具：
 const tools = await document.modelContext.getTools();
 
-// In-page agents can listen for tools being registered or unregistered dynamically:
+// 页面内 Agent 可以监听工具动态注册或注销：
 document.modelContext.addEventListener("toolchange", async () => {
   const updatedTools = await document.modelContext.getTools();
   console.log(`Active tools updated: ${updatedTools.map((t) => t.name).join(", ")}`);
@@ -341,7 +414,7 @@ document.modelContext.addEventListener("toolchange", async () => {
 要发现跨源后代 iframe 内注册的工具（注册时必须通过 `exposedTo` 明确授予访问权限），请在选项字典中传入 `fromOrigins`：
 
 ```javascript
-// Query tools registered in the embedded cart frame that exposed them to this checkout origin:
+// 查询嵌入购物车框架中注册并向当前结账源公开的工具：
 const cartTools = await document.modelContext.getTools({
   fromOrigins: ["https://cart.example.com"],
 });
@@ -357,17 +430,17 @@ const cartTools = await document.modelContext.getTools({
 从 Chrome 155 开始，`executeTool()` 可以直接接收普通 JavaScript 对象作为 `inputObject`，与工具 `execute` 回调接收的输入格式一致。
 
 ```javascript
-// 1. Discover the tool (typically done during agent initialization or test setup):
+// 1. 发现工具，通常在 Agent 初始化或测试准备时进行：
 const tools = await document.modelContext.getTools();
 const areaTool = tools.find((t) => t.name === "calculate_area");
 
 if (areaTool) {
   const controller = new AbortController();
-  // Example input payload matching the tool's inputSchema:
+  // 符合工具 inputSchema 的示例输入载荷：
   const inputObject = { width: 10, height: 20 };
   const options = { signal: controller.signal };
 
-  // 2. Pass input arguments as a JavaScript object, with a JSON string fallback for Chrome <155:
+  // 2. 将输入参数作为 JavaScript 对象传入；Chrome <155 使用 JSON 字符串回退：
   let resultString;
   try {
     resultString = await document.modelContext.executeTool(areaTool, inputObject, options);
@@ -379,7 +452,7 @@ if (areaTool) {
         options
       );
     } else {
-      // Re-throw real tool execution or cancellation errors:
+      // 重新抛出真实工具执行或取消错误：
       throw err;
     }
   }
@@ -470,6 +543,7 @@ export function createInventoryTool(inventoryManager) {
     * **exposedTo**：（可选）安全源字符串数组，控制文档树中哪些文档可以跨框架边界发现并执行工具。
 * **工具发现选项（`ModelContextGetToolOptions`）**：
     * **fromOrigins**：（可选）要在可访问框架中查询的安全源字符串数组。不带 `fromOrigins` 调用 `getTools()` 时，只查询同源文档。
+* **outputSchema**：（可选，Chrome 159+）描述 `execute` 返回值的 JSON Schema 对象。有选择地用于多字段读取/搜索工具、返回更新状态的修改操作，以及返回供后续调用使用的 ID 的工具。
 * **返回格式**：`execute` 函数可以返回任何可 JSON 序列化的值（对象、数组、字符串、数字、布尔值）。`execute` 抛出的异常消息不会转发给 agent，因此应通过返回值提供结构化错误载荷（例如 `{ error: "..." }`），让 agent 能读取并处理可采取行动的错误。
 * **安全上下文**：WebMCP 要求 HTTPS。`exposedTo` 和 `fromOrigins` 中的所有源也必须潜在可信。
 * **已弃用／已移除**：不再支持 `navigator.modelContext`（在 Chromium 150 中弃用）、`unregisterTool()`、`provideContext()` 和 `clearContext()`。
@@ -484,7 +558,7 @@ export function createInventoryTool(inventoryManager) {
 
 ```javascript
 if ('modelContext' in document) {
-  // Register tools
+  // 注册工具
 }
 ```
 

@@ -132,3 +132,7 @@ $dev-workflow 我要离开一会儿。一直做，直到迁移检查显示旧调
 完整分派规则见 `dev-workflow`（`dev-workflow`） 本身。
 
 下一页：[理解代码](guide-understanding.md)。
+
+## 从旧会话继续工作
+
+“上周这个功能做到哪了”交给 `dev-recall`，按主题核对会话、代码和共享记录。“接着上次未完成的任务做”交给 `dev-handoff`。“复盘这次遗漏了哪个检查”由 `dev-reflect` 查原始事件；需要让同类错误在工程上无法重演时使用 `dev-guardrails`。只询问当前项目的会话文件位置时，直接读 `dev-session-history`。

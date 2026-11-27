@@ -8,7 +8,7 @@ import { inspect } from "node:util";
 import { boundRun, chartRun, configText } from "./backends/cfg.mjs";
 import { plainText } from "./backends/plain-text.mjs";
 import { readConfig } from "./frontends/config.mjs";
-import { parseDot } from "./frontends/dot.mjs";
+import { parseDot, splitLines } from "./frontends/dot.mjs";
 import { readCounterexample, readMarks } from "./frontends/marks.mjs";
 import { readMessages } from "./frontends/messages.mjs";
 import { initialOnlyProperties, readChecks, readSany, readSpec } from "./frontends/spec.mjs";
@@ -51,23 +51,24 @@ export function* fileLines(file        ) {
         kept = end;
         continue;
       }
-      yield* buf.toString("utf8", 0, cut).split("\n");
+      yield* splitLines(buf.toString("utf8", 0, cut));
       kept = buf.copy(buf, 0, cut + 1, end);
     }
-    yield buf.toString("utf8", 0, kept);
+    yield* splitLines(buf.toString("utf8", 0, kept));
   } finally {
     fs.closeSync(fd);
   }
 }
 
 export const PINNED_FLAGS = ["-workers", "1", "-fp", "0", "-lncheck", "final"];
+const SANY_ERRORS = /^\*\*\* ?(?:Errors|Abort messages|Parse Error)/m;
 
 const runChild = (file        , args          , options                                         ) =>
   new Promise             ((resolve) => {
     execFile(
       file,
       args,
-      { encoding: "utf8", maxBuffer: 1 << 30, ...options },
+      { encoding: "utf8", maxBuffer: 1 << 30, windowsHide: true, ...options },
       (error, stdout, stderr) =>
         resolve({
           status: error ? (typeof error.code === "number" ? error.code : null) : 0,
@@ -121,10 +122,10 @@ function* outputLines(output        ) {
       rest = buf;
       continue;
     }
-    yield* utf8.decode(buf.subarray(0, cut)).split("\n");
+    yield* splitLines(utf8.decode(buf.subarray(0, cut)));
     rest = buf.subarray(cut + 1);
   }
-  yield utf8.decode(rest);
+  yield* splitLines(utf8.decode(rest));
 }
 
 const messagesOf = (output        )                 => ({
@@ -142,7 +143,7 @@ const runToFiles = (
     for (const f of files) fds.push(fs.openSync(f, "w"));
     let child              ;
     try {
-      child = spawn(file, args, { ...options, stdio: ["ignore", ...fds] });
+      child = spawn(file, args, { ...options, stdio: ["ignore", ...fds], windowsHide: true });
     } finally {
       for (const fd of fds) fs.closeSync(fd);
     }
@@ -192,6 +193,12 @@ const tail = (r            ) => {
   return kept.join("").trim().split("\n").slice(-30).join("\n");
 };
 
+function firstLines(text) {
+  const lines = text.trim().split("\n");
+  if (lines.length > 40) lines.splice(40, Infinity, `… 另有 ${lines.length - 40} 行`);
+  return lines.join("\n");
+}
+
 const stopOf = (r            )       => {
   const errors         = [];
   for (const m of r.error ? [] : messagesOf(r.output))
@@ -203,10 +210,15 @@ const stopOf = (r            )       => {
     )
       errors.push(m);
   if (!errors.length) return { status: r.status, message: tail(r) };
-  const lines = [...plainText(errors)].join("").trim().split("\n");
-  if (lines.length > 40) lines.splice(40, Infinity, `... ${lines.length - 40} more lines`);
-  return { status: r.status, message: lines.join("\n") };
+  return { status: r.status, message: firstLines([...plainText(errors)].join("")) };
 };
+
+function sanyErrors(result) {
+  if (result.error) return undefined;
+  const text = [...plainText(messagesOf(result.output))].join("");
+  const start = text.search(SANY_ERRORS);
+  return start === -1 ? undefined : firstLines(text.slice(start));
+}
 
 const names = (rules        , kind              ) => {
   const found           = [];
@@ -251,6 +263,8 @@ export async function check(specFile        , configFile        )               
         [
           `-Djava.io.tmpdir=${tmp}`,
           `-DTLA-Library=${folder}`,
+          "-Dstdout.encoding=UTF-8",
+          "-Dstderr.encoding=UTF-8",
           ...jvm,
           "-cp",
           tlc.jar,
@@ -270,8 +284,12 @@ export async function check(specFile        , configFile        )               
       ["-o", "-I", folder, path.resolve(specFile)],
       ["-XX:TieredStopAtLevel=1"],
     );
-    if (xml.status !== 0)
-      throw new Error(`SANY 无法读取 ${specFile}（退出码 ${xml.status}）：\n${tail(xml)}`);
+    if (xml.status !== 0) {
+      const diagnostics = xml.error ? undefined : sanyErrors(await runJava(
+        "sany-errors", "tla2sany.SANY", [path.resolve(specFile)], ["-XX:TieredStopAtLevel=1"],
+      ));
+      throw new Error(`SANY 无法读取 ${specFile}（退出码 ${xml.status}）：\n${diagnostics ?? tail(xml)}`);
+    }
     const sany = readSany(fs.readFileSync(xml.stdout, "utf8"));
     const module = path.basename(specFile, ".tla");
     const spec = { ...readSpec({ module, sany, checks }), folder };

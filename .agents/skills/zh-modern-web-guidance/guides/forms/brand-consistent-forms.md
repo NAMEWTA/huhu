@@ -22,28 +22,28 @@ CSS 属性 `accent-color` 提供了一种简单方式：仅用一行 CSS 就能�
   --brand-color: #6200ee;
 }
 
-/* Apply accent-color to the body or a specific container */
+/* 将 accent-color 应用于 body 或特定容器。 */
 body {
   accent-color: var(--brand-color);
 }
 
-/* Optional: Adjust for dark mode if needed */
+/* 可选：按需适配深色模式。 */
 @media (prefers-color-scheme: dark) {
   :root {
-    --brand-color: #bb86fc; /* A lighter shade for dark mode */
+    --brand-color: #bb86fc; /* 用于深色模式的较浅色调。 */
   }
 }
 ```
 
 ```html
 <form>
-  <!-- Checkbox -->
+  <!-- 复选框 -->
   <label for="subscribe">
     <input type="checkbox" id="subscribe" checked>
     Subscribe to newsletter
   </label>
 
-  <!-- Radio Buttons -->
+  <!-- 单选按钮 -->
   <label for="plan-monthly">
     <input type="radio" id="plan-monthly" name="plan" value="monthly">
     Monthly
@@ -53,11 +53,11 @@ body {
     Yearly
   </label>
 
-  <!-- Range Slider -->
+  <!-- 范围滑块 -->
   <label for="volume">Volume:</label>
   <input type="range" id="volume" min="0" max="100" value="70">
 
-  <!-- Progress Bar -->
+  <!-- 进度条 -->
   <label for="file">Upload Progress:</label>
   <progress id="file" max="100" value="70">70%</progress>
 </form>
@@ -99,9 +99,9 @@ accent-color 的浏览器支持：可用性有限。
 #### 2. CSS 回退
 在 `@supports not` 块中应用自定义样式：
 ```css
-/* Fallback for older browsers without accent-color */
+/* 不支持 accent-color 的旧浏览器回退。 */
 @supports not (accent-color: var(--brand-color)) {
-  /* Visually hide the native input using the canonical accessible recipe */
+  /* 使用标准无障碍写法，在视觉上隐藏原生输入控件。 */
   form input[type="checkbox"].visually-hidden {
     position: absolute !important;
     clip-path: inset(50%) !important;
@@ -114,7 +114,7 @@ accent-color 的浏览器支持：可用性有限。
     white-space: nowrap !important;
   }
 
-  /* Style the wrapper label */
+  /* 设置外层 label 的样式。 */
   label {
     position: relative;
     padding-left: 2rem;
@@ -123,7 +123,7 @@ accent-color 的浏览器支持：可用性有限。
     align-items: center;
   }
 
-  /* Custom box for checkbox */
+  /* 复选框的自定义方框。 */
   input[type="checkbox"] + span::before {
     content: "";
     position: absolute;
@@ -139,19 +139,19 @@ accent-color 的浏览器支持：可用性有限。
     transition: all 0.2s ease;
   }
 
-  /* Ensure custom checkbox shows focus for keyboard users */
+  /* 确保自定义复选框为键盘用户显示焦点。 */
   input[type="checkbox"]:focus-visible + span::before {
     outline: 2px solid #000;
     outline-offset: 2px;
   }
 
-  /* Checked State */
+  /* 选中状态 */
   input[type="checkbox"]:checked + span::before {
     background-color: var(--brand-color, #6200ee);
     border-color: var(--brand-color, #6200ee);
   }
 
-  /* Checkmark (Unicode) */
+  /* 勾选标记（Unicode） */
   input[type="checkbox"]:checked + span::after {
     content: "✓";
     position: absolute;
@@ -163,18 +163,18 @@ accent-color 的浏览器支持：可用性有限。
     font-size: 0.9rem;
   }
 
-  /* Fallback for Range Slider */
+  /* 范围滑块回退 */
   input[type="range"] {
     -webkit-appearance: none;
     appearance: none;
     background: transparent;
   }
 
-  /* Webkit (Chrome, Safari, Edge) */
+  /* Webkit（Chrome、Safari、Edge） */
   input[type="range"]::-webkit-slider-runnable-track {
     width: 100%;
     height: 8px;
-    /* Use gradient to show progress for a static value (e.g., 70%) or update with JS */
+    /* 用渐变表示固定进度值（例如 70%），或由 JS 更新。 */
     background: linear-gradient(to right, var(--brand-color, #6200ee) 70%, #ccc 70%);
     border-radius: 4px;
   }
@@ -187,7 +187,7 @@ accent-color 的浏览器支持：可用性有限。
     border-radius: 50%;
     background: var(--brand-color, #6200ee);
     cursor: pointer;
-    margin-top: -4px; /* Center vertically */
+    margin-top: -4px; /* 垂直居中。 */
   }
 
   /* Firefox */
@@ -206,14 +206,14 @@ accent-color 的浏览器支持：可用性有限。
     cursor: pointer;
   }
 
-  /* Firefox specific progress bar */
+  /* Firefox 专用进度条。 */
   input[type="range"]::-moz-range-progress {
     background-color: var(--brand-color, #6200ee);
     height: 8px;
     border-radius: 4px;
   }
 
-  /* Fallback for Progress Bar */
+  /* 进度条回退 */
   progress {
     -webkit-appearance: none;
     -moz-appearance: none;
@@ -255,7 +255,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 2. **添加 JavaScript：** 在 `input` 事件中更新该变量：
 ```javascript
-if (!CSS.supports('accent-color')) {
+if (!CSS.supports('accent-color', 'auto')) {
   const slider = document.getElementById('volume');
   slider.addEventListener('input', (e) => {
     e.target.style.setProperty('--progress', `${e.target.value}%`);

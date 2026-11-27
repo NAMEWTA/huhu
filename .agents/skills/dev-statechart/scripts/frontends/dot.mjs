@@ -33,7 +33,9 @@ export const parseState = (label        , parsed = new Map                      
   return Object.fromEntries(pairs);
 };
 
-export const linesOf = (input       ) => (typeof input === "string" ? input.split("\n") : input);
+export const splitLines = (text) => text.replace(/\r$/, "").split(/\r?\n/);
+
+export const linesOf = (input) => (typeof input === "string" ? splitLines(input) : input);
 
 export function parseDot(input       )        {
   const states = new Map               ();

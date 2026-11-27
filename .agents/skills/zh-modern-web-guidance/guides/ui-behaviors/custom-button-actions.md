@@ -19,13 +19,13 @@ Invoker Commands API 让按钮通过 HTML 属性声明式触发目标元素的�
 ## 示例：自定义动画控制
 
 ```html
-<!-- The target element that will respond to custom commands -->
+<!-- 响应自定义命令的目标元素。 -->
 <div id="action-target" class="target">
   Action Target
 </div>
 
-<!-- Buttons declaratively linked to the target element -->
-<!-- Each button sends a unique custom command starting with '--' -->
+<!-- 以声明式方式关联到目标元素的按钮。 -->
+<!-- 每个按钮发送以 '--' 开头的唯一自定义命令。 -->
 <button commandfor="action-target" command="--spin">
   Spin
 </button>
@@ -39,11 +39,11 @@ Invoker Commands API 让按钮通过 HTML 属性声明式触发目标元素的�
 </button>
 
 <script>
-  // 1. **Optional:** Define a registry of requested actions for cleaner logic
+  // 1. 可选：定义请求操作的注册表，使逻辑更清楚。
 const commandRegistry = {
   '--spin': (target, source) => {
     const isSpun = target.classList.toggle('is-spun');
-    // Set ARIA states, as custom commands have no inherent semantics.
+    // 设置 ARIA 状态，因为自定义命令没有固有语义。
     source?.setAttribute('aria-pressed', isSpun);
   },
   '--grow': (target, source) => {
@@ -52,19 +52,19 @@ const commandRegistry = {
   },
   '--reset': (target) => {
     target.classList.remove('is-spun', 'is-grown');
-    // Reset all associated buttons' ARIA states
+    // 重置所有相关按钮的 ARIA 状态。
     document.querySelectorAll(`button[commandfor="${target.id}"]`).forEach(btn => {
       btn.setAttribute('aria-pressed', 'false');
     });
   },
 };
 
-  // 2. **Mandatory:** Listen for the 'command' event directly on the target element
-  // (This is necessary because the native 'command' event does not bubble)
+  // 2. 必须：直接在目标元素上监听 command 事件。
+  // 这是必要的，因为原生 command 事件不会冒泡。
   document.getElementById('action-target').addEventListener('command', (event) => {
     const command = event.command;
     const target = event.target;
-    const source = event.source; // event.source refers to the triggering button
+    const source = event.source; // event.source 指向触发按钮。
     const action = commandRegistry[command];
 
     if (action) {
@@ -79,7 +79,7 @@ const commandRegistry = {
 ## 关键约束
 
 * **自定义命令前缀：** 必须：全部自定义命令以 `--` 开头，例如 `command="--my-action"`。
-* **目标：** `commandfor` 必须匹配同一文档树中某个元素的 `id`。
+* **目标：** `commandfor` 必须匹配与按钮处于同一树中的元素 `id`（同一个文档或 shadow root）。
 * **不冒泡：** `command` 事件不冒泡。有多个可能目标时，在祖先监听并添加 `{ capture: true }`。
 * **Shadow root：** 目标可能在 shadow root 内时，用 `event.composedPath()[0]` 替代 `event.target`。
 * **无障碍：** 自定义命令没有固有语义，任何状态都必须显式应用。
@@ -117,11 +117,11 @@ Invoker commands 的 Baseline 状态：新近可用。自 2025-12-12 起纳入 B
 #### 条件加载 Invoker Commands polyfill
 
 ```javascript
-// 1. Conditionally load the polyfill
+// 1. 按条件加载 polyfill。
 const hasNativeSupport = 'commandForElement' in HTMLButtonElement.prototype;
 
 if (!hasNativeSupport) {
-  // Wrap in an async IIFE to avoid top-level await issues in older browsers
+  // 包在异步 IIFE 中，避免旧浏览器的顶层 await 问题。
   (async () => {
     try {
       await import('https://esm.run/invokers-polyfill');
@@ -137,16 +137,16 @@ if (!hasNativeSupport) {
 #### 在监听器中手动管理 ARIA 状态
 
 ```javascript
-// 2. Manually manage ARIA states in your listener
+// 2. 在监听器中手动管理 ARIA 状态。
 document.getElementById('action-target').addEventListener('command', (event) => {
   const command = event.command;
   const target = event.target;
-  const source = event.source; // The button that triggered the command
+  const source = event.source; // 触发命令的按钮。
 
   if (command === '--spin') {
     const isSpun = target.classList.toggle('is-spun');
     
-    // Polyfill tip: Manually update ARIA to match the new state
+    // polyfill 提示：手动更新 ARIA，使其与新状态一致。
     source?.setAttribute('aria-pressed', isSpun);
   }
 });
@@ -159,14 +159,14 @@ document.getElementById('action-target').addEventListener('command', (event) => 
 不希望使用 polyfill 时，可以结合**事件委托**派发事件，以及**命令注册表**处理操作。这是传统 JavaScript 开发中常见且仍高效、可扩展的架构模式。
 
 ```javascript
-// 1. **Optional:** Define a registry of requested actions for cleaner logic
+// 1. 可选：定义请求操作的注册表，使逻辑更清楚。
 const commandRegistry = {
   '--spin': (target) => target.classList.toggle('is-spun'),
   '--grow': (target) => target.classList.toggle('is-grown'),
   '--reset': (target) => target.classList.remove('is-spun', 'is-grown'),
 };
 
-// 2. If CommandEvent doesn't exist, we assume no native support and provide the fallback
+// 2. CommandEvent 不存在时，假定没有原生支持并提供回退。
 if (!globalThis.CommandEvent) {
   globalThis.CommandEvent = class CommandEvent extends Event {
     constructor(type, { source, command, ...options } = {}) {
@@ -176,12 +176,15 @@ if (!globalThis.CommandEvent) {
     }
   }
 
-// 3. The fallback: Dispatch events manually if native support is missing
+// 3. 回退：缺少原生支持时，手动分发事件。
   document.addEventListener('click', (event) => {
+    // 尊重已取消按钮激活的处理器。
+    if (event.defaultPrevented) return;
     const button = event.composedPath().find((el) => el.matches?.("button[commandfor]"));
     if (!button) return;
 
-    const target = document.getElementById(button.getAttribute('commandfor'));
+    // 在按钮所在的树中解析目标，因为不同 shadow root 可以使用相同 ID。
+    const target = button.getRootNode().getElementById(button.getAttribute('commandfor'));
     const command = button.getAttribute('command');
 
     if (target && command) {
@@ -193,7 +196,7 @@ if (!globalThis.CommandEvent) {
   });
 }
 
-// 4. **Mandatory:** Register the unified listener directly on the target element
+// 4. 必须：直接在目标元素上注册统一监听器。
 document.getElementById('action-target').addEventListener('command', (event) => {
   const command = event.command;
   const target = event.target;

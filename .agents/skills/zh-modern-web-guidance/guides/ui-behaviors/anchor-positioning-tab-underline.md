@@ -10,7 +10,7 @@
 
 ```css
 ul::before {
-  /* Use a pseudo-element on the container to represent the animated indicator */
+  /* 用容器上的伪元素表示动画指示器。 */
   content: '';
 }
 ```
@@ -19,7 +19,7 @@ ul::before {
 
 ```css
 li.active {
-  /* Make a unique anchor-name for the active element. */
+  /* 为活动元素设置唯一 anchor-name。 */
   anchor-name: --active;
 }
 ```
@@ -28,21 +28,21 @@ li.active {
 
 ```css
 ul::before {
-  /* Tether the underline to the active element. */
+  /* 将下划线绑定到活动元素。 */
   position: absolute;
   position-anchor: --active;
 }
 ```
 
-用 inset 属性和 `anchor()` 函数相对锚点定位下划线。
+使用逻辑 inset 属性和 `anchor(self-start)` 或 `anchor(self-end)` 定位下划线。与 `start`、`end` 不同，这些关键字采用下划线自身的书写模式，而非其包含块的书写模式。当 RTL 标签列表位于 LTR 页面内，且下划线的任何祖先都没有在 RTL 区域内建立包含块时，这样能让锚点各边与逻辑 inset 保持一致。
 
 ```css
 ul::before {
-  /* DO NOT use position-area, which can not be transitioned. */
-  /* Use calc() to offset the top slightly */
-  inset-block-start: calc(anchor(bottom) + .1lh);
-  inset-inline-start: anchor(left);
-  inset-inline-end: anchor(right);
+  /* 不要使用无法过渡的 position-area。 */
+  /* 在指示器与标签的块结束边之间留一点间隙。 */
+  inset-block-start: calc(anchor(self-end) + .1lh);
+  inset-inline-start: anchor(self-start);
+  inset-inline-end: anchor(self-end);
 }
 ```
 
@@ -50,7 +50,7 @@ ul::before {
 
 ```css
 ul::before {
-  /* Apply your project's styles for the indicator */
+  /* 应用项目的指示器样式。 */
   border-block-end: .25lh solid red;
 }
 ```
@@ -60,7 +60,7 @@ ul::before {
 ```css
 ul::before {
   @media (prefers-reduced-motion: no-preference) {
-    /* MANDATORY: The transition must be wrapped in a prefers-reduced-motion media query to respect user preferences. */
+    /* 必须：将过渡包在 prefers-reduced-motion 媒体查询内，尊重用户偏好。 */
     transition: inset .2s;
   }
 }
@@ -69,7 +69,7 @@ ul::before {
 这只是视觉指示，不能替代合适的 `aria-current="page"` 或 `aria-selected` 值。
 
 ```html
-<!-- MANDATORY: Provide explicit assistive technology state alongside the visual tab underline -->
+<!-- 必须：除了可见的标签下划线，还要向辅助技术提供明确状态。 -->
 <nav aria-label="Primary">
   <ul>
     <li class="active">
@@ -86,17 +86,30 @@ ul::before {
 
 ## 回退策略
 
-Anchor positioning 的浏览器支持：有限可用。
-支持版本：Chrome 157（2026 年 11 月）、Edge 157（2026 年 11 月）和 Safari 27（2026 年 9 月）。
-不支持：Firefox。
+### 锚点定位
 
-浏览器不支持锚点定位时，用 `border-bottom` 添加没有动画的下划线。
+css.types.anchor 能力的 Baseline 状态：新近可用。自 2026-01-13 起纳入 Baseline。
+支持版本：Chrome 125（2024 年 5 月）、Edge 125（2024 年 5 月）、Firefox 147（2026 年 1 月）和 Safari 26（2025 年 9 月）。
+
+如果浏览器不支持这里使用的锚点定位，隐藏伪元素，并在活动标签上绘制静态 `border-block-end`。边框会遵循标签的书写模式。
 
 ```css
-ul li.active {
-  @supports not (position-anchor: auto) {
-    /* Choose a color appropriate to the app theme. */
-    border-bottom: .25lh var(--primary) solid;
+@supports not (position-anchor: --active) {
+  ul::before {
+    content: none;
+  }
+
+  ul li.active {
+    /* 选择适合应用主题的颜色。 */
+    border-block-end: .25lh solid currentColor;
   }
 }
 ```
+
+### 锚点定位动画
+
+锚点定位动画与过渡的浏览器支持：有限可用。
+支持版本：Chrome 125（2024 年 5 月）、Edge 125（2024 年 5 月）和 Safari 26（2025 年 9 月）。
+不支持：Firefox。
+
+如果浏览器能定位下划线，但不能对 `anchor()` 值作过渡，则保留锚定的下划线。选择变化时，它会直接移到新的活动标签。

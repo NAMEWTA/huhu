@@ -65,6 +65,6 @@ description: 对分支、PR、未提交改动或实现结果进行规格与项�
 
 只要求审查时交付报告；已经授权修复时，修复确认问题并复核受影响部分。每轮新的代码变更需要与原结论重新对应。
 
-需保存的审查意见写在 `.agents/dev/changes/<YYYY-MM-DD-slug>/review.md` 并引用同名 task 验收报告，不复制正文。运行原件放项目根 `temp/dev/`，实际验收更新 `evidences/` 内与原票完全同名的 `.md`；Change 根 `evidence.md` 只用于整体验收完成。小审查没有 task 时可直接返回。
+正式审查意见写在所属 Change 的 `review.md`；有 task 时引用同名验收报告，不复制正文。运行原件放项目根 `temp/dev/`，实际验收更新 `evidences/` 内与原票完全同名的 `.md`；Change 根 `evidence.md` 只用于整体验收完成。已有 Change 但没有 task 时，在现有进展或审查记录保存正式结论；没有 Change 的简短查询可直接返回。
 
 [完整本地方法与模板](references/method-index.md)

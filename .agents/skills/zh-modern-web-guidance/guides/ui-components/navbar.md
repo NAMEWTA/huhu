@@ -27,7 +27,7 @@
         popovertargetaction="toggle"
         aria-controls="site-menu"
       >
-        <!-- Decorative menu icon: insert as described in the icons guide -->
+        <!-- 装饰性菜单图标，按图标指南插入。 -->
         <span>Menu</span>
       </button>
 
@@ -66,7 +66,7 @@
 不使用硬编码断点。脚本只在行内一行（品牌、操作和全部链接）放不下时折叠导航，因此添加链接、翻译或放大文字会自动改变切换点。一行放得下时，为 header 添加 `is-wide`；没有脚本时，所有宽度都保持折叠布局。
 
 ```css
-/* Keep the row's natural width measurable */
+/* 保持行的自然宽度可测量。 */
 .header-inner > * {
   flex-shrink: 0;
   white-space: nowrap;
@@ -142,7 +142,7 @@ CSS 改变呈现，但 JavaScript 决定应用哪个布局，也必须同步 `po
 由处理导航列表的同一个函数同步布局状态。行内布局时，为子菜单设置 `popover="auto"`、清除 `hidden`，让原生 `toggle` 事件驱动 `aria-expanded`。窄布局时，移除 `popover`，通过脚本设置 `hidden`，并用点击处理器切换 `hidden` 和 `aria-expanded`：
 
 ```js
-const wide = inner.scrollWidth <= inner.clientWidth; // measured with is-wide set
+const wide = inner.scrollWidth <= inner.clientWidth; // 在设置 is-wide 的情况下测量。
 if (wide) submenu.setAttribute("popover", "auto");
 else submenu.removeAttribute("popover");
 submenu.hidden = !wide;
@@ -184,7 +184,7 @@ trigger.setAttribute("aria-expanded", "false");
     block-size: 0.5rem;
   }
 
-  /* Also hides the list before script sets popover, so an open narrow disclosure cannot widen the measured row */
+  /* 脚本设置 popover 之前也隐藏列表，避免已打开的窄布局展开区增大测得的行宽。 */
   .dropdown-list:not(:is(:popover-open, .\:popover-open)) {
     display: none;
   }
@@ -238,7 +238,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -256,20 +256,29 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 }
 ```
 
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
+}
+```
+
 <a id="fallbacks--browser-support-for-anchor-positioning"></a>
 
 ### 锚点定位的回退方案和浏览器支持
 
-Anchor positioning 的浏览器支持：有限可用。
-支持版本：Chrome 157（2026 年 11 月）、Edge 157（2026 年 11 月）和 Safari 27（2026 年 9 月）。
-不支持：Firefox。
+css.types.anchor 能力的 Baseline 状态：新近可用。自 2026-01-13 起纳入 Baseline。
+支持版本：Chrome 125（2024 年 5 月）、Edge 125（2024 年 5 月）、Firefox 147（2026 年 1 月）和 Safari 26（2025 年 9 月）。
 
 移动菜单在 `anchor()` 声明前放置绝对值回退声明。不要为这个简单回退包裹 `@supports`：不支持的 `anchor()` 声明会被丢弃，而前面的声明仍有效。没有 Anchor Positioning 时，菜单仍以浮层打开，位于距视口顶部的固定偏移处。
 
 ```css
 .site-header {
   .site-menu {
-    /* Example-only offset: use roughly your header height. Browsers without anchor() keep this one. */
+    /* 仅为示例的偏移，大致使用页头高度。不支持 anchor() 的浏览器会保留此值。 */
     inset-block-start: 4.75rem;
     inset-block-start: anchor(--menu-button bottom);
   }

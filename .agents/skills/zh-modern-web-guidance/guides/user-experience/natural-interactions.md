@@ -14,12 +14,12 @@
 
 ```css
 :where(button) {
-  /* example durations */
+  /* 示例时长 */
   transition: box-shadow 150ms ease-out, scale 150ms ease-out;
 }
 button:hover { box-shadow: 0 2px 8px rgb(0 0 0 / 0.2); }
 a:hover { text-decoration-thickness: 2px; }
-button:active { scale: 0.97; } /* example value */
+button:active { scale: 0.97; } /* 示例值 */
 
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid CanvasText;
@@ -39,18 +39,18 @@ button:active { scale: 0.97; } /* example value */
 
 ```css
 .dropdown {
-  /* popovertarget makes the trigger the popover's anchor. */
+  /* popovertarget 让触发器成为浮层锚点。 */
   position-area: bottom span-right;
   inset: auto;
   margin: 0;
-  /* The corner touching the trigger; change it whenever the placement changes. */
+  /* 接触触发器的角；位置变化时同步修改。 */
   transform-origin: top left;
 }
-/* example durations */
+/* 示例时长 */
 .dropdown:is(:popover-open, .\:popover-open) { animation: fade-in 150ms ease-out both; }
 @media (prefers-reduced-motion: no-preference) {
   .dropdown:is(:popover-open, .\:popover-open) {
-    /* optional example spring curve, written inline */
+    /* 可选的示例弹簧曲线，行内书写。 */
     animation: grow 300ms linear(0, 0.45 15%, 1.08 35%, 0.97 55%, 1.01 75%, 1) both, fade-in 150ms ease-out both;
   }
 }
@@ -76,7 +76,7 @@ button:active { scale: 0.97; } /* example value */
   scroll-snap-type: x mandatory;
 }
 .scroller > * {
-  flex: 0 0 85%; /* example item width */
+  flex: 0 0 85%; /* 示例项目宽度 */
   scroll-snap-align: start;
 }
 ```
@@ -94,10 +94,10 @@ button:active { scale: 0.97; } /* example value */
 
 ```css
 @media (prefers-reduced-motion: no-preference) {
-  .sheet.is-open { animation: sheet-in 300ms ease-out both; } /* example duration */
+  .sheet.is-open { animation: sheet-in 300ms ease-out both; } /* 示例时长 */
 }
 @keyframes sheet-in {
-  from { translate: 0 100%; filter: blur(6px); } /* example blur radius */
+  from { translate: 0 100%; filter: blur(6px); } /* 示例模糊半径 */
 }
 ```
 
@@ -140,7 +140,7 @@ Popover API 大体属于**渐进增强**，但提升到顶层、轻量关闭和�
 使用打包器或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -156,6 +156,16 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 ```css
 [popover]:is(:popover-open, .\:popover-open) {
   display: block;
+}
+```
+
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
 }
 ```
 

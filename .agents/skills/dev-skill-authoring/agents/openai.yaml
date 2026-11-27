@@ -1,0 +1,4 @@
+interface:
+  display_name: "编写项目技能"
+  short_description: "定义技能入口、完整方法和包内资源，并核对实际触发和行为"
+  default_prompt: "使用 $dev-skill-authoring 编写或修改这个项目技能，核对触发、完整方法、包内引用和代表性使用场景。"

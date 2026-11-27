@@ -4,6 +4,8 @@
 
 用户正式执行操作前提供预览可能很有帮助。Interest Invokers 是实验性 Web 平台特性，以声明式方式在兴趣源（按钮或链接）与兴趣目标间建立关联。建立后，开发者可通过 CSS 和 JavaScript 在获得或失去兴趣时响应。本用例使用 `interest` 和 `loseinterest` 事件，预览作用于目标的不同效果。
 
+兴趣触发的操作预览不用于提供额外信息，只应提供界面其他位置已有的次要信息，或通过选择不会触发提交的控件也能获得的信息。这是因为并非所有人都能获取操作预览显示的信息，尤其是使用辅助技术的人；因此，**绝不能**把它作为访问信息的唯一方式。
+
 <a id="how-to-implement"></a>
 
 ## 实现方法
@@ -11,7 +13,7 @@
 在按钮或链接（兴趣源）上设置 `interestfor`，其值引用另一个元素（兴趣目标）的 ID，即建立关联。每个调用器或兴趣源只能有一个目标，但一个目标可对应多个调用器。
 
 ```html
-<!-- MANDATORY: interest relationships must be established with the `interestfor` attribute on a button or a link -->
+<!-- 必须：在按钮或链接上使用 interestfor 属性建立兴趣关系。 -->
 <button interestfor="interestingElement" data-effect="A">Some effect</button>
 <button interestfor="interestingElement" data-effect="B">Some other effect</button>
 <div id="interestingElement">Something interesting</div>
@@ -21,12 +23,12 @@
 
 ```javascript
 interestingElement.addEventListener("interest", event => {
-  // Apply the preview based on `event.source`
+  // 根据 event.source 应用预览。
   event.target.dataset.preview = event.source.dataset.effect;
 });
 
 interestingElement.addEventListener("loseinterest", event => {
-  // Unapply the preview
+  // 取消预览效果。
   delete event.target.dataset.preview;
 });
 ```
@@ -37,7 +39,7 @@ interestingElement.addEventListener("loseinterest", event => {
 CSS 可分别通过 `:interest-source` 和 `:interest-target` 选择当前活动的兴趣源与目标。
 
 ```css
-/* Styles to apply when the effect is being previewed */
+/* 预览效果时应用的样式。 */
 :interest-source {}
 :interest-target {}
 ```
@@ -70,7 +72,7 @@ Interest invokers 的浏览器支持：有限可用。
 ```html
 <script type="module">
   if (!("interestForElement" in HTMLButtonElement.prototype)) {
-    // CDN link only used for example, prefer bundling.
+    // CDN 链接仅用于示例，优先打包。
     await import("https://unpkg.com/interestfor@latest");
   }
 </script>
@@ -85,7 +87,7 @@ Interest invokers 的浏览器支持：有限可用。
 - **伪类：** polyfill 无法定义真正的 `:interest-source` 和 `:interest-target` 伪类，因此改用 `.interest-source` 和 `.interest-target` 类。**必须：** 用 `:is()` 组合原生与 polyfill 状态。
 
 ```css
-/* Styles to apply when the effect is being previewed */
+/* 预览效果时应用的样式。 */
 :is(:interest-source, .interest-source) { /* ... */ }
 :is(:interest-target, .interest-target) { /* ... */ }
 ```
@@ -93,7 +95,7 @@ Interest invokers 的浏览器支持：有限可用。
 - **CSS 属性：** 对 `interest-delay`、`interest-delay-start` 和 `interest-delay-end`，polyfill 要求使用 CSS 变量，因为它无法在所有浏览器中直接读取这些自定义属性。
 
 ```css
-/* Adjust the start and end delay for interest invokers */
+/* 调整兴趣调用器的开始和结束延迟。 */
 [interestfor] {
   --interest-delay-start: 0.2s;
   interest-delay-start: var(--interest-delay-start);

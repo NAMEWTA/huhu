@@ -27,17 +27,17 @@
 
 将每个浮层紧接其触发器放置。只有浮层不是下一个兄弟元素时，浏览器才添加隐式 `aria-details` 关系，因此这种位置无需额外属性即可避免它。
 
-没有触发按钮的菜单通过脚本 `showPopover({ source })` 打开。`source` 设置隐式锚点，因此应传入菜单所属元素：被右键点击的卡片，或通过键盘快捷键打开时的当前焦点元素。如果要在某个点打开（指针位置，或 `@` 提及选择器的光标位置），锚点定位仍需要元素，因此使用占位元素：一个空的、零尺寸的 `position: fixed` 元素，紧放在菜单前，每次打开时用 `left` 和 `top` 移到该点，并作为 `source` 传入。零尺寸锚点让菜单角落落在该点，如同原生上下文菜单，下面的翻转回退仍适用。用 `aria-label` 为菜单命名，而非 `aria-labelledby`。本指南其余内容保持适用；定位说明中提到“触发器”时，理解为该占位元素。
+没有触发按钮的菜单通过脚本 `showPopover({ source })` 打开。`source` 设置隐式锚点，因此应传入菜单所属元素：被右键点击的卡片，或通过键盘快捷键打开时的当前焦点元素。如果要在某个点打开（指针位置，或 `@` 提及选择器的光标位置），锚点定位仍需要元素，因此使用占位元素：一个空的、零尺寸的 `position: fixed` 元素，紧放在菜单前，每次打开时用 `left` 和 `top` 移到该点，并作为 `source` 传入。零尺寸锚点让菜单角落落在该点，如同原生上下文菜单，下面的翻转回退仍适用。用 `aria-label` 为菜单命名，而非 `aria-labelledby`。本指南其余内容保持适用；定位说明中提到“触发器”时，理解为该占位元素。有关通过右键点击或长按打开菜单的方式，参见 `context-menu`（通过 `npx -y modern-web-guidance@latest retrieve "context-menu"` 获取）。
 
 ```html
-<!-- Command invoker: the browser toggles the popover on click, Enter, and Space -->
+<!-- 命令调用器：浏览器在点击、Enter 和 Space 时切换浮层。 -->
 <button id="actions-trigger" class="trigger" type="button" aria-haspopup="menu" aria-expanded="false"
   commandfor="actions-menu" command="toggle-popover">
   Actions
 </button>
-<!-- Immediately after its trigger, so browsers add no implicit aria-details -->
+<!-- 紧接触发器，让浏览器不添加隐式 aria-details。 -->
 <div id="actions-menu" popover="auto">
-  <!-- Nested, not on the popover: Chromium otherwise drops focusgroup keyboard behavior -->
+  <!-- 放在嵌套元素而非浮层上，否则 Chromium 会丢失 focusgroup 的键盘行为。 -->
   <div focusgroup="menu nomemory" aria-labelledby="actions-trigger">
     <button type="button">Duplicate</button>
     <button type="button">Rename</button>
@@ -45,7 +45,7 @@
       commandfor="export-menu" command="toggle-popover">
       Export <span aria-hidden="true">›</span>
     </button>
-    <!-- Submenu: popover="auto" directly after its trigger, inside the parent focusgroup -->
+    <!-- 子菜单：popover="auto" 紧接触发器，位于父 focusgroup 内。 -->
     <div id="export-menu" popover="auto">
       <div focusgroup="menu nomemory" aria-labelledby="export-trigger">
         <button type="button">PDF</button>
@@ -65,25 +65,24 @@
 使用 CSS 锚点定位，不用 JavaScript 坐标。`command="toggle-popover"` 和 `showPopover({ source: trigger })` 都会设置隐式锚点，因此不要为每个菜单单独添加 `anchor-name` 或 `position-anchor` 规则。菜单行为不得依赖锚点定位。
 
 ```css
-/* Top-level menus sit below their trigger, flipping when they would overflow. The implicit anchor comes from the invoker or source. */
+/* 顶层菜单位于触发器下方，溢出时翻转。隐式锚点来自调用器或 source。 */
 [popover]:has(> [focusgroup~="menu"]) {
   position-area: block-end span-inline-end;
   position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
   inset: auto;
 }
 
-/* A popover directly inside a menu is a submenu: beside its parent item, flipping when it would overflow. */
+/* 直接位于菜单内部的浮层是子菜单，放在父项目旁边，溢出时翻转。 */
 [focusgroup~="menu"] > [popover] {
   position-area: inline-end span-block-end;
   position-try-fallbacks: flip-inline, flip-block, --below;
 }
 
-/* Last resort for narrow viewports: directly below the trigger, indented, so the submenu never
-   covers its trigger. */
+/* 窄视口的最后回退：直接放到触发器下方并缩进，确保子菜单不会覆盖触发器。 */
 @position-try --below {
   position-area: block-end span-inline-end;
   margin-inline-start: 1rem;
-  /* Fit the area: the submenu's minimum width must not stop this fallback from fitting. */
+  /* 适应区域：子菜单的最小宽度不能妨碍此回退容纳它。 */
   min-inline-size: 0;
   max-inline-size: calc(100% - 1rem);
 }
@@ -101,16 +100,16 @@
 
 ```css
 @media (prefers-reduced-motion: no-preference) {
-  /* Closing: this rule is in effect once :popover-open is removed. */
+  /* 关闭：移除 :popover-open 后本规则生效。 */
   [popover]:has(> [focusgroup~="menu"]) {
     opacity: 0;
     translate: 0 -.25rem;
     transition: opacity, translate, display, overlay;
     transition-duration: .15s;
-    /* Separate after transition so the shorthand doesn't reset it or fail in older browsers */
+    /* 单独写在 transition 后面，避免简写重置此值或在旧浏览器中失效。 */
     transition-behavior: allow-discrete;
   }
-  /* Opening: faster. */
+  /* 打开：更快。 */
   [popover]:has(> [focusgroup~="menu"]):popover-open {
     opacity: 1;
     translate: 0 0;
@@ -159,15 +158,16 @@
 1. **单一打开路径。** 键盘打开调用 `trigger.click()`，使调用器的 `toggle-popover` 成为唯一打开方式。标记菜单，让 `toggle` 处理器仅在键盘打开时进入它。指针打开时，`toggle` 改为不带焦点环地聚焦触发器，因为 `pointerdown` 阻止了焦点，而方向键仍必须可用。
 2. **聚焦时预览子菜单。** 聚焦子菜单触发器时调用 `showPopover({ source: trigger })`，使子菜单锚定它。忽略从触发器自己的子菜单内部返回的焦点（按 `Escape` 后），或从另一个窗口返回的焦点（在窗口 `blur` 设置标志，窗口 `focus` 一个 tick 后清除）。除非焦点移入预览子菜单，否则在 `blur` 时隐藏它。顶层触发器没有预览：聚焦不执行任何操作。
 3. **在 `toggle` 而非 `command` 中移动焦点。** `command` 在菜单打开前触发。
-4. **自行将焦点恢复到触发器。** 在 `hidePopover()` 前聚焦触发器。指针激活后，不带焦点环地恢复（`focus({ focusVisible: false })`），否则鼠标点击后触发器会出现键盘焦点轮廓；键盘激活保留焦点环。`event.detail === 0` 的点击来自键盘。
-5. **一次关闭一层。** 子菜单中的 `Escape` 和 `ArrowLeft` 调用 `stopPropagation()`，否则父级监听器也会关闭父菜单。
+4. **自行将焦点恢复到子菜单触发器。** HTML 会在关闭根菜单时将焦点返回触发器，但不会为子菜单这样做。应在 `hidePopover()` 前聚焦触发器。
+5. **不要覆盖 `focusVisible`。** 用户代理根据用户输入判断是否应显示焦点；不要重复实现或覆盖预期行为。
+6. **一次关闭一层。** 子菜单中的 `Escape` 和 `ArrowLeft` 调用 `stopPropagation()`，否则父级监听器也会关闭父菜单。
 
 <a id="pointer-handling"></a>
 
 ### 指针处理
 
-1. **指针点击切换。** 在 `pointerdown` 调用 `preventDefault()`，避免点击移动焦点。记录按下了哪个触发器。点击关闭的触发器会原生打开且不进入菜单；只有键盘打开才进入。不要拦截点击。
-2. **悬停跟随焦点。** 分别设置 `:hover` 和 `:focus-visible` 样式。项目上的 `pointermove` 调用 `focus({ focusVisible: false })`；忽略此选项的浏览器本来也不会为指针聚焦绘制焦点环。指针聚焦子菜单触发器时，运行与键盘聚焦相同的子菜单预览，但略作延迟，避免指针穿过项目时闪现子菜单。
+1. **指针点击切换。** 点击关闭的触发器会原生打开且不进入菜单；只有键盘打开才进入。不要拦截点击。
+2. **悬停跟随焦点。** 分别设置 `:hover` 和 `:focus-visible` 样式。项目上的 `pointermove` 调用 `focus()`；浏览器不会在鼠标导致的焦点变化上匹配 `:focus-visible`，但会对键盘引起的焦点变化匹配。指针聚焦子菜单触发器时，运行与键盘聚焦相同的子菜单预览，但略作延迟，避免指针穿过项目时闪现子菜单。
 3. **安全三角区。** 静态 CSS 桥接区域太窄，仅在指针从靠近父菜单边缘处出发时有效。让 CSS 从指针离开触发器的位置绘制三角形，脚本只负责定位：
    * 仅在 `matchMedia('(hover: hover)').matches` 时运行，与触摸和键盘无关。
    * 当子菜单已打开，在其触发器的 `pointerleave` 事件坐标处开始。跳过没有侧边的 `--below` 子菜单。
@@ -184,10 +184,10 @@
   &[data-bridge]::before {
     content: "";
     position: absolute;
-    inset: -100vh -100vw; /* Room for the triangle. In this box the submenu runs from 100vw/100vh to 100% - 100vw/100vh. */
-    --bridge-slack: 5px; /* The apex moves away from the submenu by this much and is twice this tall. */
-    --bridge-side: sign(var(--pointer-x)); /* -1: pointer left of the submenu, 1: right. */
-    --bridge-edge: calc(50% + var(--bridge-side) * (50% - 100vw)); /* The submenu's near edge. */
+    inset: -100vh -100vw; /* 为三角区留空间。此盒子内，子菜单范围从 100vw/100vh 到 100% - 100vw/100vh。 */
+    --bridge-slack: 5px; /* 顶点远离子菜单这么多距离，高度为此值的两倍。 */
+    --bridge-side: sign(var(--pointer-x)); /* -1 表示指针在子菜单左边，1 表示右边。 */
+    --bridge-edge: calc(50% + var(--bridge-side) * (50% - 100vw)); /* 子菜单的近侧边。 */
     --bridge-apex: calc(100vw + var(--pointer-x) + var(--bridge-side) * var(--bridge-slack));
     clip-path: polygon(
       var(--bridge-apex) calc(100vh + var(--pointer-y) - var(--bridge-slack)),
@@ -202,12 +202,12 @@
 ```js
 const canHover = matchMedia('(hover: hover)');
 
-// Call on pointerleave of a submenu trigger, with its submenu.
+// 在子菜单触发器的 pointerleave 上调用，并传入其子菜单。
 function startBridge(submenu, event) {
   if (!canHover.matches || !submenu.matches(':popover-open')) return;
   const rect = submenu.getBoundingClientRect();
   const left = event.clientX < rect.left;
-  if (!left && event.clientX <= rect.right) return; // --below: no side edge.
+  if (!left && event.clientX <= rect.right) return; // --below：没有侧边。
   submenu.style.setProperty('--pointer-x', `${event.clientX - rect.left}px`);
   submenu.style.setProperty('--pointer-y', `${event.clientY - rect.top}px`);
   submenu.dataset.bridge = '';
@@ -219,7 +219,7 @@ function startBridge(submenu, event) {
     submenu.removeAttribute('data-bridge');
   };
   const extend = ({ target, clientX }) => {
-    // Reached an item, or turned away from the submenu.
+    // 到达项目，或转向远离子菜单。
     if (target !== submenu || (left ? clientX < lastX : clientX > lastX)) return stop();
     lastX = clientX;
     clearTimeout(timer);
@@ -238,7 +238,7 @@ function startBridge(submenu, event) {
 * **外部焦点。** 当焦点落到菜单系统外时关闭全部打开的菜单（使用 `document` 的 `focusin` 监听器）。
 * **命令激活。** 先播报，再隐藏根菜单并将焦点恢复到触发器；指针激活则不显示焦点环。对于可勾选项（`menuitemcheckbox`、`menuitemradio`），关闭前等待约 300 ms，让更改后的勾选标记可见。关闭的触发器仅在 `:focus-visible` 时呈现激活样式，否则指针选择后恢复的不带环焦点会使其继续高亮。
 * **`aria-expanded`。** 只在 `toggle` 监听器设置。它涵盖预览和打开状态，菜单预览或打开期间，触发器的 `aria-expanded` 始终为 `"true"`。
-* **辅助函数。** 下述回退假定你为自己的标记定义了：`triggers`（全部 `[commandfor]` 按钮）、`menuFor(trigger)`、`isOpen(menu)`、`closeAndRestore(menu, { fromPointer })`（先聚焦触发器，`fromPointer` 时不带环，再调用 `menu.hidePopover()`）、`enterOnOpen`（打开后要进入的菜单组成的 `WeakSet`）和 `pointerTrigger`（最近被指针按下的触发器）。
+* **辅助函数。** 下述回退假定你为自己的标记定义了：`triggers`（全部 `[commandfor]` 按钮）、`menuFor(trigger)`、`isOpen(menu)`、`enterOnOpen`（打开后要进入的菜单组成的 `WeakSet`）和 `pointerTrigger`（最近被指针按下的触发器）。
 
 <a id="submenus"></a>
 
@@ -293,7 +293,7 @@ function startBridge(submenu, event) {
   --menu-icon-size: 1.25rem;
 }
 
-/* Target items only. A closed submenu popover inside the focusgroup must keep display: none. */
+/* 仅目标项目。focusgroup 内关闭的子菜单浮层必须保持 display: none。 */
 [focusgroup~="menu"] > button,
 [focusgroup~="menu"] > [role="group"] > button {
   display: flex;
@@ -301,20 +301,19 @@ function startBridge(submenu, event) {
   gap: .5rem;
 }
 
-/* The leading slot holds the icon or check mark. */
+/* 前置槽放图标或勾选标记。 */
 [focusgroup~="menu"] button::before {
   content: "";
   flex: none;
   inline-size: var(--menu-icon-size);
 }
 
-/* Check mark for checked items. This selector must be at least as specific as the base
-   ::before rule above, or the empty content wins and the check mark never shows. */
+/* 选中项目的勾选标记。此选择器的优先级至少等于上方基础 ::before 规则，否则空 content 会获胜，勾选标记始终不出现。 */
 [focusgroup~="menu"] button[aria-checked="true"]::before {
   content: "✓";
 }
 
-/* Shortcut or submenu indicator at the inline end. */
+/* 行内末端的快捷键或子菜单指示。 */
 [focusgroup~="menu"] .hint {
   margin-inline-start: auto;
 }
@@ -345,7 +344,7 @@ if (!('focusGroup' in HTMLElement.prototype)) {
     });
     group.addEventListener('keydown', event => {
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-      // Own items only: a nested submenu has its own focusgroup, a role="group" wrapper does not.
+      // 仅自身项目：嵌套子菜单有自己的 focusgroup，role="group" 包裹层则没有。
       const items = [...group.querySelectorAll('button')]
         .filter(item => item.closest('[focusgroup]') === group)
         .filter(item => !item.disabled && item.getAttribute('aria-disabled') !== 'true');
@@ -375,7 +374,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -393,13 +392,32 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 }
 ```
 
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
+}
+```
+
+Popover polyfill 无法完整模拟顶层行为。避免让菜单成为任何子菜单的包含块；添加 `translate` 打开过渡时就可能发生这种情况。将所有会建立包含块的属性（`filter`、`translate`、`scale`、`transform` 等）放在 `@supports selector(:popover-open)` 查询内。
+
+```css
+[popover]:has(> [focusgroup~="menu"]){
+  @supports selector(:popover-open){
+    translate: 0 -.25rem;
+  }
+}
+```
+
 <a id="fallbacks--browser-support-for-anchor-positioning"></a>
 
 ### 锚点定位的回退方案和浏览器支持
 
-Anchor positioning 的浏览器支持：有限可用。
-支持版本：Chrome 157（2026 年 11 月）、Edge 157（2026 年 11 月）和 Safari 27（2026 年 9 月）。
-不支持：Firefox。
+css.properties.position-area 能力的 Baseline 状态：新近可用。自 2026-01-13 起纳入 Baseline。
+支持版本：Chrome 129（2024 年 9 月）、Edge 129（2024 年 9 月）、Firefox 147（2026 年 1 月）和 Safari 26（2025 年 9 月）。
 
 没有 CSS Anchor Positioning 时，浮层会回退到用户代理的视口居中位置。菜单绝不能以此交付：它会脱离触发器，居中的子菜单还会覆盖父菜单。把锚点规则放在 `@supports (position-area: block-end)` 中，不支持时通过脚本定位：
 
@@ -407,12 +425,10 @@ Anchor positioning 的浏览器支持：有限可用。
 * 菜单打开时在 `toggle` 处理器中执行，将结果作为菜单的 `left` 和 `top`。使用 `position: fixed` 配合 `inset: auto` 和 `margin: 0`，使坐标相对于视口。
 * 将这些覆盖放在 `@supports not (position-area: block-end)` 内，避免影响支持锚点定位的浏览器。
 
-api.HTMLElement.showPopover.options_source_parameter.implicit_anchor_reference 能力的 Baseline 状态：新近可用。自 2026-01-13 起纳入 Baseline。
-支持版本：Chrome 137（2025 年 5 月）、Edge 137（2025 年 5 月）、Firefox 147（2026 年 1 月）和 Safari 26（2025 年 9 月）。
+ToggleEvent source 的 Baseline 状态：新近可用。自 2026-05-11 起纳入 Baseline。
+支持版本：Chrome 140（2025 年 9 月）、Edge 140（2025 年 9 月）、Firefox 145（2025 年 11 月）和 Safari 26.5（2026 年 5 月）。
 
 如果目标包含 `showPopover({ source })` 尚不建立隐式锚点的早期实现（`ToggleEvent.prototype` 上没有 `source`），通过脚本为每个触发器设置唯一 `anchor-name`，并为每个菜单设置匹配的 `position-anchor`，不要逐个编写 CSS 规则。
-
-完全没有锚点定位的浏览器所用 polyfill 路径参见 `viewport-aware-dropdowns`（通过 `npx -y modern-web-guidance@latest retrieve "viewport-aware-dropdowns"` 获取）。
 
 <a id="fallbacks--browser-support-for-invoker-commands"></a>
 
@@ -421,11 +437,8 @@ api.HTMLElement.showPopover.options_source_parameter.implicit_anchor_reference �
 Invoker commands 的 Baseline 状态：新近可用。自 2025-12-12 起纳入 Baseline。
 支持版本：Chrome 135（2025 年 4 月）、Edge 135（2025 年 4 月）、Firefox 144（2025 年 10 月）和 Safari 26.2（2025 年 12 月）。
 
-没有调用器时，`command="toggle-popover"` 无效，因此脚本必须切换菜单。
+没有调用器时，`command="toggle-popover"` 不会执行任何操作。改用 `popovertarget`：它有更久的浏览器支持历史，popover polyfill 也支持它。
 
-* 检测接口而非实例：`'commandForElement' in HTMLButtonElement.prototype`。
-* 在每个触发器的 `click` 调用 `preventDefault()`，避免支持调用器的浏览器切换两次。
-* 菜单已打开时，用 `closeAndRestore(menu)` 关闭；否则调用 `menu.showPopover({ source: trigger })`。
 * 除非点击来自被指针按下的触发器（`pointerTrigger`），否则在 `enterOnOpen` 中标记菜单，确保只有键盘打开才进入。
 * `Enter` 和 `Space` 仍然可用，因为它们会在按钮上生成点击。
 

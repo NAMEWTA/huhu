@@ -18,15 +18,15 @@
     - 选项端点**必须**将请求的 `userVerification` 约束级别保存到服务器会话记录中，不要通过查询字符串从客户端回传。这让验证端点能够安全执行严格匹配的约束，避免客户端操纵。
 
 ```javascript
-// Options generation example (discoverable flow)
+// 选项生成示例（可发现凭据流程）。
 const options = {
-  challenge: serverGeneratedBase64UrlChallenge, // High-entropy random challenge stored in session
+  challenge: serverGeneratedBase64UrlChallenge, // 保存在会话中的高熵随机挑战。
   rpId: "example.com",
-  allowCredentials: [], // Request discoverable passkeys
+  allowCredentials: [], // 请求可发现的 passkey。
   userVerification: "preferred",
 };
 
-// Persist expected UV level to user session
+// 将预期 UV 等级保存到用户会话。
 req.session.expectedUserVerification = "preferred";
 ```
 
@@ -52,19 +52,24 @@ req.session.expectedUserVerification = "preferred";
 
 在带 `autofocus` 的元素上使用 `aria-describedby`，向屏幕阅读器用户提供说明和上下文。
 
+为每个输入控件提供可见的 `<label>`，通过 `for` 和 `id` 建立关联。`aria-describedby` 只添加说明，不会给字段命名。
+
 ```html
 <h1 id="signin-passkey">Sign In with Passkey</h1>
-<!-- Autocomplete tokens must contain webauthn space-separated -->
+<!-- autocomplete 词元必须包含以空格分隔的 webauthn。 -->
 <form id="signin-form">
+  <label for="username">Username</label>
   <input
     type="text"
+    id="username"
     name="username"
     aria-describedby="signin-passkey" 
     autocomplete="username webauthn"
     autofocus
     data-testid="username-field"
   />
-  <input type="password" name="password" autocomplete="current-password" />
+  <label for="password">Password</label>
+  <input type="password" id="password" name="password" autocomplete="current-password" />
   <button type="submit">Sign in</button>
 </form>
 ```
@@ -93,13 +98,13 @@ req.session.expectedUserVerification = "preferred";
 6. **编码响应：** 使用 `.toJSON()` 编码凭据的 `AuthenticatorAssertionResponse`，再发送到服务器验证。
 
 ```javascript
-// optionsFetch and loginVerifyFetch are app-defined HTTP methods
+// optionsFetch 和 loginVerifyFetch 是应用定义的 HTTP 方法。
 import { optionsFetch, loginVerifyFetch } from "./api.js";
 
 let autofillAbortController = new AbortController();
 
 async function initializeConditionalAutofill() {
-  // Feature detect Conditional Get autofill support
+  // 检测 Conditional Get 自动填充支持。
   const capabilities = await PublicKeyCredential.getClientCapabilities();
   if (capabilities.conditionalGet === true) {
     const loginOptionsJSON = await optionsFetch();
@@ -107,27 +112,27 @@ async function initializeConditionalAutofill() {
       PublicKeyCredential.parseRequestOptionsFromJSON(loginOptionsJSON);
 
     try {
-      // Initiate Conditional UI form autofill suggestions
+      // 启动 Conditional UI 表单自动填充建议。
       const credential = await navigator.credentials.get({
         publicKey,
         signal: autofillAbortController.signal,
         mediation: "conditional",
       });
 
-      // Segregated verification fetch
+      // 独立的验证请求。
       const encoded = credential.toJSON();
       const response = await loginVerifyFetch(encoded);
       if (!response.ok && response.status === 404) {
-        // Note: this code path runs pre-authentication, satisfying the unauth precondition
+        // 注意：此代码路径在认证之前运行，满足未认证前提。
         if (PublicKeyCredential.signalUnknownCredential) {
           await PublicKeyCredential.signalUnknownCredential({
-            rpId: publicKey.rpId, // Always use the server-provided rpId; DO NOT use window.location.hostname
+            rpId: publicKey.rpId, // 始终使用服务器提供的 rpId；不要使用 window.location.hostname。
             credentialId: encoded.id,
           });
         }
       }
     } catch (err) {
-      // Silently swallow expected client WebAuthn exceptions
+      // 静默忽略预期的客户端 WebAuthn 异常。
       if (["NotAllowedError", "AbortError"].includes(err.name)) {
         return;
       }
@@ -137,9 +142,9 @@ async function initializeConditionalAutofill() {
 }
 
 async function triggerButtonAuthentication() {
-  // Abort any pending Conditional Get call to prevent passkey prompt collisions
+  // 终止任何待完成的 Conditional Get 调用，避免 passkey 提示冲突。
   autofillAbortController.abort();
-  autofillAbortController = new AbortController(); // Reset controller for next triggers
+  autofillAbortController = new AbortController(); // 重置控制器，为下次触发做准备。
 
   const loginOptionsJSON = await optionsFetch();
   const publicKey =
@@ -147,7 +152,7 @@ async function triggerButtonAuthentication() {
 
   let credential;
   try {
-    // Passkey explicit prompt trigger
+    // 触发显式 passkey 提示。
     credential = await navigator.credentials.get({
       publicKey,
       signal: autofillAbortController.signal,
@@ -158,21 +163,21 @@ async function triggerButtonAuthentication() {
     } else if (err.name === "AbortError") {
       console.log("The authentication operation was aborted.");
     }
-    // Re-arm Conditional autofill Suggestions after cancelled explicit button prompts
+    // 显式按钮提示取消后，重新启用 Conditional 自动填充建议。
     initializeConditionalAutofill();
-    return; // Safe exit
+    return; // 安全退出。
   }
 
-  // Segregated verification try/catch (HTTP 404 trigger)
+  // 独立的验证 try/catch（HTTP 404 触发）。
   const encoded = credential.toJSON();
   try {
     const response = await loginVerifyFetch(encoded);
     if (!response.ok && response.status === 404) {
-      // Note: this code path runs pre-authentication, satisfying the unauth precondition
+      // 注意：此代码路径在认证之前运行，满足未认证前提。
       if (PublicKeyCredential.signalUnknownCredential) {
         await PublicKeyCredential.signalUnknownCredential({
-          rpId: publicKey.rpId, // Always use the server-provided rpId; DO NOT use window.location.hostname
-          credentialId: encoded.id, // Base64URL-encoded credential ID
+          rpId: publicKey.rpId, // 始终使用服务器提供的 rpId；不要使用 window.location.hostname。
+          credentialId: encoded.id, // Base64URL 编码的凭据 ID。
         });
       }
     }
@@ -181,7 +186,7 @@ async function triggerButtonAuthentication() {
   }
 }
 
-// Trigger Conditional Get on load
+// 加载时触发 Conditional Get。
 window.addEventListener("DOMContentLoaded", initializeConditionalAutofill);
 ```
 
@@ -197,7 +202,7 @@ api.PublicKeyCredential.getClientCapabilities_static 能力的 Baseline 状态�
 加载 `webauthn-polyfills`，让支持 `PublicKeyCredential` 的浏览器也能使用 `PublicKeyCredential.getClientCapabilities()`：
 
 ```js
-// With a bundler (`npm install webauthn-polyfills`):
+// 使用打包器时（`npm install webauthn-polyfills`）：
 import 'webauthn-polyfills';
 ```
 
@@ -223,7 +228,7 @@ api.PublicKeyCredential.parseRequestOptionsFromJSON_static 能力的 Baseline �
 加载 `webauthn-polyfills`，让支持 `PublicKeyCredential` 的浏览器同时可使用 `PublicKeyCredential.parseRequestOptionsFromJSON()` 和 `PublicKeyCredential.prototype.toJSON()`：
 
 ```js
-// With a bundler (`npm install webauthn-polyfills`):
+// 使用打包器时（`npm install webauthn-polyfills`）：
 import 'webauthn-polyfills';
 ```
 

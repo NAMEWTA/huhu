@@ -1,4 +1,4 @@
 interface:
   display_name: "开发环境与资源配置"
-  short_description: "核对运行环境和本机及指定远端资源，评估并发与工作树容量，按需保存显式引用的团队配置"
-  default_prompt: "使用 $dev-setup 核对项目运行要求与当前宿主及我指定远端的有效资源，给出有依据的 Agent、重任务和 worktree 预算及复测条件。"
+  short_description: "只读评估项目与执行宿主，先给 Agent、重任务和工作树并发建议及证据，按需校准负载或维护团队配置"
+  default_prompt: "使用 $dev-setup 只读评估当前项目、实际执行宿主及我指定的远端，生成 environment.md：先给包含主会话的 Agent 建议总数、重任务及内部 worker 限额、worktree 保留量和当前可新增量，再说明证据、未知项、最小补测方法与刷新条件。"

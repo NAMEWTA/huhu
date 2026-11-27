@@ -17,27 +17,27 @@
 ```javascript
 // conditionally-load-polyfill.js
 
-// Check if the feature is missing before doing work.
-// MANDATORY: Prefer checking HTMLElement.prototype over window or document
-// when checking for a global DOM attribute or property like popover.
+// 先检查是否缺少该特性，再执行操作。
+// 必须：检查 popover 之类的全局 DOM attribute 或 property 时，
+// 优先检查 HTMLElement.prototype，而非 window 或 document。
 if (!('popover' in HTMLElement.prototype)) {
-  // Use top-level await to pause the execution of any module that imports this file 
-  // until the polyfill finishes downloading and executing.
+  // 用顶层 await 暂停所有导入本文件的模块，
+  // 直到 polyfill 完成下载和执行。
   await import('/path/to/popover-polyfill.js');
 }
 
-// Export a marker if needed by your application
+// 应用需要时导出标记。
 export const polyfillLoaded = true;
 ```
 
 ```javascript
 // main.js
 
-// MANDATORY: Because conditionally-load-polyfill.js uses top-level await, 
-// this import will block execution of main.js until the polyfill is ready.
+// 必须：由于 conditionally-load-polyfill.js 使用顶层 await，
+// 此导入会阻止 main.js 执行，直到 polyfill 准备就绪。
 import './conditionally-load-polyfill.js';
 
-// Now it is safe to use the feature (e.g., showing a popover)
+// 现在可以安全使用该特性，例如显示浮层。
 const myPopover = document.getElementById('my-popover');
 if (myPopover) {
   myPopover.showPopover();
@@ -61,10 +61,10 @@ if (myPopover) {
 ```javascript
 // main.js
 
-// MANDATORY: Chain dynamic imports with top-level await when bootstrapping separate
-// application modules so './app.js' waits for the polyfill to finish loading.
-// DO NOT use sibling static imports (`import './conditionally-load-polyfill.js'; import './app.js';`),
-// which evaluate concurrently and execute './app.js' before the polyfill is ready.
+// 必须：引导独立应用模块时，用顶层 await 串联动态导入，
+// 让 './app.js' 等待 polyfill 加载完成。
+// 不要使用并列静态导入（`import './conditionally-load-polyfill.js'; import './app.js';`），
+// 它们会并发求值，导致 './app.js' 在 polyfill 就绪前执行。
 await import('./conditionally-load-polyfill.js');
 await import('./app.js');
 ```

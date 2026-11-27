@@ -18,7 +18,7 @@
 ```html
 <a href="/article" interestfor="article-preview">Article title</a>
 
-<!-- The `id` must match the `interestfor` value on the trigger. -->
+<!-- id 必须与触发器的 interestfor 值匹配。 -->
 <div id="article-preview" popover="hint" class="hovercard">
   <h2>The buzz on hummingbirds</h2>
   <p class="byline">By Delphi Aguilar</p>
@@ -74,8 +74,7 @@
 
 ```css
 [popover].hovercard {
-  /* Position the card below the trigger, aligned with its inline-start edge
-     and spanning toward the inline-end, flipping if it overflows the viewport. */
+  /* 将卡片放在触发器下方，对齐其行内起始边并向结束边延伸；超出视口时翻转。 */
   position-area: block-end span-inline-end;
   position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
 }
@@ -89,7 +88,7 @@
 
 ```css
 [interestfor]{
-  /* Shorthand for interest-delay-start and interest-delay-end */
+  /* interest-delay-start 和 interest-delay-end 的简写。 */
   interest-delay: 0.2s 0.1s;
 }
 ```
@@ -122,7 +121,7 @@
   }
 }
 
-/* MANDATORY: Respect user preference for reduced motion by selectively applying transitions. */
+/* 必须：有选择地应用过渡，尊重用户减少动态的偏好。 */
 @media (prefers-reduced-motion: no-preference) {
   [popover].hovercard {
     transition:
@@ -131,7 +130,7 @@
       display,
       overlay;
     transition-duration: 0.4s;
-    /* Separate after transition so the shorthand doesn't reset it or fail in older browsers */
+    /* 单独写在 transition 后面，避免简写重置此值或在旧浏览器中失效。 */
     transition-behavior: allow-discrete;
   }
 }
@@ -146,17 +145,17 @@
 为悬停卡片中的元素与下一页对应元素分配相同的 `view-transition-name`，浏览器就会在导航时为它们添加动画。可以为多个元素命名（例如标题、图片、作者署名），形成复杂的多元素变形效果。用 `:popover-open` 给已打开浮层中的元素设置 `view-transition-name`，避免产生重复的 `view-transition-name`，也无需为每个链接设置专用的 `view-transition-name`。
 
 ```css
-/* Opt-in to cross-document transitions on both pages */
+/* 在两个页面上都启用跨文档过渡。 */
 @view-transition {
   navigation: auto;
 }
 
-/* Don't show transitions when loading this page */
+/* 加载此页面时不显示过渡。 */
 ::view-transition-group(*) {
   animation-duration: 0s;
 }
 
-/* Assign names ONLY when the popover is open to ensure only the correct elements are selected. */
+/* 仅在浮层打开时分配名称，确保只选中正确元素。 */
 [popover]:popover-open {
   view-transition-name: --hovercard;
   view-transition-class: morph;
@@ -176,22 +175,21 @@
 **必须：** 为确保过渡稳定且不闪烁，目标页面应使用 `blocking="render"` 和 `<link rel="expect">`，等待关键内容解析后再渲染首帧。
 
 ```html
-<!-- On the destination page: -->
+<!-- 在目标页面上： -->
 <head>
-  <!-- Block rendering until the hero image and title are parsed,
-       ensuring the view transition snapshot is taken at the right time. -->
+  <!-- 阻止渲染，直到主图和标题解析完成，确保视图过渡快照在正确时刻拍摄。 -->
   <link rel="expect" href="#main-content" blocking="render">
 </head>
 <body>
   <main id="main-content">
     <h1>The buzz on hummingbirds</h1>
-    <img src="bird.jpg">
+    <img src="bird.jpg" alt="A hummingbird in flight">
   </main>
 </body>
 ```
 
 ```css
-/* On the destination page: */
+/* 在目标页面上： */
 main {
   view-transition-name: --hovercard;
   view-transition-class: morph;
@@ -205,15 +203,15 @@ img {
   view-transition-class: morph;
 }
 
-/* By default no transition */
+/* 默认没有过渡。 */
 ::view-transition-group(*) {
   animation-duration: 0s;
 }
-/* Short transition for morphing elements */
+/* 变形元素使用短过渡。 */
 ::view-transition-group(.morph) {
   animation-duration: 0.4s;
 }
-/* Disable transition if no `old` view */
+/* 没有 old 视图时禁用过渡。 */
 ::view-transition-new(.morph):only-child {
   animation-duration: 0s;
 }
@@ -239,7 +237,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -254,6 +252,16 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 ```css
 [popover]:is(:popover-open, .\:popover-open) {
   display: block;
+}
+```
+
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
 }
 ```
 
@@ -282,7 +290,7 @@ Interest invokers 的浏览器支持：有限可用。
 ```html
 <script type="module">
   if (!("interestForElement" in HTMLButtonElement.prototype)) {
-    // CDN link only used for example, prefer bundling.
+    // CDN 链接仅用于示例，优先打包。
     await import("https://unpkg.com/interestfor@latest");
   }
 </script>
@@ -297,7 +305,7 @@ Interest invokers 的浏览器支持：有限可用。
 - **伪类：** polyfill 无法定义真正的 `:interest-source` 和 `:interest-target` 伪类，因此改用 `.interest-source` 和 `.interest-target` 类。**必须：** 用 `:is()` 组合原生与 polyfill 状态。
 
 ```css
-/* Styles to apply when the effect is being previewed */
+/* 预览效果时应用的样式。 */
 :is(:interest-source, .interest-source) { /* ... */ }
 :is(:interest-target, .interest-target) { /* ... */ }
 ```
@@ -305,7 +313,7 @@ Interest invokers 的浏览器支持：有限可用。
 - **CSS 属性：** 对 `interest-delay`、`interest-delay-start` 和 `interest-delay-end`，polyfill 要求使用 CSS 变量，因为它无法在所有浏览器中直接读取这些自定义属性。
 
 ```css
-/* Adjust the start and end delay for interest invokers */
+/* 调整兴趣调用器的开始和结束延迟。 */
 [interestfor] {
   --interest-delay-start: 0.2s;
   interest-delay-start: var(--interest-delay-start);
@@ -343,7 +351,7 @@ Anchor positioning 的浏览器支持：有限可用。
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature-detect anchor positioning support before loading the polyfill.
+// 必须：加载 polyfill 前检测锚点定位支持。
 if (!CSS.supports("anchor-name: --a")) {
   import("@oddbird/css-anchor-positioning");
 }
@@ -352,7 +360,7 @@ if (!CSS.supports("anchor-name: --a")) {
 没有打包工具时，在 `<script type="module">` 内从 CDN 导入：
 
 ```html
-<!-- MANDATORY: Conditionally install the anchor positioning polyfill -->
+<!-- 必须：按条件安装锚点定位 polyfill。 -->
 <script type="module">
   if (!CSS.supports("anchor-name: --a")) {
     import("https://unpkg.com/@oddbird/css-anchor-positioning");
@@ -367,13 +375,13 @@ if (!CSS.supports("anchor-name: --a")) {
 
 ```css
 .trigger {
-  /* MANDATORY: Each trigger and positioned element pair must share a unique anchor name. */
+  /* 必须：每对触发器与定位元素共用一个唯一锚点名称。 */
   anchor-name: --my-trigger;
 }
 
 [popover].anchored-overlay {
   position-anchor: --my-trigger;
-  /* MANDATORY: Use anchor() on inset properties rather than position-area when using the polyfill on elements needing position-try-fallbacks. */
+  /* 必须：对需要 position-try-fallbacks 的元素使用此 polyfill 时，在 inset 属性上使用 anchor()，不要使用 position-area。 */
   inset: auto;
   top: anchor(bottom);
   left: anchor(left);
@@ -400,7 +408,7 @@ if (!CSS.supports("anchor-name: --a")) {
 }
 
 @supports not (position-area: block-end) {
-  /* Optional: override default popover centering with a fixed bottom bar */
+  /* 可选：用固定底栏覆盖浮层默认居中行为。 */
   [popover].anchored-overlay {
     position: fixed;
     inset: auto 0 0 0;

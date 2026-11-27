@@ -65,9 +65,9 @@
 | 理解代码现在如何工作、新代码应放在哪里 | `dev-learn`（`$dev-learn`） |
 | 理解代码为何如此组织、某个数字从哪里来 | `dev-why`（`$dev-why`） |
 | 用简单语言理解改动或子系统 | [`$dev-learn`](capabilities.md) |
-| 回顾自己指定时间或话题的工作进展 | [`$dev-status`](capabilities.md)，跨会话资料按`dev-learn`（背景恢复方法）核对 |
+| 回顾自己指定时间或话题的工作进展 | [`$dev-status`](capabilities.md)，跨会话资料按 `dev-recall` 核对 |
 | 用通俗文字与小图回顾本对话自上条消息以来的变化，列全等待自己决定的事项，并让回复本身足以决策 | [`$dev-status`](capabilities.md) |
-| 将 `$dev-status` 回顾做成短字幕幻灯视频，并在下方用文字列出等待决定的事项 | [`$dev-status`](capabilities.md) |
+| 将真实进展证据做成短字幕幻灯视频，并列出等待决定的事项 | [`$dev-status-video`](capabilities.md) |
 | 知道一个小 diff 可能在自身之外破坏什么 | `dev-review`（`$dev-review`） |
 | 写跨函数边界代码前确定类型与模块形状 | `dev-architecture`（`$dev-architecture`） |
 | 对同一简报尝试多种方案，融合成最佳结果 | [`$dev-parallel`](capabilities.md) |
@@ -88,11 +88,11 @@
 | 报告或依据性能数字行动前审查它 | `dev-benchmark`（`$dev-benchmark`） |
 | 执行大型、跨领域或需要事后审计的变更 | `dev-workflow`（`$dev-workflow`），无合适现成流程时用`dev-workflow`（定制执行） |
 | 执行中保存决定日志，随后复核 | `dev-workflow`（`$dev-workflow`）；性能实验记录由 `$dev-benchmark` 负责 |
-| 编写或修改项目技能，包括触发、方法与场景检查 | [`$dev-personalize`](capabilities.md)（技能编写分支） |
+| 编写或修改项目技能，包括触发、方法与场景检查 | [`$dev-skill-authoring`](capabilities.md) |
 | 将自己的工作习惯变成个人模式技能 | [`$dev-personalize`](capabilities.md) |
-| 创建 PR、跟进 CI/审查或合并已验证改动 | [`$dev-deploy`](capabilities.md)（PR 交付分支） |
-| 将指定版本发布到指定环境 | [`$dev-deploy`](capabilities.md)（环境部署分支） |
-| 从完成任务中提炼经验 | `dev-archive`（完整反思方法）；项目知识归 `$dev-archive`，个人方式归 `$dev-personalize`，结构约束归 `$dev-guardrails` |
+| 创建 PR、跟进 CI/审查或合并已验证改动 | [`$dev-pr`](capabilities.md) |
+| 将指定版本发布到指定环境 | [`$dev-deploy`](capabilities.md) |
+| 从完成任务中提炼经验 | `dev-reflect`（完整反思方法）；项目知识归 `$dev-archive`，个人方式归 `$dev-personalize`，结构约束归 `$dev-guardrails` |
 | 阻止代理在本仓库重复同样错误 | `dev-guardrails`（`$dev-guardrails`） |
 | 构建按钮连接已支持 webhook 的操作页面 | `$dev-build`，使用`dev-build`（操作界面方法） |
 | 熟悉 本项目技能 的使用方式 | `$dev-help` |
@@ -101,9 +101,9 @@
 
 容易混淆的选择：
 
-- `$dev-intake` 整理需求材料，`$dev-grill` 解决未决产品选择，`$dev-spec` 补全行为契约，`$dev-sharpen` 改写请求表达。按真实缺口调用，已有充分结果直接复用。
+- `$dev-intake` 整理需求材料，`$dev-grill` 逐轮保存产品选择和理由，`$dev-spec` 写入正式的 `spec.md`，`$dev-sharpen` 改写请求表达。按真实缺口调用，已有充分结果直接复用。
 - 按预期产物区分 Issue 相关请求：完整正文的撰写与维护、增量评论由 `$dev-issue` 负责，来源、目标与缺口整理用 `$dev-intake`，分类、查重与分流用 `$dev-issue-triage`。要求复现或修复时才交 `$dev-debug` 或满足报告流程前提的 `$dev-issue-fix`；材料来自 Issue 不决定路线。
-- `$dev-deploy` 可单独完成 PR 交付，无需环境部署；`$dev-personalize` 可单独编写项目技能，无需个人历史。
+- 独立 PR 交付使用 `$dev-pr`，独立环境部署使用 `$dev-deploy`；通用项目技能直接使用 `$dev-skill-authoring`。
 - `$dev-formal-verify` 按属性选择工具；只有 TLA+/TLC 模型与结果交 `$dev-statechart`，JS 模型采用兼容展示。应用验证生成 `dev-verify-<app>`，形式属性验证生成 `dev-formal-verify-<area>`。
 - `$dev-learn` 解释当前机制与修改入口，教学中按需要补充已有历史依据；独立追查历史决定由 `$dev-why` 负责。
 - `$dev-parallel` 给每个执行者同一简报并融合优点；`$dev-parallel` 划分切片或竞速，返回一份报告。
@@ -115,7 +115,7 @@
 技能包不自动提供宿主能力：
 
 - 差异整理使用实际 diff 与项目检查；UI 或终端操作使用当前可用驱动，不要求某个专有插件名。
-- 持续唤醒和技能创建使用环境真正提供的工具；没有时使用本地执行、恢复记录和`dev-personalize`（技能结构规则）。
+- 持续唤醒和技能创建使用环境真正提供的工具；没有时使用本地执行、恢复记录和`dev-skill-authoring` 的技能结构规则。
 - 多 Change 批次可直接使用 `dev-program`，Goal 中可给出成员清单或现有批次文档。菜单里的其他命令应读取实际说明后再用。
 
 ## 操作流程与原则
@@ -131,7 +131,7 @@
 
 相近名称可能被宿主匹配到其他技能，执行前应读取实际内容并核对目标。`dev-workflow`（`dev-workflow`） 的 Playbooks 部分列出全部流程及适用条件。[指南第 6 页](guide-verification.md) 说明开启、跟进和落地 PR。
 
-本项目有按任务选择的规格、计划与实施方法，宿主提供的计划模式可配合使用。`$dev-workflow` 通过 `dev-plan` 保存实施票据并汇总 DAG；跨阶段或堆叠 PR 再按实际交付分组。只要求计划时交付票据和计划。已授权持续实施时，核对后交给 `dev-build`。设计问题按实际缺口通过研究、Prototype 流程或 `$dev-architecture` 厘清，沿用有效的决定。
+宿主的计划模式可配合项目方法。`$dev-workflow` 通过 `dev-plan` 以 `spec.md` 为输入，保存实施票据、同名报告和 `plan.md`。跨阶段或堆叠 PR 按实际交付分组。已授权持续实施时，核对后交给 `dev-build`。设计问题按实际缺口通过研究、Prototype 流程或 `$dev-architecture` 厘清。
 
 原则全文由 `dev-guardrails` 维护，按任务需要调用；在它改变决定时说明实际作用，不要求每轮机械引用全部原则。用户通常用名称引导，例如“apply prove it works. show me the real output.”，执行者再读取该原则的完整方法。[指南第 8 页](guide-principles.md) 列出了这些原则。
 
@@ -153,7 +153,7 @@
 ## 将 本项目技能 变成自己的工作方式
 
 - [`$dev-personalize`](capabilities.md) 从用户明确提供或授权的项目记录起草个人模式技能，与 `$dev-workflow` 一起使用。
-- 一次会话后按`dev-archive`（反思方法）提炼有证据的经验，按项目知识、个人方式或结构约束选择归属；只有已授权修改的对象才实际编辑。
+- 一次会话后按`dev-reflect`（反思方法）提炼有证据的经验，按项目知识、个人方式或结构约束选择归属；只有已授权修改的对象才实际编辑。
 - `$dev-workflow write a skill for <workflow>` 运行技能编写流程；eval 流程盲测技能变化。
 - 技能修正与产品功能的范围分别说明；只有项目流程或用户目标需要时开 PR，直接推送授权不强制改成 PR。
 

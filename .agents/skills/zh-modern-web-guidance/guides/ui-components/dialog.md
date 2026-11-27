@@ -25,9 +25,9 @@
 ```html
 <button type="button" command="show-modal" commandfor="confirm">Delete</button>
 
-<!-- MANDATORY: no role="dialog" or aria-modal; the native modal already provides them -->
+<!-- 必须：不要添加 role="dialog" 或 aria-modal，原生模态已提供这些语义。 -->
 <dialog id="confirm" aria-labelledby="confirm-title">
-  <h2 id="confirm-title">Delete this item?</h2>
+  <h1 id="confirm-title">Delete this item?</h1>
   <form method="dialog">
     <button value="cancel" autofocus>Cancel</button>
     <button value="delete">Delete</button>
@@ -43,12 +43,12 @@
 - **不要**在 `html` 或 `body` 上使用 `overflow: hidden` 或 `position: fixed` 锁定滚动。
 
 ```css
-/* MANDATORY (both rules): without them, scrolling over the backdrop or inside the dialog scrolls the page behind it */
+/* 必须同时使用两条规则：否则在背景遮罩或对话框内滚动时，会滚动后方页面。 */
 dialog:modal {
-  overscroll-behavior: contain; /* stops scroll gestures in the dialog chaining to the page */
+  overscroll-behavior: contain; /* 阻止对话框中的滚动手势沿链传递到页面。 */
 }
 dialog::backdrop {
-  overflow: hidden; /* ::backdrop is not a scroll container by default, so it would ignore overscroll-behavior */
+  overflow: hidden; /* ::backdrop 默认不是滚动容器，因此会忽略 overscroll-behavior。 */
   overscroll-behavior: contain;
 }
 ```
@@ -165,6 +165,8 @@ dialog::backdrop {
 - **不要**向原生模态对话框添加 `role="dialog"`、`aria-modal`、手动焦点陷阱或 `inert` 切换。
 - **要**用具有无障碍名称的原生 `<button>` 作为关闭控件。
 - **要**让对话框标题使用一致的标题级别。
+- **要**在模态对话框中为主标题使用一级标题，因为它是该作用域内的第一个标题。
+- **要**确保非模态对话框显示在没有内容或内容极少的位置。为符合 WCAG 2.4.11，确保获得焦点的元素被非模态对话框完全遮挡。
 
 <a id="fallback-strategies"></a>
 
@@ -182,8 +184,8 @@ dialog::backdrop {
 
 ```js
 if (!('closedBy' in HTMLDialogElement.prototype)) {
-  // Test the pointer position, not event.target: the <dialog> is also the target for its own
-  // padding and the gaps between its children, so a target check would close on those clicks
+  // 检测指针位置，而非 event.target：对话框自身的内边距
+  // 和子元素间隙也会以 <dialog> 为目标，检查目标会误把这些点击当成关闭。
   const outside = (e, dialog) => {
     const r = dialog.getBoundingClientRect();
     return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
@@ -191,7 +193,7 @@ if (!('closedBy' in HTMLDialogElement.prototype)) {
   for (const dialog of document.querySelectorAll('dialog[closedby="any"]')) {
     let pressedOutside = false;
     dialog.addEventListener('pointerdown', (e) => { pressedOutside = outside(e, dialog); });
-    // Require the press and the release outside, so a text-selection drag that ends on the backdrop does not dismiss
+    // 按下和释放都必须位于外部，避免文本选择拖拽结束在背景上时关闭。
     dialog.addEventListener('pointerup', (e) => { if (pressedOutside && outside(e, dialog)) dialog.close(); });
   }
 }
@@ -217,7 +219,7 @@ Invoker commands 的 Baseline 状态：新近可用。自 2025-12-12 起纳入 B
 如果目标 Baseline 不包含 Invoker Commands，保留相同标记并按条件加载 polyfill（通过渐进增强提供相同体验）。检测接口，绝不无条件加载：
 
 ```js
-// MANDATORY: feature detect on HTMLButtonElement.prototype and load only when native support is missing
+// 必须：检测 HTMLButtonElement.prototype，仅在缺少原生支持时加载。
 if (!('commandForElement' in HTMLButtonElement.prototype)) {
   import('invokers-polyfill'); // npm install invokers-polyfill
 }
@@ -239,7 +241,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -254,5 +256,15 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 ```css
 [popover]:is(:popover-open, .\:popover-open) {
   display: block;
+}
+```
+
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
 }
 ```

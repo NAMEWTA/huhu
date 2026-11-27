@@ -1,0 +1,4 @@
+interface:
+  display_name: "拉取请求交付"
+  short_description: "创建、跟进和验证 PR，并在已授权范围内完成落地"
+  default_prompt: "使用 $dev-pr 按当前授权推进这些 PR，核对实际头提交、CI、审查结果和远端状态。"

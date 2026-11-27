@@ -54,7 +54,7 @@
   position-area: block-start;
   position-try-fallbacks: flip-block;
 
-  /* Enable anchored container queries */
+  /* 启用锚定容器查询。 */
   container-type: anchored;
 }
 ```
@@ -77,14 +77,14 @@
 
 ```css
 .tooltip-content::before {
-  /* Default "down" arrow for the 'top' position */
+  /* 位于 top 时默认使用向下箭头。 */
   content: "▼" / "";
   position: absolute;
   inset-block-end: 0;
   inset-inline-start: 1rem;
 }
 
-/* Update to an "up" arrow when the 'flip-block' fallback (bottom) is active */
+/* flip-block 回退（底部）生效时，改为向上箭头。 */
 @container anchored(fallback: flip-block) {
   .tooltip-content::before {
     content: "▲" / "";
@@ -184,7 +184,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包器或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -201,6 +201,16 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 ```css
 [popover]:is(:popover-open, .\:popover-open) {
   display: block;
+}
+```
+
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
 }
 ```
 

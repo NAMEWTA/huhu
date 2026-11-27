@@ -3,7 +3,12 @@ import fs from "node:fs";
 import { killGroup } from "./process-lifecycle.mjs";
 
 const [pid, ...directories] = process.argv.slice(2);
-process.stdin.resume();
+let workerExited = false;
+let pending = "";
+process.stdin.setEncoding("utf8").on("data", (chunk) => {
+  pending += chunk;
+  workerExited ||= pending.includes("exited\n");
+});
 await new Promise((resolve) => { process.stdin.once("end", resolve); process.stdin.once("error", resolve); });
-try { await killGroup(Number(pid)); }
+try { if (!workerExited || process.platform !== "win32") await killGroup(Number(pid)); }
 finally { for (const directory of directories) fs.rmSync(directory, { recursive: true, force: true }); }

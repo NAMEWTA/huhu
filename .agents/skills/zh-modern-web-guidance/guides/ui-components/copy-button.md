@@ -13,15 +13,14 @@
 ### 1. 标记
 
 ```html
-<!-- Custom commands MUST start with "--". commandfor is the id of the element whose text is copied. -->
-<span class="copy"> <!-- positioning context for the bubble -->
-  <!-- aria-label names the content being copied; several bare "Copy" buttons are indistinguishable to screen readers -->
+<!-- 自定义命令必须以 -- 开头。commandfor 是待复制文本所属元素的 ID。 -->
+<span class="copy"> <!-- 确认气泡的定位上下文。 -->
+  <!-- aria-label 说明被复制的内容；多个仅名为 Copy 的按钮无法由屏幕阅读器区分。 -->
   <button type="button" class="copy-button" command="--copy" commandfor="snippet" aria-label="Copy CSS code">
-    <!-- Decorative icon, rendered however the codebase renders icons -->
+    <!-- 装饰图标，沿用代码库的图标渲染方式。 -->
     <span class="icon" aria-hidden="true"></span>
   </button>
-  <!-- The confirmation bubble IS the live region. Keep it empty until a copy, and outside the button:
-       a button's children are presentational, so a live region inside one is not reliably announced -->
+  <!-- 确认气泡本身就是实时区域。复制前保持为空，并放在按钮外：按钮的子元素属于表现层，其内部实时区域无法可靠播报。 -->
   <span class="tip" role="status"></span>
 </span>
 <pre><code id="snippet">…</code></pre>
@@ -39,24 +38,24 @@
 将复制逻辑放在同一个函数中，供原生与回退路径共用。
 
 ```js
-let selectedText = ''; // set by the optional selection popover (step 3)
+let selectedText = ''; // 由可选的文本选择浮层设置，见步骤 3。
 
 async function copy(button, target, command = '--copy') {
-  // Form controls expose text via .value; innerText (unlike textContent) keeps rendered line breaks
+  // 表单控件通过 .value 暴露文本；innerText 与 textContent 不同，会保留渲染后的换行。
   const text = command === '--copy-selection'
     ? selectedText
     : target.matches('input, textarea') ? target.value : target.innerText.trim();
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
-    report(button, true); // see Feedback below
+    report(button, true); // 见下方反馈部分。
   } catch {
-    report(button, false); // clipboard access can be denied: show the failure too, not only announce it
+    report(button, false); // 剪贴板访问可能被拒绝：失败也要可见，不能只播报。
   }
 }
 
-// `command` events do not bubble: listen in the capture phase on document.
-// event.source is the clicked button; event.target is the commandfor element.
+// command 事件不冒泡，应在 document 的捕获阶段监听。
+// event.source 是点击的按钮，event.target 是 commandfor 指向的元素。
 document.addEventListener('command', (event) => {
   if (event.command.startsWith('--copy')) copy(event.source, event.target, event.command);
 }, true);
@@ -73,16 +72,16 @@ document.addEventListener('command', (event) => {
 const timers = new WeakMap();
 
 function report(button, ok) {
-  const tip = button.nextElementSibling; // the role="status" bubble
+  const tip = button.nextElementSibling; // role="status" 气泡
   clearTimeout(timers.get(button));
   button.removeAttribute('data-copied');
   button.removeAttribute('data-failed');
   const message = ok ? 'Copied' : 'Copy failed';
   tip.textContent = '';
-  void button.offsetWidth; // restart the CSS animation
+  void button.offsetWidth; // 重新开始 CSS 动画。
   button.setAttribute(ok ? 'data-copied' : 'data-failed', '');
   requestAnimationFrame(() => (tip.textContent = message));
-  timers.set(button, setTimeout(() => { // 2000ms is an example value
+  timers.set(button, setTimeout(() => { // 2000ms 是示例值。
     button.removeAttribute('data-copied');
     button.removeAttribute('data-failed');
     tip.textContent = '';
@@ -109,14 +108,14 @@ function report(button, ok) {
 当页面重复包含可复制元素（代码块、列表行、令牌或 ID 单元格）时，每项都显示按钮会增加干扰。可以默认隐藏按钮，在元素悬停时显示，同时也要为键盘用户显示，绝不能只支持悬停。
 
 ```css
-/* Touch devices (no hover): the button stays visible, so keep it in flow where it cannot cover content */
+/* 无悬停的触摸设备：按钮始终可见，因此让它保持在文档流中，避免覆盖内容。 */
 .copyable { display: flex; align-items: start; gap: .5rem; }
 .copyable .copy { flex: none; order: 1; }
 
-/* Only hide where hover exists; the overlay is then revealed on demand */
+/* 仅在支持悬停时隐藏，再按需显示覆盖层。 */
 @media (hover: hover) {
   .copyable { display: block; position: relative; }
-  .copyable .copy { position: absolute; inset-block-start: .5rem; inset-inline-end: .5rem; } /* .copy is the bubble's positioning context, so move it, not the button */
+  .copyable .copy { position: absolute; inset-block-start: .5rem; inset-inline-end: .5rem; } /* .copy 是气泡的定位上下文，所以移动它，而非按钮。 */
   .copyable .copy-button { opacity: 0; transition: opacity .15s; }
   .copyable:hover .copy-button,
   .copyable:focus-within .copy-button,
@@ -148,14 +147,16 @@ Invoker commands 的 Baseline 状态：新近可用。自 2025-12-12 起纳入 B
 如果目标 Baseline 不包含 Invoker Commands，保留相同标记，并添加调用同一个 `copy()` 函数的点击监听器。这是一种简短、稳健的回退方式（以渐进增强提供同样的体验）：
 
 ```js
-// Detect on the interface, not an instance
+// 检测接口，而非实例。
 if (!('CommandEvent' in window)) {
-  // Resolve the target from commandfor, as the browser does for command events
+  // 像浏览器处理命令事件那样，从 commandfor 解析目标。
   document.addEventListener('click', (event) => {
+    // 尊重已取消按钮激活的处理器。
+    if (event.defaultPrevented) return;
     const button = event.target.closest('button[command^="--copy"]');
     if (!button) return;
     const target = document.getElementById(button.getAttribute('commandfor'));
-    if (target) copy(button, target, button.getAttribute('command')); // a missing target would throw inside copy()
+    if (target) copy(button, target, button.getAttribute('command')); // 目标缺失会在 copy() 中抛出异常。
   });
 }
 ```
@@ -175,19 +176,26 @@ api.Clipboard.writeText 能力的 Baseline 状态：广泛可用。自 2020-03-2
 
 ```js
 function legacyCopy(text) {
+  const previousFocus = document.activeElement;
   const field = Object.assign(document.createElement('textarea'), { value: text });
   field.setAttribute('readonly', '');
   field.style.cssText = 'position:fixed;inset-block-start:0;opacity:0';
   document.body.append(field);
   field.select();
-  try { return document.execCommand('copy'); } finally { field.remove(); }
+  try {
+    return document.execCommand('copy');
+  } finally {
+    field.remove();
+    // 选中临时字段可能移动焦点；即使复制失败，也恢复焦点。
+    previousFocus?.focus({ preventScroll: true });
+  }
 }
 
-// In copy(), replace the plain write with:
+// 在 copy() 中将直接写入替换为：
 try {
   await navigator.clipboard.writeText(text);
 } catch {
-  if (!legacyCopy(text)) throw new Error('Copy failed'); // reaches the existing failure path
+  if (!legacyCopy(text)) throw new Error('Copy failed'); // 进入已有的失败路径。
 }
 ```
 
@@ -207,7 +215,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -225,6 +233,16 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 }
 ```
 
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
+}
+```
+
 <a id="repeated-announcements-voiceover"></a>
 
 ### 重复播报（VoiceOver）
@@ -234,7 +252,7 @@ VoiceOver 会跳过同一区域中与上一条相同的消息，即使中间清�
 ```js
 let lastMessage = '';
 
-// In report(), replace `const message` with `let message`, then:
-if (message === lastMessage) message += '\u00A0'; // differs from the last one, so it is announced
+// 在 report() 中将 const message 改为 let message，然后：
+if (message === lastMessage) message += '\u00A0'; // 与上次消息不同，因此会被播报。
 lastMessage = message;
 ```

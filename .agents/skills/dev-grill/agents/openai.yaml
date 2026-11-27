@@ -1,4 +1,4 @@
 interface:
   display_name: "决策访谈"
-  short_description: "按依赖解决尚未确定的产品取舍，沿用既有共识并写回原决策记录"
-  default_prompt: "请使用 $dev-grill 围绕当前未决产品选择开展访谈，先查证事实，再按依赖提问，并把结论写回已有决策记录。"
+  short_description: "逐轮保存产品取舍、用户答复和理由"
+  default_prompt: "请使用 $dev-grill 先查事实，按依赖逐轮提问，将问题、答复、理由和更正保存到 decisions.md 或对应的决策地图问题。"

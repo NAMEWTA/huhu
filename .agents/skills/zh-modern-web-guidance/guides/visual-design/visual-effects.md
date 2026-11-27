@@ -2,7 +2,7 @@
 # 视觉效果
 
 <a id="depth-and-texture"></a>
-### 层次与纹理
+## 层次与纹理
 
 - 叠加多个阴影，营造真实、柔和的纵深感。
 - 对非矩形形状或透明 PNG，使用 `filter: drop-shadow()`，而不是 `box-shadow`。
@@ -17,7 +17,7 @@
 
 
 <a id="gradients-and-color-mix"></a>
-### 渐变与 `color-mix()`
+## 渐变与 `color-mix()`
 
 使用 `in oklab` 或 `in oklch`，为渐变或 `color-mix()` 显式指定插值色彩空间。
 - `color-mix()` 默认优先使用 `in oklab`，尤其是在混合中性色时。对中性色使用 `oklch` 没有好处，而且由于 Chromium 缺陷 565837690，低色度 oklch 颜色的色相角无效（`none`），会解析为 `0deg`，即洋红偏红，渲染时产生意外的偏红或粉色色调。直角坐标形式的 `in oklab` 将 `(a, b)` 坐标线性缩放到 `(0, 0)`，无需计算极坐标色相角，因此能准确保留色相，避免色调偏移。
@@ -26,7 +26,7 @@
 - **不要**使用 `in srgb`，除非有明确理由，例如正在构建需要在 srgb 中插值的颜色选择器。
 
 <a id="fallback"></a>
-#### 回退
+### 回退
 
 某些 2024 年之前的浏览器不支持渐变颜色插值空间。
 要支持这些浏览器，通过定义变量，只在安全时使用此令牌：
@@ -59,7 +59,7 @@
 - `color-mix()` 不需要这种处理。如果浏览器支持 `color-mix()`，也就支持其 `in <color-space>` 参数。
 
 <a id="patterns"></a>
-### 图案
+## 图案
 
 许多图案可通过 CSS 渐变与硬色标创建。它们能访问周围上下文的 CSS 变量和长度，因此可能比 SVG 或外部图片更灵活、性能更好。
 无需重复写两次位置，只需使用 `0` 或 `0%`，渐变位置修正机制会自动调整。
@@ -112,3 +112,18 @@ background-size: calc(var(--distance) * 2) calc(var(--distance) * 2);
 
 
 **重要：**CSS 背景不会暴露给辅助技术，因此渐变图表必须配合可访问的文本数据表示。例如，简单比例可提供可见百分比文字或无障碍标签，多部分数据可提供语义化 `<table>` 或 `<dl>`。
+
+
+<a id="accessibility-considerations"></a>
+
+## 无障碍注意事项
+
+渐变或图案背景上的文字和图标，以及用渐变填充的文字，都需要与渐变中的每种颜色保持足够对比度。应逐个色标检查：普通文字至少 4.5:1，大号文字（至少 24px，或至少 18.66px 的粗体）至少 3:1，图标至少 3:1（WCAG 1.4.3 最低对比度、WCAG 1.4.11 非文本对比度）。更多对比度说明参见 `color`（通过 `npx -y modern-web-guidance@latest retrieve "color"` 获取）。
+
+```css
+.myButton {
+  /* 标签颜色与两个渐变色标的对比度都至少为 4.5:1。 */
+  color: #111111;
+  background: linear-gradient(in oklab, #ffffff, #aaaaff);
+}
+```

@@ -19,7 +19,7 @@
 历史调查、目标复述和背景恢复用于补足本次讲解的证据。独立历史理由调查以 `dev-why` 为主，需求意图对齐以 `dev-intake` 为主，具体旧任务接续以 `dev-handoff` 为主；接续后返回原执行阶段，阶段不明时由 `dev-workflow` 协调。
 
 - `dev-writing`（清理机械写作）。
-- [回忆工作上下文](context-recall.md)。
+- `dev-recall`（需要跨会话回顾工作背景时）。
 - `dev-why`（为什么如此）。
 - `dev-why`（证据与可信度）。
 - `dev-workflow`（本地执行支持）。

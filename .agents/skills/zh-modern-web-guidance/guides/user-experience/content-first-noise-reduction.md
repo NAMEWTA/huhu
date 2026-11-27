@@ -30,27 +30,26 @@
 用户向下滚动时隐藏顶部栏，即网站页头或导航栏，一旦向上滚动就立即恢复。这样阅读时它不会挡路，轻轻回滑又能找到。滚动状态容器查询可以通过 CSS 跟踪滚动方向，无需脚本。底部栏，例如标签栏，也采用同样方式，但向下滑出而不是向上。
 
 ```css
-/* The root scroller remembers the direction of the most recent scroll. */
+/* 根滚动容器记住最近一次滚动方向。 */
 html {
   container-type: scroll-state;
 }
 .top-bar {
   position: sticky;
   top: 0;
-  z-index: 1; /* Example value: keeps positioned content from painting over the bar. */
+  z-index: 1; /* 示例值：避免定位内容绘制到栏位之上。 */
 }
-/* Scrolling down: move the bar out of view. transform doesn't change layout, so content doesn't jump.
-   (scrollable: top) shows the bar at the very top, even after jumps such as the Home key, which don't update "scrolled". */
+/* 向下滚动时，将栏位移出视野。transform 不改变布局，因此内容不会跳动。(scrollable: top) 会在最顶部显示栏位，包括 Home 键等不会更新 scrolled 的跳转。 */
 @container scroll-state((scrolled: bottom) and (scrollable: top)) {
   .top-bar {
     transform: translateY(-100%);
   }
 }
-/* Keep the bar visible while it contains keyboard focus. */
+/* 包含键盘焦点时，保持栏位可见。 */
 .top-bar:focus-within {
   transform: none;
 }
-/* Example value: at least the bar's height, so in-page link targets don't land under the bar. */
+/* 示例值：至少为栏位高度，避免页内链接目标落在栏位下面。 */
 :target {
   scroll-margin-top: 4rem;
 }
@@ -66,7 +65,7 @@ html {
 
 ```html
 <button popovertarget="more-links">More</button>
-<!-- Rendered in the top layer, so no z-index management is needed. -->
+<!-- 在顶层渲染，无需管理 z-index。 -->
 <nav id="more-links" popover aria-label="More links">
   <a href="/about">About</a>
   <a href="/contact">Contact</a>
@@ -105,22 +104,22 @@ Container scroll-state queries 的浏览器支持情况：Limited availability�
 不支持滚动状态查询时，栏不会隐藏，但仍保持紧凑且可用。如果 Baseline 目标包含这些浏览器，添加一小段脚本，让它们也能隐藏栏。支持其他滚动状态查询但不支持 `scrolled` 的浏览器，也会让栏保持可见。
 
 ```css
-/* Don't hide the bar while it contains keyboard focus. */
+/* 包含键盘焦点时，不要隐藏栏位。 */
 .top-bar.is-hidden:not(:focus-within) {
   transform: translateY(-100%);
 }
 ```
 
 ```js
-// Runs only where scroll-state queries aren't supported. Run it after .top-bar is parsed (for example, in a module script).
+// 仅在不支持 scroll-state 查询的环境运行。在 .top-bar 解析后执行，例如放在模块脚本中。
 if (!CSS.supports('container-type', 'scroll-state')) {
   const bar = document.querySelector('.top-bar');
   let lastY = scrollY;
   addEventListener('scroll', () => {
-    // Clamp so rubber-band overscroll at the top or bottom doesn't flip the scroll direction.
+    // 限制数值，防止顶部或底部的弹性过度滚动反转滚动方向。
     const y = Math.max(0, Math.min(scrollY, document.documentElement.scrollHeight - innerHeight));
     if (y === lastY) return;
-    // Hide only after scrolling down past the bar's own height, so it doesn't flicker near the top.
+    // 仅在向下滚过栏位自身高度之后隐藏，避免顶部附近闪烁。
     bar?.classList.toggle('is-hidden', y > lastY && y > bar.offsetHeight);
     lastY = y;
   }, { passive: true });
@@ -141,7 +140,7 @@ Popover API 大体属于**渐进增强**，但它的核心行为，包括提升�
 使用打包器或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -157,6 +156,16 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 ```css
 [popover]:is(:popover-open, .\:popover-open) {
   display: block;
+}
+```
+
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
 }
 ```
 

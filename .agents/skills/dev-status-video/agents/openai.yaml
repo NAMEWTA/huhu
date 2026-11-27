@@ -1,0 +1,4 @@
+interface:
+  display_name: "制作进展视频"
+  short_description: "把真实工作证据做成带字幕并经过成片检查的短视频"
+  default_prompt: "使用 $dev-status-video 根据已有素材制作这次工作回顾视频，并核对字幕和每页停留时间。"

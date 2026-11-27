@@ -11,4 +11,4 @@ description: 在明确需要隔离时创建或接手 Git worktree，审计和回
 - 同一直接父分支的本批任务都交回后，按[逐个合并回父分支](references/parent-merge.md)在独立集成树验证双亲提交，再推进父分支。出现冲突时调用 `dev-merge-conflict`，沿用同一任务、操作和验证要求。
 - 接到审计或清理任务时，读取[只读审计](references/worktree-audit.md)和[工作树清理](references/worktree-cleanup.md)。确认归属、写入权交回、实际直接父分支的落地证据和清理授权后，核实任务进程退出并回收检出。按复测结果归还资源额度。
 
-在现有 change 记录检出位置、分支、基线与实际验证。每项合并保留父分支原提交、子分支提交和合并提交的 SHA，从 Git 读取提交图。需要托管 PR 或发布时由 `dev-deploy` 接续。
+在现有 change 记录检出位置、分支、基线与实际验证。每项合并保留父分支原提交、子分支提交和合并提交的 SHA，从 Git 读取提交图。托管 PR 由 `dev-pr` 接续，指定环境发布由 `dev-deploy` 接续。

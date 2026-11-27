@@ -18,6 +18,7 @@ automations:
   reproduce_id: ""
 
 # 只填写所选模式实际需要的字段；动作名称由真实工具枚举，不是内置 API。
+# 每次取得的报告、讨论和必要源附件保存到所属或新建 Change 的 source/；此处只保存来源配置。
 source:
   type: "manual" # manual / slack / issue / email / alert，或已经验证的其他适配器
   scope: "" # 实际账号、工作区与频道／项目／邮箱等范围
@@ -78,8 +79,8 @@ control:
   skill_name: "control-target-app"
   feature_map_path: ".agents/dev/project/issue-automation/feature-map.md"
   environment: "安全测试环境占位值"
-  artifact_directory: "实际运行器的临时工件目录"
-  artifact_retention_hours: 24
+  artifact_directory: "目标项目根 temp/dev/ 下本轮运行目录"
+  artifact_retention_hours: 24 # 只适用于运行捕获，不删除 source、方案、原型或正式结论
 
 verdict_markers:
   bug: "[issue:bug]"

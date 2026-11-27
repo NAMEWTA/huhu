@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { killGroup, messageOf } from "./run.mjs";
+import { killGroup } from "./process-lifecycle.mjs";
+import { messageOf } from "./run.mjs";
 
 const USAGE = `用法：statechart SPEC.tla [--config FILE] [--view FILE] --out DIR
 
@@ -100,6 +101,7 @@ try {
       ],
       {
         detached: true,
+        windowsHide: true,
         stdio: ["ignore", "inherit", "inherit"],
         env: { ...process.env, TMPDIR: tmp, TEMP: tmp, TMP: tmp },
       },
@@ -107,14 +109,21 @@ try {
     janitor = spawn(
       process.execPath,
       [path.join(import.meta.dirname, "cleanup.mjs"), String(worker.pid), stage, tmp],
-      { detached: true, stdio: ["pipe", "ignore", "ignore"] },
+      { detached: true, windowsHide: true, stdio: ["pipe", "ignore", "ignore"] },
     );
     janitor.on("error", () => {});
+    const cleanupPipe = janitor.stdin;
+    cleanupPipe?.on("error", () => {});
     const exited = new Promise        ((resolve) =>
-      worker.once("error", () => resolve(2)).once("exit", (code) => resolve(code ?? 2)),
+      worker.once("error", () => resolve(2)).once("exit", (code) => {
+        cleanupPipe?.write("exited\n");
+        resolve(code ?? 2);
+      }),
     );
     await Promise.race([stopped, exited]);
-    await killGroup(worker.pid          );
+    const running = worker.exitCode === null && worker.signalCode === null;
+    // POSIX 进程组可在组长退出后继续存在；Windows 仅针对仍在运行的本轮 PID 清理。
+    if (running || process.platform !== "win32") await killGroup(worker.pid);
     const verdict = await exited;
     if (stop) {
       console.error(`${stop} 停止了检查，命令未写出结果。`);

@@ -23,7 +23,7 @@
     <button type="button" aria-pressed="false" aria-label="Bold" title="Bold"></button>
   </div>
   <span role="separator" aria-orientation="vertical"></span>
-  <!-- Overflow trigger: the last item in the toolbar -->
+  <!-- 溢出触发器：工具栏最后一项。 -->
   <button type="button" aria-label="More actions" aria-haspopup="menu" aria-expanded="false"
     popovertarget="more-menu" title="More actions"></button>
 </div>
@@ -36,12 +36,12 @@
 切换按钮通过 `aria-pressed` 展示结果。操作没有状态可显示，若不提供反馈，屏幕阅读器用户就没有确认。结果无法通过其他方式看到或听到时（复制、保存），在工具栏外实时区域写入简短消息。若操作改变的内容已经被播报或聚焦，则跳过消息。
 
 ```html
-<!-- Always present in the DOM so the announcement is reliable; keep it outside the toolbar -->
+<!-- 始终存在于 DOM 中以可靠播报，放在工具栏外。 -->
 <p role="status"></p>
 ```
 
 ```js
-// Report the outcome, including failure; clipboard access can be denied
+// 报告包括失败在内的结果；剪贴板访问可能被拒绝。
 try {
   await navigator.clipboard.writeText(text);
   status.textContent = "Text copied";
@@ -92,14 +92,14 @@ try {
 ```
 
 ```js
-// Upgrade title tooltips only when interest invokers and anchor positioning both work
+// 只有兴趣调用器和锚点定位都可用时，才升级 title 工具提示。
 if ("interestForElement" in HTMLButtonElement.prototype && CSS.supports("position-area", "block-end")) {
   document.querySelectorAll('[role="toolbar"] button[title]').forEach((b, i) => {
     const tip = Object.assign(document.createElement("div"), { id: `tip-${i}`, textContent: b.title });
     tip.popover = "hint";
     b.setAttribute("interestfor", tip.id);
-    b.removeAttribute("title"); // avoid a second, native tooltip
-    document.body.append(tip); // keep open hint nodes out of role="group" / role="toolbar"
+    b.removeAttribute("title"); // 避免第二个原生工具提示。
+    document.body.append(tip); // 将打开的 hint 节点移出 role="group" / role="toolbar"。
   });
 }
 ```
@@ -136,7 +136,7 @@ if ("interestForElement" in HTMLButtonElement.prototype && CSS.supports("positio
 
 ```css
 [interestfor]{
-  /* Shorthand for interest-delay-start and interest-delay-end */
+  /* interest-delay-start 和 interest-delay-end 的简写。 */
   interest-delay: 0.2s 0.1s;
 }
 ```
@@ -152,7 +152,7 @@ if ("interestForElement" in HTMLButtonElement.prototype && CSS.supports("positio
 ```css
 [popover="hint"] {
   inset: auto;
-  /* Anchor to the invoker; flip to the other side if there is no room */
+  /* 锚定调用器，没有空间时翻到另一侧。 */
   position-area: block-end;
   position-try-fallbacks: flip-block;
 }
@@ -193,19 +193,19 @@ focusgroup 的浏览器支持：有限可用。
 
 ```js
 if (!('focusGroup' in HTMLElement.prototype)) {
-  // items = every toolbar control across all groups, in DOM order
+  // items 包含所有组中的工具栏控件，按 DOM 顺序排列。
   items.forEach((b, i) => (b.tabIndex = i ? -1 : 0));
   bar.addEventListener("focusin", ({ target }) => {
     if (items.includes(target)) items.forEach((b) => (b.tabIndex = b === target ? 0 : -1));
   });
-  // Read direction and orientation at event time so runtime changes are honored
+  // 在事件发生时读取方向和朝向，尊重运行时变化。
   const vertical = bar.getAttribute("aria-orientation") === "vertical";
-  // Only horizontal toolbars flip with direction: RTL does not flip Up/Down
+  // 只有水平工具栏按文字方向翻转；RTL 不会翻转上下键。
   const rtl = getComputedStyle(bar).direction === "rtl";
   const steps = vertical
     ? { ArrowDown: 1, ArrowUp: -1 }
     : { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1 };
-  // keydown: look up steps[key] (or Home/End), move focus, preventDefault only for handled keys
+  // keydown：查 steps[key] 或 Home/End，移动焦点，仅对已处理的按键调用 preventDefault。
 }
 ```
 
@@ -233,7 +233,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包工具或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -248,6 +248,16 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 ```css
 [popover]:is(:popover-open, .\:popover-open) {
   display: block;
+}
+```
+
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
 }
 ```
 
@@ -274,16 +284,15 @@ Clipboard API 不可用时，`navigator.clipboard` 为 undefined，调用会抛�
 
 ### 锚点定位的回退方案和浏览器支持
 
-Anchor positioning 的浏览器支持：有限可用。
-支持版本：Chrome 157（2026 年 11 月）、Edge 157（2026 年 11 月）和 Safari 27（2026 年 9 月）。
-不支持：Firefox。
+css.properties.position-area 能力的 Baseline 状态：新近可用。自 2026-01-13 起纳入 Baseline。
+支持版本：Chrome 129（2024 年 9 月）、Edge 129（2024 年 9 月）、Firefox 147（2026 年 1 月）和 Safari 26（2025 年 9 月）。
 
 没有锚点定位时，用户代理将浮层放在视口中央。工具提示无需回退，因为上面的 `title` 升级会被跳过。溢出菜单则通过脚本定位以贴近触发器。把 CSS 放在 `@supports not (position-area: block-end)` 内，避免影响支持的浏览器。
 
 ```css
 @supports not (position-area: block-end) {
   #more-menu {
-    /* Viewport coordinates are set from script when the menu opens */
+    /* 菜单打开时，由脚本设置视口坐标。 */
     position: fixed;
     inset: auto;
     margin: 0;
@@ -292,15 +301,15 @@ Anchor positioning 的浏览器支持：有限可用。
 ```
 
 ```js
-// Only needed without anchor positioning; place the menu below its trigger
-// and flip above it when it would overflow the viewport.
+// 仅在不支持锚点定位时需要：将菜单放在触发器下方，
+// 超出视口时翻到上方。
 menu.addEventListener("toggle", ({ newState }) => {
   if (newState !== "open" || CSS.supports("position-area", "block-end")) return;
   const t = more.getBoundingClientRect();
   const m = menu.getBoundingClientRect();
   const below = t.bottom + m.height <= innerHeight;
   menu.style.top = `${below ? t.bottom : t.top - m.height}px`;
-  // Right-align with the trigger, clamped to the viewport
+  // 与触发器右对齐，并限制在视口内。
   menu.style.left = `${Math.max(0, Math.min(t.right - m.width, innerWidth - m.width))}px`;
 });
 ```

@@ -27,8 +27,7 @@
 ```html
 <div class="progress-ring-wrapper">
   <progress value="75" max="100" aria-label="Task progress" class="progress-ring"></progress>
-  <!-- Optional: Content to display in the center. Hidden from assistive
-       technologies because it repeats the value of the <progress> element. -->
+  <!-- 可选：显示在中心的内容。因重复 <progress> 元素的值，对辅助技术隐藏。 -->
   <div class="progress-ring-content" aria-hidden="true">
     75%
   </div>
@@ -49,7 +48,7 @@
 要将 `<progress>` 样式设为进度环，先隐藏浏览器默认进度条样式。
 
 ```css
-/* Hide native bars */
+/* 隐藏原生进度条。 */
 progress.progress-ring::-webkit-progress-bar {
   display: none;
   background: none;
@@ -98,13 +97,13 @@ progress.progress-ring {
     var(--track-color) 0
   );
 
-  /* MANDATORY: Clip the background to the border-area. */
+  /* 必须：将背景裁剪到 border-area。 */
   background-clip: border-area;
   border: var(--thickness) solid transparent;
   background-origin: border-box;
 
   @media (forced-colors: active) {
-    /* Keeps the gradient, which forced colors mode removes, and draws it in system colors */
+    /* 保留强制颜色模式会移除的渐变，并以系统颜色绘制。 */
     forced-color-adjust: none;
     --fill-color: CanvasText;
     --track-color: Canvas;
@@ -112,7 +111,7 @@ progress.progress-ring {
 }
 
 .progress-ring-content {
-  /* Positioned in the center of the wrapper */
+  /* 放在包裹层中央。 */
   position: absolute;
 }
 ```
@@ -156,7 +155,7 @@ progress.progress-ring {
 可以使用 CSS 属性选择器，在任务完成时自动更新圆环外观，例如改为绿色。
 
 ```css
-/* Change the fill color to green when the progress reaches 100% */
+/* 进度到达 100% 时，将填充色改为绿色。 */
 progress.progress-ring[value="100"] {
   --fill-color: #10b981;
 }
@@ -186,12 +185,15 @@ background-clip: border-area 的浏览器支持：有限可用。
 尚不支持 `background-clip: border-area` 的浏览器，用 `mask-image` 回退，将 `<progress>` 中心挖空。
 
 ```css
+/* 顶层 @supports 内的声明需要选择器，否则解析器会丢弃它们。 */
 @supports not (background-clip: border-area) {
-  mask-image: radial-gradient(
-    transparent calc(50% - var(--thickness)),
-    black calc(50% - var(--thickness) + 0.5px)
-  );
-  border: 0;
+  progress.progress-ring {
+    mask-image: radial-gradient(
+      transparent calc(50% - var(--thickness)),
+      black calc(50% - var(--thickness) + 0.5px)
+    );
+    border: 0;
+  }
 }
 ```
 

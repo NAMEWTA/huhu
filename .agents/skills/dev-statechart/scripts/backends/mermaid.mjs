@@ -93,6 +93,43 @@ const esc = (s        , quoted = false) => {
 
 const or = (names                  ) => [...names].sort(byText).join(" 或 ");
 
+function isWithin(parent, path) {
+  return path.length >= parent.length && parent.every((segment, index) => path[index] === segment);
+}
+
+function drawnEdges(region) {
+  let edges = [
+    ...region.states.filter((state) => state.start).map((state) => ({ from: [], start: true, to: state.path })),
+    ...region.steps.map((step) => ({
+      from: step.from,
+      start: false,
+      to: step.to,
+      label: step.label + (step.when ? ` [${step.when}]` : ""),
+    })),
+  ];
+  const parents = new Map();
+  for (const state of region.states) {
+    for (let depth = 1; depth < state.path.length; depth++) {
+      const parent = state.path.slice(0, depth);
+      parents.set(tupleKey(parent), parent);
+    }
+  }
+  // 同一个外部入口可指向父状态，具体转移保留在父状态的内部初始边上。
+  for (const parent of [...parents.values()].sort((a, b) => a.length - b.length)) {
+    const incoming = edges.filter((edge) =>
+      edge.to.length > parent.length && isWithin(parent, edge.to) && !isWithin(parent, edge.from));
+    const first = incoming[0];
+    if (!first || incoming.some((edge) =>
+      edge.start !== first.start || tupleKey(edge.from) !== tupleKey(first.from))) continue;
+    const single = incoming.length === 1;
+    const index = edges.indexOf(first);
+    edges = edges.filter((edge) => !incoming.includes(edge));
+    edges.splice(index, 0, { ...first, to: parent, label: single ? first.label : undefined },
+      ...incoming.map((edge) => ({ from: parent, start: true, to: edge.to, label: single ? undefined : edge.label })));
+  }
+  return edges;
+}
+
 const MARK_STYLES = {
   breaks: "fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834",
   mayBreak: "fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06",
@@ -121,6 +158,12 @@ export function mermaidLines(chart       ) {
       if (s === undefined) known.set(path, (s = id(path)));
       return s;
     };
+    const edges = drawnEdges(r);
+    const edgeLine = (edge, indent) => {
+      const source = edge.start ? "[*]" : idOf(edge.from);
+      const label = edge.label === undefined ? "" : `: ${esc(edge.label)}`;
+      return `${indent}${source} --> ${idOf(edge.to)}${label}`;
+    };
     const tree = (prefix          , indent        , below              ) => {
       const heads = new Map                      ();
       for (const s of below) append(heads, s.path[prefix.length], s);
@@ -134,6 +177,10 @@ export function mermaidLines(chart       ) {
         if (inner.length) {
           out.push(`${indent}state "${esc(head, true)}" as ${id(path)} {`);
           tree(path, indent + "  ", inner);
+          const parentKey = tupleKey(path);
+          for (const edge of edges) {
+            if (edge.start && tupleKey(edge.from) === parentKey) out.push(edgeLine(edge, `${indent}  `));
+          }
           out.push(`${indent}}`);
         } else if (leaf) {
           const sid = idOf(leaf.path);
@@ -153,11 +200,9 @@ export function mermaidLines(chart       ) {
       }
     };
     tree([], "  ", r.states);
-    for (const s of r.states) if (s.start) out.push(`  [*] --> ${idOf(s.path)}`);
-    for (const s of r.steps)
-      out.push(
-        `  ${idOf(s.from)} --> ${idOf(s.to)}: ${esc(s.label + (s.when ? ` [${s.when}]` : ""))}`,
-      );
+    for (const edge of edges) {
+      if (!edge.start || edge.from.length === 0) out.push(edgeLine(edge, "  "));
+    }
     return out;
   };
   let body          ;

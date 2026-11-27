@@ -21,7 +21,7 @@ CSS Anchor Positioning 提供声明式、经过性能优化的方式，完全通
 <button popovertarget="action-panel">
   Open Actions
 </button>
-<!-- Use the Popover API (`popover="auto"`) for the overlay to ensure it is placed in the top layer and handled accessibly by the browser. -->
+<!-- 覆盖层使用 Popover API（popover="auto"），确保由浏览器放入顶层并提供无障碍处理。 -->
 <div id="action-panel" popover="auto" class="panel">
   <button class="action-item" type="button">Edit</button>
 </div>
@@ -39,12 +39,11 @@ CSS Anchor Positioning 提供声明式、经过性能优化的方式，完全通
 ```css
 .panel {
   /* 
-     Position the panel below the anchor (block-end), 
-     aligned to the start of the anchor and spanning to its end (span-inline-end).
+     将面板放在锚点下方（block-end），对齐锚点起始边，并向结束边延伸（span-inline-end）。
   */
   position-area: block-end span-inline-end;
   
-  /* Reset insets to allow the grid to take control */
+  /* 重置 inset，让网格接管定位。 */
   inset: auto;
 }
 ```
@@ -63,9 +62,7 @@ CSS Anchor Positioning 提供声明式、经过性能优化的方式，完全通
 ```css
 .panel {
   /* 
-     If the panel overflows the bottom, flip it to the top (flip-block).
-     If it overflows the inline edges, flip it horizontally (flip-inline).
-     If it overflows both (e.g., in a corner), flip on both axes (flip-block flip-inline).
+     面板从底部溢出时翻到顶部（flip-block）；从行内边缘溢出时水平翻转（flip-inline）；两者都溢出时，例如位于角落，则同时翻转两轴（flip-block flip-inline）。
   */
   position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
 }
@@ -92,7 +89,7 @@ Popover API 主要属于**渐进增强**，但其核心行为——提升到顶�
 使用打包器或 import map 时：
 
 ```js
-// MANDATORY: Feature detect 'popover' on HTMLElement.prototype.
+// 必须：检测 HTMLElement.prototype 上的 popover 特性。
 if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
   import("@oddbird/popover-polyfill");
 }
@@ -109,6 +106,16 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 ```css
 [popover]:is(:popover-open, .\:popover-open) {
   display: block;
+}
+```
+
+为防止 polyfill 加载前显示浮层，请用 CSS 将它们隐藏：
+
+```css
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
 }
 ```
 
@@ -134,7 +141,7 @@ if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
 使用打包器或 import map 时：
 
 ```js
-// MANDATORY: Feature-detect anchor positioning support before loading the polyfill.
+// 必须：加载 polyfill 前检测锚点定位支持。
 if (!CSS.supports("anchor-name: --a")) {
   import("@oddbird/css-anchor-positioning");
 }
@@ -144,7 +151,7 @@ if (!CSS.supports("anchor-name: --a")) {
 不使用打包器时，在 `<script type="module">` 内从 CDN 导入：
 
 ```html
-<!-- MANDATORY: Conditionally install the anchor positioning polyfill -->
+<!-- 必须：按条件安装锚点定位 polyfill。 -->
 <script type="module">
   if (!CSS.supports("anchor-name: --a")) {
     import("https://unpkg.com/@oddbird/css-anchor-positioning");
@@ -161,13 +168,13 @@ if (!CSS.supports("anchor-name: --a")) {
 
 ```css
 .trigger {
-  /* MANDATORY: Each trigger and positioned element pair must share a unique anchor name. */
+  /* 必须：每对触发器与定位元素共用一个唯一锚点名称。 */
   anchor-name: --my-trigger;
 }
 
 [popover].anchored-overlay {
   position-anchor: --my-trigger;
-  /* MANDATORY: Use anchor() on inset properties rather than position-area when using the polyfill on elements needing position-try-fallbacks. */
+  /* 必须：对需要 position-try-fallbacks 的元素使用此 polyfill 时，在 inset 属性上使用 anchor()，不要使用 position-area。 */
   inset: auto;
   top: anchor(bottom);
   left: anchor(left);
@@ -195,7 +202,7 @@ if (!CSS.supports("anchor-name: --a")) {
 }
 
 @supports not (position-area: block-end) {
-  /* Optional: override default popover centering with a fixed bottom bar */
+  /* 可选：用固定底栏覆盖浮层默认居中行为。 */
   [popover].anchored-overlay {
     position: fixed;
     inset: auto 0 0 0;
