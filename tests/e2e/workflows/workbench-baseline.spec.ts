@@ -1000,9 +1000,15 @@ test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", a
       await verify(direction);
     }
     const handle = page.getByRole("separator", { name: "上下分栏高度" });
+    if (name === "web") {
+      // Keep the narrow viewport for all four moves. Give the minimum-size panes room to drag afterward.
+      await page.setViewportSize({ width: 800, height: 700 });
+    }
+    await expect.poll(() => handle.evaluate((element) =>
+      Number(element.getAttribute("aria-valuemax")) - Number(element.getAttribute("aria-valuemin")))).toBeGreaterThan(0);
+    const beforeDrag = await verify("before-drag");
     const bounds = (await handle.boundingBox())!;
     const value = await handle.getAttribute("aria-valuenow");
-    const beforeDrag = grid()!;
     await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
     await page.mouse.down();
     await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 + 45, { steps: 7 });
