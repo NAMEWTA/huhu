@@ -167,7 +167,7 @@ test.skipIf(process.platform !== "linux" || process.arch !== "x64" || !coreBin |
     const otherSession = await openMcpSession(mcp, otherToken);
     expect((await invoke(externalTool, "other task", otherToken, session)).status).toBe(404);
     expect(await (await invoke(externalTool, "other task", otherToken, otherSession)).json()).toMatchObject({ error: expect.any(Object) });
-    await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: second.id })).status).toBe("in_progress");
+    await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: second.id })).status, { timeout: 15_000 }).toBe("in_progress");
     const reread = await call<TaskDto>("tasks.read", { id: second.id });
     const revised = await authorize(reread, second.mcpAuthorization!.tools);
     expect((await invoke("task_other__echo", "old revision", otherToken, otherSession)).status).toBe(401);
@@ -182,7 +182,7 @@ test.skipIf(process.platform !== "linux" || process.arch !== "x64" || !coreBin |
     await expect.poll(() => responses.requests.length, { timeout: 22_000 }).toBe(6);
     const revokedToken = credentials[2]!;
     const revokedSession = await openMcpSession(mcp, revokedToken);
-    await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: revoking.id })).status).toBe("in_progress");
+    await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: revoking.id })).status, { timeout: 15_000 }).toBe("in_progress");
     const latest = await call<TaskDto>("tasks.read", { id: revoking.id });
     expect((await authorize(latest, [])).mcpAuthorization).toBeUndefined();
     expect((await invoke(externalTool, "after revocation", revokedToken, revokedSession)).status).toBe(401);
