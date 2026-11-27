@@ -295,7 +295,7 @@ function BudgetDetails({
         <BudgetProgress budget={latest} />
         {base.data && base.data.categories.length > 0 && (
           <div className="ledger-chart-grid">
-            <DistributionChart id="budget-distribution" title="预算分类分布" currency={latest.definition.currency} entries={base.data.categories} open={select} />
+            <DistributionChart id="budget-distribution" title="预算分类分布" currency={latest.definition.currency} entries={base.data.categories} open={(category) => select(category)} />
             <section className="ledger-chart-section">
               <h4>预算分类趋势</h4>
               <CategoryTrend id="budget-trend" currency={latest.definition.currency} categories={base.data.categories} periods={base.data.periods} open={select} />

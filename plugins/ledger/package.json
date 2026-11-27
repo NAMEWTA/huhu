@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@types/d3-dsv": "3.0.7",
-    "@types/react": "^19.3.0"
+    "@types/react": "^19.3.0",
+    "jsdom": "^31.0.0"
   }
 }
