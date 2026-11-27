@@ -349,6 +349,15 @@ export class ReminderDeliveries {
       } else {
         row = await this.save({ ...row.data, comment: "pending", cancelled: true }, row.version);
       }
+    } else if (row.data.comment === "writing" && row.data.targetTask && this.writeComment) {
+      // A write whose checkpoint was lost: confirm the original comment, or rewrite it under the same ID.
+      const taskId = row.data.targetTask;
+      const written = this.readComment ? this.readComment(taskId, commentId(id), row.data.text) : false;
+      if (written) row = await this.save({ ...row.data, comment: "written" }, row.version);
+      else if (written === false && this.current(row.data)) {
+        this.lifetime.signal.throwIfAborted();
+        row = await this.save({ ...row.data, comment: await this.commentTask(row.data, taskId) }, row.version);
+      }
     } else if (row.data.comment === "pending" && row.data.targetTask && this.readComment?.(row.data.targetTask, commentId(id), row.data.text)) {
       // Older interrupted attempts recorded only "pending", even after a successful comment write.
       row = await this.save({ ...row.data, comment: "written" }, row.version);

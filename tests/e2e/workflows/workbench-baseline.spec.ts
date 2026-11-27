@@ -1002,7 +1002,10 @@ test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", a
     const handle = page.getByRole("separator", { name: "上下分栏高度" });
     if (name === "web") {
       // Keep the narrow viewport for all four moves. Give the minimum-size panes room to drag afterward.
+      const beforeResize = grid();
       await page.setViewportSize({ width: 800, height: 700 });
+      // The taller viewport reaches the PTY through ResizeObserver and a frame; sample only after the grid moves.
+      await expect.poll(grid).not.toEqual(beforeResize);
     }
     await expect.poll(() => handle.evaluate((element) =>
       Number(element.getAttribute("aria-valuemax")) - Number(element.getAttribute("aria-valuemin")))).toBeGreaterThan(0);

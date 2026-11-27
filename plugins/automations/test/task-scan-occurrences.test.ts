@@ -766,9 +766,11 @@ test.each(["before", "after"] as const)("观察评论在提交 %s 中断后按�
   await stop(engine);
   const reopened = await start(root);
   await reopened.reminders.recover();
-  expect(await read(reopened.engine)).toEqual(pending);
-  const recover = () => invoke<PlanOccurrence>(reopened.engine, "automations.plans.recoverEffect", { planId: plan.planId, occurrenceId, effectId: effect!.effectId });
-  const recovered = await recover();
+  // Restart recovery confirms a comment that actually landed; one that never landed stays for explicit verification.
+  const recovered = point === "after"
+    ? await read(reopened.engine)
+    : (expect(await read(reopened.engine)).toEqual(pending),
+      await invoke<PlanOccurrence>(reopened.engine, "automations.plans.recoverEffect", { planId: plan.planId, occurrenceId, effectId: effect!.effectId }));
   expect(recovered).toMatchObject({
     plan: pending.plan, occurrenceId, state: point === "after" ? "completed" : "cancelled",
     effects: [{ effectId: effect!.effectId, state: point === "after" ? "completed" : "not-accepted",
