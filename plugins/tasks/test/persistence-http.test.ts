@@ -1381,8 +1381,8 @@ test("原生回答先落盘，竞争只保存一个回答，确认丢失后只�
 
 test.each([false, true])("原生回答回包丢失后只核实并通知两个读取方（运行已结束：%s）", async (finished) => {
   const { fake, engine, task, run, execution } = await startBoundRun();
-  const question = { mode: "native_deferred", requestId: "ask-delivery", requestVersion: 1, text: "请选一个", options: ["一", "二"], nativeRequestId: "original-request" } as const;
-  expect(await submitReceipt(engine, { version: 1, receiptId: "delivery-question", kind: "question", execution, payload: question })).toMatchObject({ ok: true });
+  const question = { mode: "native_deferred" as const, requestId: "ask-delivery", requestVersion: 1, text: "请选一个", options: ["一", "二"], nativeRequestId: "original-request" };
+  expect(await submitReceipt(engine, { version: 1, receiptId: "delivery-question", kind: "question" as const, execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: execution.sessionBinding.nativeSessionId! } }, payload: question })).toMatchObject({ ok: true });
   const answer = vi.fn<NonNullable<TaskDispatchExecutor["answer"]>>().mockRejectedValue(new Error("原生写入后的回包丢失"));
   const inspect = vi.fn<NonNullable<TaskDispatchExecutor["inspectAnswer"]>>().mockResolvedValue({ status: "unknown" });
   fake.answer = answer;
