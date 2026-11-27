@@ -1,18 +1,20 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HerdrClient, HerdrCore } from "../../packages/herdr-client/src/index.js";
 import { machineId } from "../../packages/vault/src/vault.js";
 import { fixtureProcessRunning } from "../../plugins/agent-cli/test/fixtures/core-cli.js";
+import { openImapFixture } from "../../plugins/mail/test/fixtures/imap.js";
 import { createScaleVault } from "../perf/scale-vault.js";
 import { withFixtureCleanup, withFixtureDeadline } from "./helpers/candidate-desktop.js";
 import { openApp, rmTree, root, USER_DATA_ARG } from "./helpers/launch.js";
 import { observeTaskPerformance, observeTaskQuit, observeTerminalFlood, observeTerminalFloodBridge, readTerminalFloodTail } from "./helpers/perf-diagnostics.js";
 import { observePluginPerformance } from "./helpers/plugin-perf-diagnostics.js";
 import { treeFileRows, treeFolder, treeItem, treeSettled } from "./helpers/tree.js";
+import { call as engineCall, engineReady } from "./knowledge/session-slow-bridge.js";
 
 import { journeyMachine, journeyPercentiles, launchJourney, measureNoteJourney, noteScenarios, prepareNotes, seedComments } from "./perf-note-journey.js";
 
@@ -749,6 +751,120 @@ for (const scenario of noteScenarios) {
 }
 
 
+test("F09 Agent 历史分页与原记录预览", async () => {
+  test.skip(process.env.HUHU_AGENT_HISTORY_PERF !== "1", "按需采集历史分页");
+  test.setTimeout(90_000);
+  const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-f09-history-")));
+  const codex = path.join(directory, "codex");
+  const rolls = path.join(codex, "sessions", "2026", "09", "01");
+  const pi = path.join(directory, "pi");
+  let fixture: Awaited<ReturnType<typeof openApp>> | undefined;
+  await withFixtureCleanup(async () => {
+    mkdirSync(rolls, { recursive: true });
+    mkdirSync(pi);
+    const jsonl = (...rows: object[]) => rows.map((row) => JSON.stringify(row) + "\n").join("");
+    const writeCodex = (cwd: string, id: string, title: string) => {
+      const file = path.join(rolls, `rollout-${id}.jsonl`);
+      writeFileSync(file, jsonl({ type: "session_meta", payload: { id, cwd } },
+        { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: title }] } }));
+      return file;
+    };
+    const writePi = (cwd: string, id: string, title: string) => {
+      const file = path.join(pi, `${id}.jsonl`);
+      writeFileSync(file, jsonl({ type: "session", version: 3, id, cwd },
+        { type: "message", message: { role: "user", content: title } }));
+      return file;
+    };
+    fixture = await openApp({ CODEX_HOME: codex, PI_CODING_AGENT_SESSION_DIR: pi, CLAUDE_CONFIG_DIR: path.join(directory, "empty") }, (vault) => {
+      const cwd = realpathSync(vault);
+      const old = new Date("2026-09-01T00:00:00Z");
+      for (const file of [writeCodex(cwd, "f09-codex", "Codex 原有记录"), writePi(cwd, "f09-pi", "Pi 原有记录")]) utimesSync(file, old, old);
+      for (let index = 0; index < 2_001; index++) {
+        writeCodex(directory, `outside-${index}`, "异 Space");
+        writePi(directory, `outside-${index}`, "异 Space");
+      }
+      for (let index = 0; index < 50; index++) writePi(cwd, `inside-${index}`, `较新记录 ${index}`);
+    });
+    const { page } = fixture;
+    await engineReady(page);
+    const [space] = await engineCall<{ id: string }[]>(page, "agent.spaces.list", {});
+    const samples = [];
+    const measure = async <T,>(stage: string, capability: string, input: object) => {
+      const start = performance.now();
+      const result = await engineCall<T>(page, capability, input);
+      samples.push({ stage, wallMs: performance.now() - start, responseBytes: Buffer.byteLength(JSON.stringify(result)) });
+      return result;
+    };
+    type Entry = { provider: string; nativeSessionId: string; historyId: string; revision: string; title: string };
+    type History = { entries: Entry[]; total: number; nextOffset: number | null };
+    const scope = { spaceId: space!.id };
+    const first = await measure<History>("first-page", "agent.history.list", { ...scope, limit: 50 });
+    expect(first).toMatchObject({ total: 52, nextOffset: 50 });
+    expect(first.entries.map(({ title }) => title).sort()).toEqual(Array.from({ length: 50 }, (_, index) => `较新记录 ${index}`).sort());
+    const second = await measure<History>("second-page", "agent.history.list", { ...scope, limit: 50, offset: 50 });
+    expect(second).toMatchObject({ total: 52, nextOffset: null });
+    expect(second.entries.map(({ title }) => title).sort()).toEqual(["Codex 原有记录", "Pi 原有记录"]);
+    for (const { provider, nativeSessionId, historyId, revision, title } of second.entries) {
+      const transcript = await measure(`${provider}-preview`, "agent.history.read", { ...scope, provider, nativeSessionId, historyId, historyRevision: revision });
+      expect(transcript).toMatchObject({ truncated: false, messages: [{ role: "user", text: title }] });
+    }
+    await test.info().attach("f09-agent-history", { body: JSON.stringify({ outside: 4_002, visible: 52, samples }), contentType: "application/json" });
+  }, [
+    ["关闭历史测量桌面", () => fixture?.close()],
+    ["清理独立历史目录", () => rmTree(directory)],
+  ]);
+});
+
+test("F12 同一 MIME 邮件正文的首次读取和重复读取", async () => {
+  test.skip(process.env.HUHU_MAIL_PERF !== "1", "按需采集本地 IMAP 正文成本");
+  test.setTimeout(90_000);
+  const title = "F12 MIME fixture";
+  const body = "F12 known body " + "record data\r\n".repeat(8_192);
+  const source = [
+    "From: Sender <sender@example.test>", "To: fixture@example.test", `Subject: ${title}`,
+    "MIME-Version: 1.0", 'Content-Type: multipart/alternative; boundary="f12-fixture"', "",
+    "--f12-fixture", 'Content-Type: text/plain; charset="utf-8"', "", body,
+    "--f12-fixture", 'Content-Type: text/html; charset="utf-8"', "", "<p>F12 known HTML</p>",
+    "--f12-fixture--", "",
+  ].join("\r\n");
+  const imap = await openImapFixture({ allowIdle: false, message: { uid: 1, uidValidity: 42, subject: title, source } });
+  let fixture: Awaited<ReturnType<typeof openApp>> | undefined;
+  await withFixtureCleanup(async () => {
+    fixture = await openApp();
+    const { page } = fixture;
+    await engineReady(page);
+    const endpoint = { host: "127.0.0.1", port: imap.port, security: "none" };
+    const { setupId } = await engineCall<{ setupId: string }>(page, "mail.accounts.testConnection", {
+      settings: { provider: "custom_imap", email: "fixture@example.test", label: title, auth: "password",
+        imap: endpoint, smtpEnabled: false, smtp: endpoint },
+      password: "f12-loopback-fixture",
+    });
+    const { accountId } = await engineCall<{ accountId: string }>(page, "mail.accounts.save", { setupId, folders: ["INBOX"] });
+    const folder = { accountId, folder: "INBOX" };
+    const { message } = await engineCall<{ message: { localMessageId: string } }>(page, "mail.sync.refresh", folder);
+    const key = { ...folder, localMessageId: message.localMessageId };
+    const fetches = imap.fetchRequests.length;
+    const samples = [];
+    let digest: string | undefined;
+    for (let n = 0; n < 6; n++) {
+      const start = performance.now();
+      const result = await engineCall<{ state: string; sourceDigest: string; body: { text: string; untrustedHtml: string } }>(page, "mail.messages.loadBody", key);
+      const wallMs = performance.now() - start;
+      expect(result).toMatchObject({ state: "ready", body: { untrustedHtml: expect.stringContaining("F12 known HTML") } });
+      expect(result.body.text.replaceAll("\r\n", "\n").trim()).toBe(body.replaceAll("\r\n", "\n").trim());
+      expect(result.sourceDigest).toEqual(expect.any(String));
+      digest ??= result.sourceDigest;
+      expect(result.sourceDigest).toBe(digest);
+      samples.push({ kind: n === 0 ? "first-body-read" : "repeat-body-read", wallMs, responseBytes: Buffer.byteLength(JSON.stringify(result)) });
+    }
+    expect(imap.fetchRequests).toHaveLength(fetches);
+    await test.info().attach("f12-mime-journey", { body: JSON.stringify({ fixtureMessages: 1, mimeBytes: Buffer.byteLength(source), samples, extraImapFetches: 0 }), contentType: "application/json" });
+  }, [
+    ["关闭邮件测量桌面", () => fixture?.close()],
+    ["关闭 IMAP 夹具", () => imap.close()],
+  ]);
+});
+
 test("F23 大库正文保存记录路径树 RPC、字节和交互耗时", async () => {
   const testInfo = test.info();
   test.setTimeout(90_000);
@@ -764,12 +880,16 @@ test("F23 大库正文保存记录路径树 RPC、字节和交互耗时", async 
   });
   const { page, vault, close } = fixture;
   const requestCaps = new Set(["vault.indexEntries", "vault.indexSnapshot"]);
+  let appearance: string | null | undefined;
+  let initialAutosave: boolean | undefined;
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
     await page.getByRole("button", { name: "设置", exact: true }).first().click();
     await page.getByTestId("settings-nav-editor").click();
     const autosave = page.getByRole("switch", { name: "自动保存" });
-    if (await autosave.isChecked()) await autosave.click();
+    appearance = await page.evaluate(() => localStorage.getItem("huhu.appearance"));
+    initialAutosave = await autosave.isChecked();
+    if (initialAutosave) await autosave.click();
     await expect(autosave).not.toBeChecked();
     const initialTree = page.waitForResponse((response) => {
       if (!response.url().endsWith("/api/v1/call")) return false;
@@ -826,6 +946,17 @@ test("F23 大库正文保存记录路径树 RPC、字节和交互耗时", async 
     await testInfo.attach("f23-save-journey", { body: JSON.stringify({ fixtureNotes: 5001, indexCalls, bytes, journeyMs, longTasksMs, observationMs: 500 }), contentType: "application/json" });
     if (process.env["HUHU_F23_BASELINE"] !== "1") expect(indexCalls).toBe(0);
   } finally {
-    await close();
+    try {
+      if (initialAutosave) await engineCall(page, "settings.update", { patch: { editor: { autosave: true } } });
+    } finally {
+      try {
+        if (appearance !== undefined) await page.evaluate((previous) => {
+          if (previous === null) localStorage.removeItem("huhu.appearance");
+          else localStorage.setItem("huhu.appearance", previous);
+        }, appearance);
+      } finally {
+        await close();
+      }
+    }
   }
 });

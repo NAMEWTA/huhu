@@ -26,7 +26,7 @@ test("managed periods serialize admission, preserve tombstones and fence each oc
       signal.addEventListener("abort", () => reject(signal.reason), { once: true });
     });
   });
-  const port = { signal: controller.signal, legacy: () => [legacy], run };
+  let port: PeriodicPlanSource = { signal: controller.signal, legacy: () => [legacy], run };
   const rules = {
     withRuleConfiguration<T>(operation: () => Promise<T> | T) {
       const next = tail.then(operation);
@@ -78,6 +78,29 @@ test("managed periods serialize admission, preserve tombstones and fence each oc
     complete();
     await vi.waitFor(() => expect(plans.readOccurrence(second)?.state).toBe("completed"));
 
+    now += 5_000;
+    await plans.tick();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3));
+    const old = run.mock.calls[2]![1];
+    const replacement = vi.fn<PeriodicPlanSource["run"]>(async () => {});
+    port = { ...port, signal: new AbortController().signal, run: replacement };
+    await plans.tick();
+    expect(old.signal.aborted).toBe(true);
+    expect(old.isCurrent()).toBe(false);
+    expect(replacement).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(plans.readOccurrence(old.occurrenceId)).toMatchObject({
+      occurrenceId: old.occurrenceId, plan: { planId: legacy.planId, revision: rescheduled!.revision },
+      state: "unknown", effects: [{ state: "unknown" }],
+    }));
+
+    await plans.tick();
+    now += 5_000;
+    await plans.tick();
+    await vi.waitFor(() => expect(replacement).toHaveBeenCalledTimes(1));
+    const next = replacement.mock.calls[0]![1];
+    expect(next.occurrenceId).not.toBe(old.occurrenceId);
+    await vi.waitFor(() => expect(plans.readOccurrence(next.occurrenceId)?.state).toBe("completed"));
+
     await plans.configure([{ ...legacy, intent: "deleted", everySeconds: 5, expectedRevision: rescheduled!.revision }], signal);
     await plans.close();
     const reopened = make("owner");
@@ -87,7 +110,10 @@ test("managed periods serialize admission, preserve tombstones and fence each oc
     expect(reopened.read(legacy.planId)?.intent).toBe("deleted");
     expect(reopened.readOccurrence(first)?.state).toBe("unknown");
     expect(reopened.readOccurrence(second)?.state).toBe("completed");
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(reopened.readOccurrence(old.occurrenceId)?.state).toBe("unknown");
+    expect(reopened.readOccurrence(next.occurrenceId)?.state).toBe("completed");
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(replacement).toHaveBeenCalledTimes(1);
   } finally {
     await Promise.all(apps.map((plans) => plans.close()));
     rmSync(root, { recursive: true, force: true });

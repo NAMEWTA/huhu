@@ -66,6 +66,7 @@ async function seed(engine: RunningEngine, closed: number) {
 }
 
 test.runIf(process.env["HUHU_F11_BENCH"] === "1")("activity reconciliation against 0, 1000 and 10000 concluded dispatches", { timeout: 180_000 }, async () => {
+  const samples = [];
   for (const closed of [0, 1_000, 10_000]) {
     const root = mkdtempSync(path.join(tmpdir(), "huhu-f11-activity-"));
     let engine: RunningEngine | undefined;
@@ -112,8 +113,8 @@ test.runIf(process.env["HUHU_F11_BENCH"] === "1")("activity reconciliation again
           const now = performance.now();
           await realCheck.call(runtime);
           const checkMs = performance.now() - now;
-          const used = process.cpuUsage(cpu);
           const http = await response;
+          const used = process.cpuUsage(cpu);
           expect(http.body).toMatchObject({ ok: true, data: { vault: { active, pending: 0, unknown: 0 } } });
           traces.push({ reads, readBytes, cpuMs: (used.user + used.system) / 1000, checkMs, responseMs: http.ms, rssBytes: process.memoryUsage.rss() });
         } finally {
@@ -126,9 +127,12 @@ test.runIf(process.env["HUHU_F11_BENCH"] === "1")("activity reconciliation again
         readBytes: summarize(traces.map(({ readBytes }) => readBytes)),
         checkMs: summarize(traces.map(({ checkMs }) => checkMs)),
         responseMs: summarize(traces.map(({ responseMs }) => responseMs)),
+        cpuMs: summarize(traces.map(({ cpuMs }) => cpuMs)),
         peakSampleRssBytes: Math.max(...traces.map(({ rssBytes }) => rssBytes)),
       };
-      console.info("F11", JSON.stringify({ closed, active, warmedMs, correct: true, summary, traces }));
+      const sample = { closed, active, warmedMs, correct: true, summary, traces };
+      samples.push(sample);
+      console.info("F11", JSON.stringify(sample));
       if (process.env["HUHU_F11_ASSERT_ACTIVITY"] === "1") expect(Math.max(...traces.map(({ reads }) => reads))).toBeLessThan(25);
     } finally {
       check.mockRestore();
@@ -137,4 +141,6 @@ test.runIf(process.env["HUHU_F11_BENCH"] === "1")("activity reconciliation again
       rmSync(root, { recursive: true, force: true, maxRetries: 5 });
     }
   }
+  const out = process.env["HUHU_ACTIVITY_COST_OUTPUT"];
+  if (out) writeFileSync(out, JSON.stringify({ node: process.version, samples }, null, 2) + "\n");
 });

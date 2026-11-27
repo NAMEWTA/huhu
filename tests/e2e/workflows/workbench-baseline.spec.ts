@@ -8,6 +8,7 @@ import { openApp, rmTree, root } from "../helpers/launch.js";
 import { treeItem } from "../helpers/tree.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
+import { fragmentHerdrEvents } from "../helpers/herdr-fragment-proxy.js";
 import type { DashboardView } from "../../../packages/contracts/src/home.js";
 
 const artifacts = process.env["HUHU_U0_DESKTOP_APP"] ?? root;
@@ -19,15 +20,20 @@ const diskText = "# 现场\n\n初始正文\n";
 test.use({ trace: "off" });
 test.skip(process.platform !== "linux" || !process.env["HUHU_U0_DESKTOP_APP"], "U0 使用已构建的 Linux 桌面目录和独立 Web");
 
-async function runOnHosts(info: TestInfo, sample: (host: Page, name: "electron" | "web", vault: string) => Promise<void>, prepare?: (vault: string) => void, windowSize = size, environment: Record<string, string> = {}) {
+async function runOnHosts(info: TestInfo, sample: (host: Page, name: "electron" | "web", vault: string, app: Awaited<ReturnType<typeof openApp>>["app"]) => Promise<void>, prepare?: (vault: string) => void, windowSize = size, environment: Record<string, string> = {}) {
   const runtime = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-u0-")));
   let desktop: Awaited<ReturnType<typeof openApp>> | undefined;
+  let originalWindow: { size: [number, number]; zoom: number } | undefined;
   let browser: Browser | undefined;
   const results: unknown[] = [];
   const failures: string[] = [];
   try {
     desktop = await openApp({ ...environment, XDG_RUNTIME_DIR: runtime }, prepare, artifacts);
     await engineReady(desktop.page);
+    originalWindow = await desktop.app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0]!;
+      return { size: window.getContentSize() as [number, number], zoom: window.webContents.getZoomFactor() };
+    });
     await desktop.app.evaluate(({ BrowserWindow }, { width, height }) => {
       const window = BrowserWindow.getAllWindows()[0]!;
       window.setContentSize(width, height);
@@ -55,7 +61,7 @@ async function runOnHosts(info: TestInfo, sample: (host: Page, name: "electron" 
         mode: document.documentElement.dataset.mode,
         fontSize: getComputedStyle(document.body).fontSize,
       }));
-      const attempt = await sample(page, name, desktop.vault).then(() => ({ sampled: true }), (error: unknown) => ({ sampled: false, error: error instanceof Error ? error.message : String(error) }));
+      const attempt = await sample(page, name, desktop.vault, desktop.app).then(() => ({ sampled: true }), (error: unknown) => ({ sampled: false, error: error instanceof Error ? error.message : String(error) }));
       if ("error" in attempt) failures.push(`${name}: ${attempt.error}`);
       results.push({ name, geometry, errors, ...attempt });
     }
@@ -65,15 +71,27 @@ async function runOnHosts(info: TestInfo, sample: (host: Page, name: "electron" 
     });
     expect(results, failures.join("\n\n")).toMatchObject([{ sampled: true }, { sampled: true }]);
   } finally {
-    await browser?.close();
-    await desktop?.close();
-    if (existsSync(core)) {
-      for (const socket of readdirSync(runtime).filter((name) => /^huhu-[a-z0-9]{8}-[a-z0-9]{4}\.sock$/u.test(name))) {
-        const cli = fixtureCoreCli(core, { ...process.env, HC_SESSION: "huhu", HC_SOCKET: path.join(runtime, socket) });
-        if (cli("server", "status").status === 0) expect(cli("server", "stop").status).toBe(0);
+    try {
+      await browser?.close();
+      if (desktop && originalWindow) await desktop.app.evaluate(({ BrowserWindow }, previous) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        window?.setContentSize(...previous.size);
+        window?.webContents.setZoomFactor(previous.zoom);
+      }, originalWindow);
+    } finally {
+      try {
+        await desktop?.close();
+      } finally {
+        try {
+          if (existsSync(core)) for (const socket of readdirSync(runtime).filter((name) => /^huhu-[a-z0-9]{8}-[a-z0-9]{4}\.sock$/u.test(name))) {
+            const cli = fixtureCoreCli(core, { ...process.env, HC_SESSION: "huhu", HC_SOCKET: path.join(runtime, socket) });
+            if (cli("server", "status").status === 0) expect(cli("server", "stop").status).toBe(0);
+          }
+        } finally {
+          rmTree(runtime);
+        }
       }
     }
-    rmTree(runtime);
   }
 }
 
@@ -791,6 +809,47 @@ async function lastRow(terminal: Locator, marker = "U0-LAST-ROW") {
   });
 }
 
+test("普通 Herdr 事件拆分中文与 emoji 时，工作区标签和输出仍准确", async ({ browserName: _browserName }, info) => {
+  test.setTimeout(90_000);
+  const bytes = Buffer.from([0xe4, 0xb8, 0xad, 0xf0, 0x9f, 0xa6, 0x8a]); // 中🦊
+  const directory = mkdtempSync(path.join(tmpdir(), "huhu-rpc-"));
+  const relay = await fragmentHerdrEvents(directory, process.env.HUHU_HERDR_BIN ?? core, bytes);
+  try {
+    await runOnHosts(info, async (page, host) => {
+      await showAgent(page);
+      await page.getByRole("button", { name: "新终端", exact: true }).click();
+      const pane = await launchWorkspacePane(page, page.getByTestId("launch-shell"));
+      const id = (await pane.getAttribute("data-session-id"))!;
+      const label = `工作区 ${bytes.toString("utf8")} ${host}`;
+      await call(page, "agent.sessions.rename", { id, name: label });
+      const tab = page.getByTestId("session-tab").and(page.locator(`[data-session-id="${id}"]`));
+      await expect.poll(() => relay.subscriptions).toBeGreaterThan(0);
+      const count = relay.boundaries.length;
+      const terminal = pane.getByTestId("terminal-view");
+      await terminal.locator(".xterm-helper-textarea").focus();
+      await page.keyboard.type("sh .split-herdr.sh");
+      await page.keyboard.press("Enter");
+      await expect(tab.getByTestId("session-waiting")).toBeVisible();
+      const sessions = () => call<{ id: string; name: string; waiting?: { msg: string } }[]>(page, "agent.sessions.list", {});
+      await expect.poll(async () => (await sessions()).find((entry) => entry.id === id)?.waiting?.msg).toBe(bytes.toString("utf8"));
+      const rendered = terminal.locator(".xterm-rows > div").filter({ hasText: /^中🦊$/u });
+      await expect(rendered).toHaveCount(1);
+      expect(Buffer.from((await rendered.textContent())!.trim(), "utf8")).toEqual(bytes);
+      expect(relay.boundaries.slice(count)).toEqual([[0xb8, 0x9f, 0x8a]]);
+      await expect(tab).toContainText(label);
+      await expect(pane.getByText(label, { exact: true })).toBeVisible();
+      await page.keyboard.press("Enter");
+      await expect(tab.getByTestId("session-waiting")).toHaveCount(0);
+    }, (vault) => {
+      writeFileSync(path.join(vault, ".split-herdr.sh"),
+        `printf '\\344'\nsleep .05\nprintf '\\270\\255\\360'\nsleep .05\nprintf '\\237\\246'\nsleep .05\nprintf '\\212\\r\\n'\nprintf '\\033]7501;state=blocked:kind=permission:msg=${bytes.toString("base64")}\\033\\\\'\nread -r answer\nprintf '\\033]7501;state=clear\\033\\\\'\n`);
+    }, size, { HUHU_HERDR_BIN: relay.launcher });
+  } finally {
+    await relay.close();
+    rmTree(directory);
+  }
+});
+
 test("U0 真实 PTY 分栏拖动后的末行与光标", async ({ browserName }, info) => {
   void browserName;
   test.setTimeout(90_000);
@@ -825,8 +884,21 @@ test("U0 真实 PTY 分栏拖动后的末行与光标", async ({ browserName }, 
 
 test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", async ({ browserName }, info) => {
   void browserName;
-  test.setTimeout(120_000);
-  await runOnHosts(info, async (page, name, vault) => {
+  test.setTimeout(180_000);
+  await runOnHosts(info, async (page, name, vault, app) => {
+    type Grid = { rows: number; cols: number };
+    const sizes = new Map<string, Grid>();
+    page.on("websocket", (socket) => {
+      const url = new URL(socket.url());
+      if (!url.pathname.startsWith("/ws/terminal/")) return;
+      const id = decodeURIComponent(url.pathname.split("/").at(-1)!);
+      sizes.set(id, { rows: Number(url.searchParams.get("rows")), cols: Number(url.searchParams.get("cols")) });
+      socket.on("framesent", ({ payload }) => {
+        if (typeof payload !== "string") return;
+        const resize = JSON.parse(payload) as Grid & { type?: string };
+        if (resize.type === "resize") sizes.set(id, { rows: resize.rows, cols: resize.cols });
+      });
+    });
     await showAgent(page);
     const history = page.getByTestId("agent-history-toggle");
     if (await history.getAttribute("aria-expanded") === "true") await history.click();
@@ -834,47 +906,119 @@ test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", a
     const pane = await launchWorkspacePane(page, page.getByTestId("launch-shell"));
     const terminal = pane.getByTestId("terminal-view");
     await expect(terminal.getByTestId("terminal-observer")).toHaveCount(0);
-    const grid = () => terminal.locator(".xterm-rows").evaluate((element) => ({ rows: element.childElementCount, width: element.clientWidth }));
+    const session = (await pane.getAttribute("data-session-id"))!;
+    const grid = () => sizes.get(session);
     const verify = async (step: string) => {
       const marker = `UX08-${step}`;
       const output = path.join(vault, `.${marker}`);
-      await terminal.locator(".xterm-helper-textarea").focus();
-      await page.keyboard.type(`sh .ux08-terminal.sh ${marker}`);
+      const input = terminal.locator(".xterm-helper-textarea");
+      await expect.poll(grid).toMatchObject({ rows: expect.any(Number), cols: expect.any(Number) });
+      const { rows, cols } = grid()!;
+      await input.focus();
+      await expect(input).toBeFocused();
+      await page.keyboard.type(`sh .ux08-terminal.sh ${marker} ${rows} ${cols}`);
       await page.keyboard.press("Enter");
       const observation = await lastRow(terminal, marker);
-      const [rows = 0, cols = 0] = readFileSync(output, "utf8").trim().split(/\s+/u).map(Number);
+      expect(readFileSync(output, "utf8").trim().split(/\s+/u).map(Number)).toEqual([rows, cols]);
+      expect(grid()).toEqual({ rows, cols });
       expect(observation.rows).toBe(rows);
       expect(observation.clippingAncestors).toEqual([]);
       expect(observation.hitInTerminal).toBe(true);
-      expect(await terminal.locator(".xterm-rows > div").last().locator(".xterm-cursor").count()).toBeGreaterThan(0);
+      const cursor = terminal.locator(".xterm-rows > div").last().locator(".xterm-cursor");
+      await expect(cursor).toHaveText("#");
+      expect(await cursor.evaluate((node) => {
+        const cell = node.getBoundingClientRect();
+        const screen = node.closest(".xterm-screen")!.getBoundingClientRect();
+        const hit = document.elementFromPoint(cell.left + cell.width / 2, cell.top + cell.height / 2);
+        return cell.width > 0 && cell.right <= screen.right + 1 && cell.bottom <= screen.bottom + 1 && !!hit?.closest(".xterm-screen");
+      })).toBe(true);
       await info.attach(`${name}-${step}`, { body: JSON.stringify({ ...observation, rows, cols }), contentType: "application/json" });
       await page.keyboard.press("Enter"); // 回到原 shell 及其滚动回看
       return { rows, cols };
     };
-    const initial = await verify(`${name}-initial`);
+    const initial = await verify("initial");
     await pane.getByTestId("workspace-split-down").click();
     const sibling = await launchWorkspacePane(page, page.getByTestId("launch-shell"));
     await expect(page.getByTestId("terminal-view")).toHaveCount(2);
-    expect((await verify(`${name}-split`)).rows).toBeLessThan(initial.rows);
-    const splitGrid = await grid();
+    await expect.poll(() => grid()?.rows ?? Infinity).toBeLessThan(initial.rows);
+    await verify("split");
+    for (const direction of ["left", "right", "up", "down"] as const) {
+      const before = grid()!;
+      await sibling.getByTestId("workspace-pane-move").click();
+      await pane.getByTestId(`workspace-split-${direction}`).click();
+      const horizontal = direction === "left" || direction === "right";
+      const preceding = direction === "left" || direction === "up";
+      await expect.poll(async () => {
+        const [a, b] = await Promise.all([pane.boundingBox(), sibling.boundingBox()]);
+        if (!a || !b) return false;
+        const [original, moved] = horizontal ? [a.x, b.x] : [a.y, b.y];
+        return preceding ? moved < original : moved > original;
+      }).toBe(true);
+      if (direction === "left" || direction === "up") await expect.poll(grid).not.toEqual(before);
+      await verify(direction);
+    }
+    const handle = page.getByRole("separator", { name: "上下分栏高度" });
+    const bounds = (await handle.boundingBox())!;
+    const value = await handle.getAttribute("aria-valuenow");
+    const beforeDrag = grid()!;
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 + 45, { steps: 7 });
+    await page.mouse.up();
+    await expect(handle).not.toHaveAttribute("aria-valuenow", value!);
+    await expect.poll(grid).not.toEqual(beforeDrag);
+    const splitGrid = await verify("dragged");
     await sibling.getByRole("button", { name: "放大分栏" }).click();
     await expect(pane).toBeHidden();
     await sibling.getByRole("button", { name: "还原分栏" }).click();
     await expect(pane).toBeVisible();
     await expect.poll(grid).toEqual(splitGrid);
-    await page.setViewportSize({ width: 960, height: 680 });
+    await verify("restored");
+    if (name === "electron") {
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(960, 760));
+    } else {
+      await page.setViewportSize({ width: 920, height: 680 });
+    }
     await expect.poll(grid).not.toEqual(splitGrid);
-    const resized = await verify(`${name}-viewport`);
-    const resizedGrid = await grid();
-    await page.evaluate(() => {
-      document.documentElement.style.setProperty("--font-size", "18px");
-      window.dispatchEvent(new Event("huhu:appearance-changed"));
-    });
-    await expect.poll(grid).not.toEqual(resizedGrid);
-    expect((await verify(`${name}-font`)).cols).toBeLessThan(resized.cols);
+    const resized = await verify("viewport");
+    const sizePreference = await page.locator("html").evaluate((html) => ({
+      value: html.style.getPropertyValue("--font-size"), priority: html.style.getPropertyPriority("--font-size"),
+    }));
+    try {
+      await page.evaluate(() => {
+        document.documentElement.style.setProperty("--font-size", "18px");
+        window.dispatchEvent(new Event("huhu:appearance-changed"));
+      });
+      await expect.poll(() => grid()?.cols ?? Infinity).toBeLessThan(resized.cols);
+      let last = await verify("font");
+      if (name === "electron") {
+        for (const zoom of [1.5, 1.25]) {
+          const actual = await app.evaluate(({ BrowserWindow }, factor) => {
+            const contents = BrowserWindow.getAllWindows()[0]!.webContents;
+            contents.setZoomFactor(factor);
+            return contents.getZoomFactor();
+          }, zoom);
+          expect(actual).toBeCloseTo(zoom, 2);
+          await expect.poll(grid).not.toEqual(last);
+          last = await verify(`zoom-${zoom * 100}`);
+        }
+      }
+    } finally {
+      await page.locator("html").evaluate((html, { value, priority }) => {
+        if (value) html.style.setProperty("--font-size", value, priority);
+        else html.style.removeProperty("--font-size");
+        window.dispatchEvent(new Event("huhu:appearance-changed"));
+      }, sizePreference);
+      if (name === "electron") await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.setZoomFactor(1.25));
+    }
   }, (vault) => writeFileSync(path.join(vault, ".ux08-terminal.sh"), `
 set -eu
-stty size > ".$1"
+for attempt in $(seq 1 100); do
+  stty size > ".$1"
+  read -r rows cols < ".$1"
+  [ "$rows" = "$2" ] && [ "$cols" = "$3" ] && break
+  sleep .03
+done
 read -r rows cols < ".$1"
 printf '\\033[?1049h\\033[2J\\033[H'
 i=0
