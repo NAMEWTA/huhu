@@ -1,17 +1,19 @@
 import { ledgerBusinessDate } from "@huhu/contracts";
 import { Button, Dialog, Select } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
-import { useId, useState, type ReactNode } from "react";
+import { useState } from "react";
 import type { Book } from "../shared/books.js";
 import type { RecordFilters, RecordsPage } from "../shared/entries.js";
 import { calendarMonth, HolidayData, ReportQuery, type ReportView } from "../shared/reports.js";
 import { PeriodReview } from "./FinancialNotes.js";
+import { ReportTable } from "./LedgerChart.js";
+import { BalanceCharts, CategoryTrend, DistributionChart, HealthChart, MonthlyTrend, categoryFilter } from "./ReportCharts.js";
 import { displayMoney, LedgerField, useLedgerAction } from "./primitives.js";
 
 type Currency = ReportView["currencies"][number];
 type Flow = ReportView["series"][number];
 type Filter = { currency: Currency; includeOffset: boolean };
-type Drill = { title: string; filters: RecordFilters };
+export type Drill = { title: string; filters: RecordFilters };
 const day = 86_400_000;
 
 function useScope(book: Book) {
@@ -43,19 +45,7 @@ function ScopeFields({ scope, setScope, currencies }: { scope: Filter; setScope(
   );
 }
 
-function ReportTable({ title, children }: { title: string; children: ReactNode }) {
-  const caption = useId();
-  return (
-    <div className="hu-data-table-scroll" role="region" aria-labelledby={caption} tabIndex={0}>
-      <table className="hu-table">
-        <caption id={caption}>{title}</caption>
-        {children}
-      </table>
-    </div>
-  );
-}
-
-function RecordDrill({ book, drill, close }: { book: Book; drill: Drill; close(): void }) {
+export function RecordDrill({ book, drill, close }: { book: Book; drill: Drill; close(): void }) {
   const [page, setPage] = useState(1);
   const data = useCapability<RecordsPage>("ledger.records.list", { bookId: book.id, filters: drill.filters, page });
   return (
@@ -123,14 +113,14 @@ export function LedgerReports({ book, readOnly, openResource }: { book: Book; re
   const [dates, setDates] = useState({ from: today.slice(0, 7) + "-01", to: today });
   const [drill, setDrill] = useState<Drill | null>(null);
   const [review, setReview] = useState(false);
-  const input = { bookId: book.id, ...dates, ...scope };
+  const input = { bookId: book.id, ...dates, ...scope, chartDetail: true };
   const valid = ReportQuery.safeParse(input).success;
   const result = useCapability<ReportView>("ledger.reports.query", input, { enabled: valid });
   const row = result.data?.series[0];
   const currencies = result.data?.currencies ?? [scope.currency];
   const filters: RecordFilters = { ...dates, currency: scope.currency, ...(!scope.includeOffset && { offset: false }) };
   const open = (title: string, extra: RecordFilters = {}) => setDrill({ title, filters: { ...filters, ...extra } });
-  const top = row?.categories.reduce((maximum, { amountMinor }) => (BigInt(amountMinor) > maximum ? BigInt(amountMinor) : maximum), 1n) ?? 1n;
+  const charts = row?.charts;
   return (
     <section className="hu-stack" aria-label="账本报表">
       <div className="hu-toolbar">
@@ -148,6 +138,7 @@ export function LedgerReports({ book, readOnly, openResource }: { book: Book; re
         </LedgerField>
         <ScopeFields scope={scope} setScope={setScope} currencies={currencies} />
         <Button onClick={() => setDates({ from: today.slice(0, 7) + "-01", to: today })}>本月</Button>
+        <Button onClick={() => setDates({ from: today.slice(0, 4) + "-01-01", to: today })}>本年</Button>
       </search>
       {!valid ? <p role="alert">请选择顺序正确且不超过 366 天的期间。</p> : null}
       {valid && result.isPending ? <p role="status">正在计算报表…</p> : null}
@@ -164,6 +155,18 @@ export function LedgerReports({ book, readOnly, openResource }: { book: Book; re
               </div>
               <details open>
                 <summary>收支趋势</summary>
+                {charts && (
+                  <>
+                    <MonthlyTrend id="monthly-trend" currency={row.currency} months={charts.months} open={open} />
+                    <CategoryTrend
+                      id="period-spending"
+                      currency={row.currency}
+                      categories={row.categories.filter(({ kind }) => kind === "expense")}
+                      periods={charts.periods.map((period) => ({ ...period, categories: period.categories.filter(({ kind }) => kind === "expense") }))}
+                      open={(category, { from, to }) => open(category.label, { from, to, type: "expense", ...categoryFilter(category.id) })}
+                    />
+                  </>
+                )}
                 <ReportTable title="有流水的业务日期">
                   <thead>
                     <tr>
@@ -187,28 +190,42 @@ export function LedgerReports({ book, readOnly, openResource }: { book: Book; re
                   </tbody>
                 </ReportTable>
               </details>
-              {row.categories.length ? (
+              {row.categories.length > 0 && (
                 <details open>
                   <summary>分类分布</summary>
-                  <ul>
-                    {row.categories.map((category) => (
-                      <li key={`${category.kind}:${category.id}`}>
-                        <Button variant="ghost" onClick={() => open(category.label, { type: category.kind, ...(category.id ? { categoryId: category.id } : { uncategorized: true }) })}>
-                          {category.label}
-                        </Button>{" "}
-                        {category.kind === "income" ? "收入" : "支出"} · {displayMoney(category.amountMinor, row.currency)}{" "}
-                        <meter max={100} value={Number((BigInt(category.amountMinor) * 10_000n) / top) / 100} aria-label={`${category.label}金额相对最大分类的比例`} />
-                      </li>
+                  <div className="ledger-chart-grid">
+                    {(["income", "expense"] as const).map((kind) => (
+                      <DistributionChart
+                        key={kind}
+                        id={`category-${kind}`}
+                        title={kind === "income" ? "收入分类分布" : "支出分类分布"}
+                        currency={row.currency}
+                        entries={row.categories.filter((category) => category.kind === kind)}
+                        open={(category) => open(category.label, { type: kind, ...categoryFilter(category.id) })}
+                      />
                     ))}
-                  </ul>
+                  </div>
                 </details>
-              ) : null}
+              )}
             </>
           ) : (
             <p role="status">所选期间没有流水。</p>
           )}
           <details open>
             <summary>账户分布与余额</summary>
+            <div className="ledger-chart-grid">
+              {(["income", "expense"] as const).map((kind) => (
+                <DistributionChart
+                  key={kind}
+                  id={`account-${kind}`}
+                  title={kind === "income" ? "收入账户分布" : "支出账户分布"}
+                  currency={row.currency}
+                  entries={row.accounts.map((account) => ({ ...account, amountMinor: kind === "income" ? account.incomeMinor : account.expenseMinor })).filter(({ amountMinor }) => amountMinor !== "0")}
+                  open={(account) => open(account.label, { type: kind, accountId: account.id })}
+                />
+              ))}
+            </div>
+            {charts && <BalanceCharts currency={row.currency} charts={charts} open={open} />}
             <ReportTable title="期末账户余额">
               <thead>
                 <tr>
@@ -231,15 +248,13 @@ export function LedgerReports({ book, readOnly, openResource }: { book: Book; re
                 ))}
               </tbody>
             </ReportTable>
-            <dl>
-              {row.balance.map(({ date, amountMinor }) => (
-                <div key={date}>
-                  <dt>{date} 净资产</dt>
-                  <dd>{displayMoney(amountMinor, row.currency)}</dd>
-                </div>
-              ))}
-            </dl>
           </details>
+          {charts && (
+            <div className="ledger-chart-grid">
+              <HealthChart id="health-overview" title="财务健康评估" metrics={charts.health} />
+              <HealthChart id="health-period" title="期间财务健康" metrics={charts.periodHealth} />
+            </div>
+          )}
           <p>储蓄能力 {row.savingsScore === null ? "数据不足" : `${row.savingsScore} / 100`}</p>
         </>
       ) : null}

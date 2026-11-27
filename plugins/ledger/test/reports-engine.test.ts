@@ -5,7 +5,8 @@ import path from "node:path";
 import { ledgerBusinessDayRange } from "@huhu/contracts";
 import { afterEach, expect, test } from "vitest";
 import type { Book } from "../src/shared/books.js";
-import type { AccountsView, RecordsPage } from "../src/shared/entries.js";
+import type { AccountsView, BasePreview, RecordsPage } from "../src/shared/entries.js";
+import type { Loan, LoanHistory } from "../src/shared/loans.js";
 import { type ReportView } from "../src/shared/reports.js";
 import { ledgerEngine } from "./fixture.js";
 
@@ -95,4 +96,119 @@ test("L5 empty score, exact year holiday status and card order are durable", asy
   expect(await reopened.call("ledger.calendar.holidays", query)).toEqual(data);
   expect(await reopened.call("ledger.calendar.holidays", { ...query, year: String(Number(year) + 1) })).toBeNull();
   expect(await reopened.call("ledger.reports.preferences", { bookId: book.id })).toMatchObject({ cards });
+});
+
+test("chart months fill empty periods, isolate currencies and reconcile loan and account checkpoints", async () => {
+  const { engine, book, accounts, first } = await setup();
+  const version = async () => ({ bookId: book.id, expectedRevision: (await accounts()).book.revision });
+  const date = "2026-03-01";
+  const addAccount = async (name: string, type: "bank" | "credit", openingMinor: string, currency: "CNY" | "USD" = "CNY") =>
+    engine.call<{ id: string }>("ledger.accounts.create", {
+      ...(await version()),
+      openingMinor,
+      effectiveBusinessDate: date,
+      account: { name, type, currency, labels: { accountTypeId: null, bankId: null } },
+    });
+  const bank = await addAccount("存款", "bank", "9007199254740993");
+  const credit = await addAccount("欠款", "credit", "-5000");
+  await addAccount("信用卡溢缴", "credit", "3000");
+  const foreign = await addAccount("外币", "bank", "8700", "USD");
+  const add = async (title: string, type: "income" | "expense", amountMinor: string, businessDate: string, accountId = bank.id, currency: "CNY" | "USD" = "CNY") =>
+    engine.call<{ id: string; revision: string }>("ledger.records.create", {
+      ...(await version()),
+      intentKey: randomUUID(),
+      title,
+      record: { type, amountMinor, occurredAt: ledgerBusinessDayRange(businessDate, book.timeZone).from, accountId, currency, categoryId: null, tagIds: [], payee: null, memo: null, attachmentIds: [] },
+    });
+  await add("三月收入", "income", "2000", date);
+  await add("五月支出", "expense", "1000", "2026-05-04");
+  await add("五月外币收入", "income", "10000", "2026-05-04", foreign.id, "USD");
+  const refund = await add("退款", "income", "200", "2026-05-05");
+  const expense = await add("已退款支出", "expense", "200", "2026-05-05");
+  const offset = { ...(await version()), members: [refund, expense].map(({ id, revision }) => ({ recordId: id, recordRevision: revision })) };
+  const { previewId } = await engine.call<{ previewId: string }>("ledger.reconciliation.previewOffset", offset);
+  await engine.call("ledger.reconciliation.confirmOffset", { ...offset, previewId });
+
+  const loan = await engine.call<Loan>("ledger.loans.create", {
+    ...(await version()),
+    definition: { name: "分期贷款", accountId: bank.id, currency: "CNY", principalMinor: "6000", annualRatePercent: "0", months: 3, method: "equal-principal", startOn: "2026-04-01" },
+  });
+  const scope = { bookId: book.id, from: "2025-12-01", to: "2026-05-10", chartDetail: true };
+  const result = await engine.call<ReportView>("ledger.reports.query", scope);
+  const cny = result.series.find(({ currency }) => currency === "CNY")!;
+  const usd = result.series.find(({ currency }) => currency === "USD")!;
+  expect(cny.charts?.months.map(({ from, incomeMinor, expenseMinor }) => [from.slice(0, 7), incomeMinor, expenseMinor])).toEqual([
+    ["2025-12", "0", "0"],
+    ["2026-01", "0", "0"],
+    ["2026-02", "0", "0"],
+    ["2026-03", "2000", "0"],
+    ["2026-04", "0", "0"],
+    ["2026-05", "0", "1000"],
+  ]);
+  expect(cny.charts?.netWorth.find(({ date }) => date === "2026-03-31")).toMatchObject({ liabilitiesMinor: "5000" });
+  expect(cny.charts?.netWorth.at(-1)).toEqual({ date: scope.to, assetsMinor: "9007199254744993", liabilitiesMinor: "11000", amountMinor: "9007199254733993" });
+  expect(cny.charts?.accounts.find(({ id }) => id === credit.id)?.points.at(-1)?.amountMinor).toBe("-5000");
+  expect(cny.charts?.accounts.find(({ id }) => id === first.id)?.points.at(-1)?.amountMinor).toBe("0");
+  expect(usd.charts?.netWorth.at(-1)).toMatchObject({ assetsMinor: "18700", liabilitiesMinor: "0", amountMinor: "18700" });
+  expect(usd.charts?.accounts.map(({ id }) => id)).toEqual([foreign.id]);
+  expect(cny.charts?.health.find(({ label }) => label === "储蓄能力")?.score).toBe(100);
+
+  const days = { from: "2026-05-04", to: "2026-05-06", currency: "CNY" as const };
+  const chart = (await engine.call<ReportView>("ledger.reports.query", { bookId: book.id, ...days, chartDetail: true })).series[0]?.charts;
+  expect(chart?.periods.map(({ from, categories }) => [from, categories.map(({ amountMinor }) => amountMinor)])).toEqual([
+    ["2026-05-04", ["1000"]],
+    ["2026-05-05", []],
+    ["2026-05-06", []],
+  ]);
+  expect(chart?.health.every(({ score }) => score === null)).toBe(true);
+  expect(chart?.periodHealth.every(({ score }) => score === null)).toBe(true);
+  const listed = await engine.call<RecordsPage>("ledger.records.list", { bookId: book.id, filters: { ...days, type: "expense", uncategorized: true, offset: false } });
+  expect(listed.rows.map(({ title }) => title)).toEqual(["五月支出"]);
+  const includingOffset = (await engine.call<ReportView>("ledger.reports.query", { bookId: book.id, ...days, includeOffset: true, chartDetail: true })).series[0]?.charts;
+  expect(includingOffset?.periods[1]?.categories.map(({ amountMinor }) => amountMinor)).toEqual(["200", "200"]);
+  expect(includingOffset?.netWorth).toEqual(chart?.netWorth);
+
+  const history = await engine.call<LoanHistory>("ledger.loans.previewHistory", { bookId: book.id, loanId: loan.id });
+  const closingBefore = cny.charts?.netWorth.at(-1);
+  await engine.call("ledger.loans.confirmHistory", { ...history.preview, selected: [1] });
+  const closingAfter = (await engine.call<ReportView>("ledger.reports.query", { ...scope, currency: "CNY" })).series[0]?.charts?.netWorth.at(-1);
+  expect(closingAfter).toMatchObject({ liabilitiesMinor: "9000", amountMinor: closingBefore?.amountMinor });
+
+  const preview = await engine.call<BasePreview>("ledger.accounts.previewBalance", { ...(await version()), accountId: bank.id, effectiveBusinessDate: "2026-05-05", balanceMinor: "7000" });
+  expect(preview.currentBalanceMinor).toBe("9007199254739993");
+  const { currentBalanceMinor: _, ...confirmation } = preview;
+  await engine.call("ledger.accounts.confirmBalance", confirmation);
+  await engine.call("ledger.records.create", {
+    ...(await version()),
+    title: "换汇",
+    intentKey: randomUUID(),
+    record: {
+      type: "transfer",
+      occurredAt: ledgerBusinessDayRange("2026-05-06", book.timeZone).from,
+      fromAccountId: bank.id,
+      fromCurrency: "CNY",
+      fromAmountMinor: "200",
+      toAccountId: foreign.id,
+      toCurrency: "USD",
+      toAmountMinor: "30",
+      categoryId: null,
+      tagIds: [],
+      payee: null,
+      memo: null,
+      attachmentIds: [],
+    },
+  });
+  const checked = await engine.call<ReportView>("ledger.reports.query", { bookId: book.id, from: days.from, to: days.to, chartDetail: true });
+  expect(
+    checked.series
+      .find(({ currency }) => currency === "CNY")
+      ?.charts?.accounts.find(({ id }) => id === bank.id)
+      ?.points.map(({ amountMinor }) => amountMinor),
+  ).toEqual(["9007199254739993", "7000", "6800"]);
+  expect(
+    checked.series
+      .find(({ currency }) => currency === "USD")
+      ?.charts?.accounts.find(({ id }) => id === foreign.id)
+      ?.points.map(({ amountMinor }) => amountMinor),
+  ).toEqual(["18700", "18700", "18730"]);
 });

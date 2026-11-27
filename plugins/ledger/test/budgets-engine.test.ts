@@ -81,6 +81,24 @@ test("L6 progress and paginated detail count any matching tag once and use categ
   const [first, second] = await Promise.all([detail(1), detail(2)]);
   expect(first).toMatchObject({ count: 2, actualMinor: "3300", rows: [{ title: "单标签支出" }] });
   expect(second.rows).toMatchObject([{ title: "双标签支出", businessDate: "2026-02-01" }]);
+  expect(first).toMatchObject({
+    filteredCount: 2,
+    categories: [
+      { id: null, amountMinor: "1200" },
+      { id: otherCategory, amountMinor: "2100" },
+    ],
+  });
+  expect(first.periods[0]).toMatchObject({ from: "2026-02-01", to: "2026-02-01", categories: [{ id: otherCategory, amountMinor: "2100" }] });
+  expect(second.categories).toEqual(first.categories);
+  const slice = (filter: { from?: string; to?: string; categoryId: string | null }) => engine.call<BudgetDetail>("ledger.budgets.detail", { ...query, budgetId: free!.id, page: 1, pageSize: 1, slice: filter });
+  expect(await slice({ categoryId: otherCategory, from: "2026-02-01", to: "2026-02-01" })).toMatchObject({
+    count: 2,
+    filteredCount: 1,
+    actualMinor: "3300",
+    rows: [{ title: "双标签支出" }],
+  });
+  expect(await slice({ categoryId: null })).toMatchObject({ filteredCount: 1, rows: [{ title: "单标签支出" }] });
+  expect(await slice({ categoryId: otherCategory, from: "2026-02-03" })).toMatchObject({ filteredCount: 0, rows: [] });
   expect(await engine.call("ledger.budgets.list", { ...ref, year: "2026" })).toMatchObject({
     totals: [
       { type: "free", currency: "CNY", actualMinor: "3300" },

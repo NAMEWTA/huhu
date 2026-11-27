@@ -1,4 +1,50 @@
 @layer components {
+  .ledger-content {
+    flex: 1;
+    min-inline-size: 0;
+    min-block-size: 0;
+    overflow: auto;
+  }
+  .ledger-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    gap: 16px;
+    min-inline-size: 0;
+  }
+  .ledger-chart-section {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: 8px;
+    min-inline-size: 0;
+    margin-block: 8px;
+  }
+  .ledger-chart-section h4 {
+    margin-block: 0;
+  }
+  .ledger-chart {
+    position: relative;
+    inline-size: 100%;
+    min-inline-size: 0;
+    block-size: 17rem;
+    overflow: hidden;
+  }
+  .ledger-chart-compact {
+    block-size: 11rem;
+  }
+  .ledger-chart-table {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+  .ledger-chart-table caption {
+    text-align: start;
+    color: var(--muted);
+  }
+  .ledger-chart-tooltip {
+    white-space: normal;
+    max-inline-size: 12rem;
+    overflow-wrap: anywhere;
+  }
   .ledger-budget-card {
     display: grid;
     gap: 12px;

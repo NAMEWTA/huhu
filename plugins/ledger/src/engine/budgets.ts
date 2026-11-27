@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { checkLedgerReference, errors, ledgerBusinessDate } from "@huhu/contracts";
 import type { z } from "zod";
 import type { Budget, BudgetDetail, BudgetDetailQuery, BudgetOverview, BudgetQuery, CopyBudgetResult, CopyBudgets, SaveBudgets } from "../shared/budgets.js";
-import { calendarMonth } from "../shared/reports.js";
+import { calendarMonth, reportPeriods } from "../shared/reports.js";
 import { filteredRecords, recordView } from "./records.js";
 import type { BookState, LedgerStore } from "./store.js";
 
@@ -81,7 +81,7 @@ function selectPeriod(state: BookState, { year, month, currency }: z.infer<typeo
     return (!definition.from || definition.from <= to) && (!definition.to || definition.to >= from);
   });
   const records = filteredRecords(state, { from, to, currency, offset: false }).flatMap((record) => (record.type === "transfer" ? [] : [{ record, date: ledgerBusinessDate(record.occurredAt, state.book.timeZone) }]));
-  return { budgets, records };
+  return { budgets, records, from, to };
 }
 
 function match({ definition }: Budget, records: ReturnType<typeof selectPeriod>["records"]) {
@@ -100,6 +100,18 @@ function match({ definition }: Budget, records: ReturnType<typeof selectPeriod>[
 
 const amounts = (limit: bigint, actual: bigint) => ({ limitMinor: limit.toString(), actualMinor: actual.toString(), remainingMinor: (limit - actual).toString() });
 const actualAmount = (matched: ReturnType<typeof match>) => matched.reduce((sum, { record }) => sum + BigInt(record.amountMinor), 0n);
+
+export function expenseBudgetTotals(state: BookState, rows: ReturnType<typeof match>, currency: string, from: string, to: string) {
+  let budgetLimit = 0n;
+  let budgetActual = 0n;
+  for (const budget of state.budgets) {
+    const { definition } = budget;
+    if (definition.type !== "fixed" || definition.direction !== "expense" || definition.currency !== currency || definition.month < from.slice(0, 7) || definition.month > to.slice(0, 7)) continue;
+    budgetLimit += BigInt(definition.limitMinor);
+    budgetActual += actualAmount(match(budget, rows));
+  }
+  return { budgetLimit, budgetActual };
+}
 
 export function budgetOverview(state: BookState, query: z.infer<typeof BudgetQuery>): BudgetOverview {
   const { budgets, records } = selectPeriod(state, query);
@@ -124,9 +136,27 @@ export function budgetOverview(state: BookState, query: z.infer<typeof BudgetQue
 
 export function budgetDetail(store: LedgerStore, state: BookState, query: z.infer<typeof BudgetDetailQuery>): BudgetDetail {
   const budget = readBudget(state, query.budgetId);
-  const { budgets, records } = selectPeriod(state, query);
+  const { budgets, records, from, to } = selectPeriod(state, query);
   const matched = budgets.includes(budget) ? match(budget, records) : [];
-  const { page, pageSize } = query;
+  const { page, pageSize, slice } = query;
+  const filtered = slice ? matched.filter(({ record, date }) => (!slice.from || date >= slice.from) && (!slice.to || date <= slice.to) && (slice.categoryId === undefined || record.categoryId === slice.categoryId)) : matched;
+  const names = new Map(state.dictionary.filter(({ kind }) => kind === "category").map(({ id, name }) => [id, name]));
+  function distributions(rows: typeof matched) {
+    const totals = new Map<string | null, bigint>();
+    for (const {
+      record: { categoryId, amountMinor },
+    } of rows)
+      totals.set(categoryId, (totals.get(categoryId) ?? 0n) + BigInt(amountMinor));
+    return [...totals].map(([id, amount]) => ({ id, label: id ? (names.get(id) ?? "已移除的分类") : "未分类", amountMinor: amount.toString() }));
+  }
+  const daily = query.month !== undefined;
+  const grouped = new Map<string, typeof matched>();
+  for (const row of matched) {
+    const key = daily ? row.date : row.date.slice(0, 7);
+    const group = grouped.get(key);
+    if (group) group.push(row);
+    else grouped.set(key, [row]);
+  }
   const start = (page - 1) * pageSize;
   return {
     ...budget,
@@ -134,6 +164,9 @@ export function budgetDetail(store: LedgerStore, state: BookState, query: z.infe
     count: matched.length,
     page,
     pageSize,
-    rows: matched.slice(start, start + pageSize).map(({ record }) => recordView(store, state, record, false)),
+    rows: filtered.slice(start, start + pageSize).map(({ record }) => recordView(store, state, record, false)),
+    filteredCount: filtered.length,
+    categories: distributions(matched),
+    periods: reportPeriods(from, to, daily).map((period) => ({ ...period, categories: distributions(grouped.get(daily ? period.from : period.from.slice(0, 7)) ?? []) })),
   };
 }

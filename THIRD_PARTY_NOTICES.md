@@ -135,6 +135,302 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## 账本图表依赖
+
+### echarts 5.6.0
+
+```text
+Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+
+
+
+
+========================================================================
+Apache ECharts Subcomponents:
+
+The Apache ECharts project contains subcomponents with separate copyright
+notices and license terms. Your use of the source code for these
+subcomponents is also subject to the terms and conditions of the following
+licenses.
+
+BSD 3-Clause (d3.js):
+The following files embed [d3.js](https://github.com/d3/d3) BSD 3-Clause:
+    `/src/chart/treemap/treemapLayout.ts`,
+    `/src/chart/tree/layoutHelper.ts`,
+    `/src/chart/graph/forceHelper.ts`,
+    `/src/util/number.ts`
+See `/licenses/LICENSE-d3` for details of the license.
+```
+
+```text
+Apache ECharts
+Copyright 2017-2024 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (https://www.apache.org/).
+```
+
+### zrender 5.6.1
+
+```text
+BSD 3-Clause License
+
+Copyright (c) 2017, Baidu Inc.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### echarts-for-react 3.0.6
+
+```text
+MIT License
+
+Copyright (c) 2018 AntV team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do { so, subject } to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## 复制或改造的源码（`docs/upstream/ledger.md`）
 
 # 复制来源台账
@@ -195,6 +491,11 @@ SOFTWARE.
 | R-86 | Herdr App `0ac92e4e9d5dea2097375c26e6a0cb194a75c2f0`（Cargo 工作区声明 Apache-2.0） | `src/window.rs` 的 `shell`、`unix_agent_argv` | `plugins/agent-cli/src/engine/linux-interactive-program.ts`、`native/agent-pty/console_linux.go` | 参考 Agent 退出后返回同一终端交互 shell 的行为和参数边界；Huhu 用既有私有启动协议、Go 进程监督和 PTY 实现，未复制 Rust 源码。Linux 安装适配核对本机 Volta 记录、Codex 0.171.0（Apache-2.0）和 Pi 1.5.2（MIT）的发布包布局及 Claude 原生版本路径，不随补丁分发 provider。候选 `6874c619` 与探针 `6a510e6f` 的四种真实安装离线交互及返回 shell 已通过，f91a5515 同包 Linux 原生终端与批准规则已验；四种安装入口仍按 W7.3 的独立离线证据范围记录，不将同包结果扩大为所有线上 provider。 |
 | R-87 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（README 声明 AGPL-3.0-only，固定根树无独立 LICENSE）；Nodemailer 10.6.0（MIT-0） | `src-tauri/src/mail/sync/graph_api.rs`；Nodemailer `lib/mail-composer` 发布接口 | `plugins/mail/src/engine/{graph-mail,graph-send,message-cache}.ts` | 只参考 Graph 分页、原生 ID 与最终 delta 游标提交的行为，没有复制或翻译 one-mail 源码。同步与缓存复用 Huhu Gmail/IMAP 设施；MIME 发信复用已锁定 MailComposer，Outbox 保留原认领和未知结果。实现已落地；Graph 分页、降权、恢复与发信边界有隔离发行方及回环 Engine 证据，真实线上账号仍待验，见 Linux 最终验收记录。 |
 | R-88 | Herdr Core `ce81486e3d4032405060bb823687376fadaa087b`（Apache-2.0） | `crates/herdr-core/src/platform/windows.rs` 的 `batch_line` | `plugins/agent-cli/src/engine/codex-dispatch-helper.cjs` 的 `historyInvocation` | 将既有批处理参数编码小范围适配为 JavaScript：保留 TOML 引号、隔离百分号展开、处理反斜杠；两段原生历史启动共用构造，CR/LF/NUL 在列表和首次提交前拒绝。可移植参数和公开 Engine 回归已通过，Windows 实机回显未运行。 |
+| R-89 | Motty v0.4.12 `102228261703d8f22c5eb98b1c500e2a24889dee`（Apache-2.0）；PuTTY 0.83 Appendix C（格式文档）；`@noble/hashes@2.4.0`（MIT） | `internal/ppk/{ppk,ppk_test}.go`；`@noble/hashes/argon2.js` 发布接口 | `plugins/ssh/src/engine/putty-key.ts` | 参考 PPK v2/v3 容器的有界解析与 MAC 校验，按 PuTTY 附录 C 自行实现；v3 的 Argon2 优先用 Node 原生，Electron（BoringSSL 不支持 Argon2）回退到已锁定的 `@noble/hashes`。未复制 Go 源码。 |
+| R-90 | Motty v0.4.12 `102228261703d8f22c5eb98b1c500e2a24889dee`（Apache-2.0） | `internal/sftpclient/sudo.go` | `plugins/ssh/src/engine/privileged-sftp.ts` | 采用常见 `sftp-server` 路径列表与「先等私有 stderr 标记再进入二进制 SFTP」的启动顺序；Huhu 以 `sudo -n` 和一次性口令通道实现，口令不入持久回执。 |
+| R-91 | Motty v0.4.12 `102228261703d8f22c5eb98b1c500e2a24889dee`（Apache-2.0） | `internal/remotestats/{stats,local_unix,details}.go` | `plugins/ssh/src/engine/monitor-sample.ts` | 参考 Linux procfs 计数器与 Windows CIM 分支的固定探测脚本；Huhu 改为单一带版本标记的只读脚本，经原 SSH 连接执行。GPU 等其余指标未采用。 |
+| R-92 | Motty v0.4.12 `102228261703d8f22c5eb98b1c500e2a24889dee`（Apache-2.0） | `internal/remotetools/{sudo,compose,container_environment}.go` | `plugins/ssh/src/engine/monitor-tools.ts` | 参考固定只读进程/容器查询与工具 sudo 分离；Huhu 增加 PID+命令名核对的进程终止、Docker 日志与容器终端，均绑定原主机与 Shell。 |
+
 
 Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [固定提交](https://github.com/t8y2/motty/commit/102228261703d8f22c5eb98b1c500e2a24889dee) · [LICENSE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/LICENSE) · [NOTICE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/NOTICE)
 
@@ -210,6 +511,47 @@ HomiBook 固定为 v1.2.4 `5d3d71713de805c95245378408b73f101f69659a`，完整提
 | `backend/src/services/scheduler.ts`、`backend/src/routes/recurring.ts`、`frontend/src/pages/BooksPage.tsx` | UI 模块承接建账、流水、导入和报表。固定收支接 Automations 唯一 planId/revision，贷款历史显式确认。账本 owner 保存期次和入账关系，经现有 VaultFiles/OperationLog 做一致提交与恢复。 |
 
 合同放在已装配且可单独验证的 `@huhu/contracts`，沿用 `CapabilityIntentKeySchema`。L1 建立插件时由账本 owner 消费此共享输入及本地提交约定。`packages/contracts/test/ledger.test.ts` 的固定样例验证宽金额、校准、时区、异常引用和受控导入确认输入。样例不代表 SQLite、Vault 写入或业务能力已经注册。
+
+## 账本图表（#11 L5）
+
+图表配置和评分分段取自 HomiBook v1.2.4 `5d3d71713de805c95245378408b73f101f69659a`（MIT，Copyright 2026 saaangxy）。图表沿用 Huhu 已确认的卡片、报表与明细界面。 [固定提交](https://github.com/saaangxy/HomiBook/commit/5d3d71713de805c95245378408b73f101f69659a) · [LICENSE](https://github.com/saaangxy/HomiBook/blob/5d3d71713de805c95245378408b73f101f69659a/LICENSE)
+
+| 固定源文件 | Huhu 适配 |
+| --- | --- |
+| `frontend/src/pages/HomePage.tsx` | [总览卡片](plugins/ledger/src/ui/OverviewActivity.tsx) 迁入近六个月收入和支出两条平滑面积折线，保留本月支出分类卡位并使用分布环图。 |
+| `frontend/src/components/StatsOverview.tsx` | [报表图表](plugins/ledger/src/ui/ReportCharts.tsx) 迁入收入、支出、虚线结余，账户余额多线，净资产面积线及财务健康雷达。 |
+| `frontend/src/components/StatsTimeView.tsx` | [报表图表](plugins/ledger/src/ui/ReportCharts.tsx) 迁入按业务日或月分组的支出分类堆叠柱图、期间雷达和分类下钻。 |
+| `frontend/src/components/AnalysisPanel.tsx` | [报表](plugins/ledger/src/ui/Reports.tsx) 迁入收入及支出的分类和账户环图，图元与表格共用明细过滤条件。 |
+| `frontend/src/components/BudgetDetailSheet.tsx` | [预算明细](plugins/ledger/src/ui/Budgets.tsx) 迁入分类环图及堆叠柱图，复用 Engine 的预算匹配与分页。 |
+| `packages/core/src/financial-health.ts` | [评分规则](plugins/ledger/src/domain/financial-health.ts) 使用精确整数比率移植分段评分；缺少收入时所有指标为数据不足。 [报表 Engine](plugins/ledger/src/engine/reports.ts) 按所选期间、业务时区及单币种计算。 |
+
+ECharts 配置使用 [Huhu token 及容器尺寸](plugins/ledger/src/ui/LedgerChart.tsx)。金融金额继续以最小单位整数字符串传输，图表坐标才转换成 ECharts 数值，Tooltip 和同页数据表读原始金额。时点资产包含所有正的账户余额，时点负债包含每个账户负余额的绝对值，以及该时点已开始、尚无对应还款流水的贷款本金。还款账户是资金来源，贷款本金从相应期次收据冲减。
+
+HomiBook 许可全文
+
+```text
+MIT License
+
+Copyright (c) 2026 saaangxy
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## MCP 聚合来源与合同（#12 P0）
 
@@ -252,6 +594,7 @@ HomiBook 固定为 v1.2.4 `5d3d71713de805c95245378408b73f101f69659a`，完整提
 
 | 依赖 | 来源与许可 | 用途 |
 | --- | --- | --- |
+| `echarts@5.6.0`、`zrender@5.6.1`、`echarts-for-react@3.0.6` | 依次为 Apache-2.0、BSD-3-Clause、MIT，版本与发布包完整性固定在根锁文件。 [ECharts](https://github.com/apache/echarts/tree/5.6.0) · [zrender LICENSE](https://github.com/ecomfe/zrender/blob/5.6.1/LICENSE) · [React 绑定](https://github.com/hustcc/echarts-for-react) | 账本在桌面与独立 Web 共享 ECharts 的 Canvas 渲染，由 React 绑定管理实例；许可随第三方声明分发。 |
 | `d3-dsv@3.0.2` | Mike Bostock，ISC。锁文件保留发布包完整性摘要。 [发布包](https://registry.npmjs.org/d3-dsv/-/d3-dsv-3.0.2.tgz) | SSH 导入使用 `csvParseRows` 读取 Netcatty CSV。账本使用 `csvParseRows` 和 `csvFormatRows` 解析、导出 CSV。 |
 | SheetJS CE `xlsx@0.20.3` | Apache-2.0，发布包含 `LICENSE`。`pnpm-lock.yaml` 的完整性摘要为 `sha512-oLDq3jw7AcLqKWH2AhCpVTZl8mf6X2YReP+Neh0SJUzV/BdZYjth94tG5toiMB1PPrYtxOCfaoUCkvtuH+3AJA==`。 [官方发布包](https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz) · [安装说明](https://docs.sheetjs.com/docs/getting-started/installation/nodejs/) | 账本 Engine 在本机读取微信 XLSX。 |
 | `@napi-rs/keyring@2.1.2`、`@napi-rs/keyring-win32-x64-msvc@2.1.2`、`@napi-rs/keyring-linux-x64-gnu@2.1.2`、`@napi-rs/keyring-darwin-arm64@2.1.2` | 上游 `52184fbebffeef8a061234f60f313c479b954f9f`，MIT，原生包附 `LICENSE.third-party.md`。 [发布元数据](https://registry.npmjs.org/@napi-rs%2Fkeyring/2.1.2) · [Entry 接口](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/src/entry.rs) | Engine 按可信 Vault 实例读取、创建与清理系统钥匙串中的精确数据键：Windows Credential Manager、macOS Keychain、Linux Secret Service（固定 `secret-service` 存储，不用内存 keyutils）。`apps/engine/src/module-credential-host.ts` 包装发布 API，桌面通过锁文件纳入对应平台的原生包，`electron-builder.yml` 按 `**/keyring.*.node` 解包。Linux x64 已实测；macOS、Windows 本轮未在当前候选实测。 |
@@ -962,6 +1305,8 @@ SOFTWARE.
 | dotenv-expand | 11.0.7 | BSD-2-Clause |  |
 | dunder-proto | 1.0.1 | MIT | https://github.com/es-shims/dunder-proto#readme |
 | duplexer2 | 0.1.4 | BSD-3-Clause |  |
+| echarts | 5.6.0 | Apache-2.0 | https://echarts.apache.org |
+| echarts-for-react | 3.0.6 | MIT | https://github.com/hustcc/echarts-for-react |
 | ee-first | 1.1.1 | MIT |  |
 | ejs | 3.1.10 | Apache-2.0 | https://github.com/mde/ejs |
 | electron | 44.9.1 | MIT |  |
@@ -1556,6 +1901,7 @@ SOFTWARE.
 | signal-exit | 4.1.0 | ISC |  |
 | simple-update-notifier | 2.0.0 | MIT | https://github.com/alexbrazier/simple-update-notifier.git |
 | sisteransi | 1.0.5 | MIT |  |
+| size-sensor | 1.0.3 | ISC | https://git.hust.cc/size-sensor |
 | slash | 3.0.0 | MIT |  |
 | slice-ansi | 4.0.0 | MIT |  |
 | sliced | 1.0.1 | MIT |  |
@@ -1637,6 +1983,7 @@ SOFTWARE.
 | ts-morph | 26.0.0 | MIT | https://github.com/dsherret/ts-morph#readme |
 | tsconfck | 3.1.6 | MIT | https://github.com/dominikg/tsconfck/tree/main/packages/tsconfck#readme |
 | tsconfig-paths | 4.2.0 | MIT |  |
+| tslib | 2.3.0 | 0BSD | https://www.typescriptlang.org/ |
 | tslib | 2.9.1 | 0BSD | https://www.typescriptlang.org/ |
 | tsx | 4.23.15 | MIT | https://tsx.hirok.io |
 | tunnel-rat | 0.1.2 | MIT | https://github.com/pmndrs/tunnel-rat#readme |
@@ -1734,6 +2081,7 @@ SOFTWARE.
 | zod | 3.25.76 | MIT | https://zod.dev |
 | zod | 4.6.7 | MIT | https://zod.dev |
 | zod-to-json-schema | 3.25.2 | ISC |  |
+| zrender | 5.6.1 | BSD-3-Clause |  |
 | zustand | 4.5.7 | MIT | https://github.com/pmndrs/zustand |
 | zustand | 5.1.0 | MIT | https://github.com/pmndrs/zustand |
 | zwitch | 2.0.4 | MIT |  |

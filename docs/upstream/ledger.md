@@ -77,6 +77,47 @@ HomiBook 固定为 v1.2.4 `5d3d71713de805c95245378408b73f101f69659a`，完整提
 
 合同放在已装配且可单独验证的 `@huhu/contracts`，沿用 `CapabilityIntentKeySchema`。L1 建立插件时由账本 owner 消费此共享输入及本地提交约定。`packages/contracts/test/ledger.test.ts` 的固定样例验证宽金额、校准、时区、异常引用和受控导入确认输入。样例不代表 SQLite、Vault 写入或业务能力已经注册。
 
+## 账本图表（#11 L5）
+
+图表配置和评分分段取自 HomiBook v1.2.4 `5d3d71713de805c95245378408b73f101f69659a`（MIT，Copyright 2026 saaangxy）。图表沿用 Huhu 已确认的卡片、报表与明细界面。 [固定提交](https://github.com/saaangxy/HomiBook/commit/5d3d71713de805c95245378408b73f101f69659a) · [LICENSE](https://github.com/saaangxy/HomiBook/blob/5d3d71713de805c95245378408b73f101f69659a/LICENSE)
+
+| 固定源文件 | Huhu 适配 |
+| --- | --- |
+| `frontend/src/pages/HomePage.tsx` | [总览卡片](../../plugins/ledger/src/ui/OverviewActivity.tsx) 迁入近六个月收入和支出两条平滑面积折线，保留本月支出分类卡位并使用分布环图。 |
+| `frontend/src/components/StatsOverview.tsx` | [报表图表](../../plugins/ledger/src/ui/ReportCharts.tsx) 迁入收入、支出、虚线结余，账户余额多线，净资产面积线及财务健康雷达。 |
+| `frontend/src/components/StatsTimeView.tsx` | [报表图表](../../plugins/ledger/src/ui/ReportCharts.tsx) 迁入按业务日或月分组的支出分类堆叠柱图、期间雷达和分类下钻。 |
+| `frontend/src/components/AnalysisPanel.tsx` | [报表](../../plugins/ledger/src/ui/Reports.tsx) 迁入收入及支出的分类和账户环图，图元与表格共用明细过滤条件。 |
+| `frontend/src/components/BudgetDetailSheet.tsx` | [预算明细](../../plugins/ledger/src/ui/Budgets.tsx) 迁入分类环图及堆叠柱图，复用 Engine 的预算匹配与分页。 |
+| `packages/core/src/financial-health.ts` | [评分规则](../../plugins/ledger/src/domain/financial-health.ts) 使用精确整数比率移植分段评分；缺少收入时所有指标为数据不足。 [报表 Engine](../../plugins/ledger/src/engine/reports.ts) 按所选期间、业务时区及单币种计算。 |
+
+ECharts 配置使用 [Huhu token 及容器尺寸](../../plugins/ledger/src/ui/LedgerChart.tsx)。金融金额继续以最小单位整数字符串传输，图表坐标才转换成 ECharts 数值，Tooltip 和同页数据表读原始金额。时点资产包含所有正的账户余额，时点负债包含每个账户负余额的绝对值，以及该时点已开始、尚无对应还款流水的贷款本金。还款账户是资金来源，贷款本金从相应期次收据冲减。
+
+HomiBook 许可全文
+
+```text
+MIT License
+
+Copyright (c) 2026 saaangxy
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## MCP 聚合来源与合同（#12 P0）
 
 首选 Huhu 现有 Dispatcher、MCP 会话、工作台接入中心、VaultFiles 及模块凭据宿主。实施机的 `temp/sources` 未预置 Magpie，本次取回 v0.1.4676 固定提交 `700f4127e8044ac6dfbb0e0cc937e91c59a601ac`，保存在 `temp/sources/magpie` 下的 `refs/huhu-research/issue12`。根 LICENSE 为 MIT，版权 yetone（2026）。P0 适配连接和工具路由行为，未复制 Go 源码。 [固定提交][mcp-magpie] · [LICENSE][mcp-magpie-license]
@@ -118,6 +159,7 @@ HomiBook 固定为 v1.2.4 `5d3d71713de805c95245378408b73f101f69659a`，完整提
 
 | 依赖 | 来源与许可 | 用途 |
 | --- | --- | --- |
+| `echarts@5.6.0`、`zrender@5.6.1`、`echarts-for-react@3.0.6` | 依次为 Apache-2.0、BSD-3-Clause、MIT，版本与发布包完整性固定在根锁文件。 [ECharts](https://github.com/apache/echarts/tree/5.6.0) · [zrender LICENSE](https://github.com/ecomfe/zrender/blob/5.6.1/LICENSE) · [React 绑定](https://github.com/hustcc/echarts-for-react) | 账本在桌面与独立 Web 共享 ECharts 的 Canvas 渲染，由 React 绑定管理实例；许可随第三方声明分发。 |
 | `d3-dsv@3.0.2` | Mike Bostock，ISC。锁文件保留发布包完整性摘要。 [发布包](https://registry.npmjs.org/d3-dsv/-/d3-dsv-3.0.2.tgz) | SSH 导入使用 `csvParseRows` 读取 Netcatty CSV。账本使用 `csvParseRows` 和 `csvFormatRows` 解析、导出 CSV。 |
 | SheetJS CE `xlsx@0.20.3` | Apache-2.0，发布包含 `LICENSE`。`pnpm-lock.yaml` 的完整性摘要为 `sha512-oLDq3jw7AcLqKWH2AhCpVTZl8mf6X2YReP+Neh0SJUzV/BdZYjth94tG5toiMB1PPrYtxOCfaoUCkvtuH+3AJA==`。 [官方发布包](https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz) · [安装说明](https://docs.sheetjs.com/docs/getting-started/installation/nodejs/) | 账本 Engine 在本机读取微信 XLSX。 |
 | `@napi-rs/keyring@2.1.2`、`@napi-rs/keyring-win32-x64-msvc@2.1.2`、`@napi-rs/keyring-linux-x64-gnu@2.1.2`、`@napi-rs/keyring-darwin-arm64@2.1.2` | 上游 `52184fbebffeef8a061234f60f313c479b954f9f`，MIT，原生包附 `LICENSE.third-party.md`。 [发布元数据](https://registry.npmjs.org/@napi-rs%2Fkeyring/2.1.2) · [Entry 接口](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/src/entry.rs) | Engine 按可信 Vault 实例读取、创建与清理系统钥匙串中的精确数据键：Windows Credential Manager、macOS Keychain、Linux Secret Service（固定 `secret-service` 存储，不用内存 keyutils）。`apps/engine/src/module-credential-host.ts` 包装发布 API，桌面通过锁文件纳入对应平台的原生包，`electron-builder.yml` 按 `**/keyring.*.node` 解包。Linux x64 已实测；macOS、Windows 本轮未在当前候选实测。 |
