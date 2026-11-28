@@ -1692,6 +1692,7 @@ test.each(["cli", "mcp"] as const)("%s scopes forwarding reads and dormant confi
 test.each(["cli", "mcp"] as const)("%s owns fixed, dynamic and acknowledged remote forwards until host revocation", { timeout: 45_000 }, async (entry) => {
   const f = await fixture();
   const echo = createServer((sock) => sock.pipe(sock));
+  const reserve = createServer();
   try {
     echo.listen(0, "127.0.0.1");
     await once(echo, "listening");
@@ -1712,13 +1713,9 @@ test.each(["cli", "mcp"] as const)("%s owns fixed, dynamic and acknowledged remo
     const proxy = await f.desktop<ForwardRule>(save, { name: "dynamic proxy fixture", hostId, mode: "socks5", listenPort: address.port, resume: false });
     const http = await f.desktop<ForwardRule>(save, { name: "CONNECT proxy fixture", hostId, mode: "http-connect", listenPort: address.port, resume: false });
     const occupied = await f.desktop<ForwardRule>(save, { ...draft, name: "occupied remote fixture", mode: "remote" });
-    const reserve = createServer();
     reserve.listen(0, "127.0.0.1");
     await once(reserve, "listening");
     const remotePort = (reserve.address() as { port: number }).port;
-    const released = once(reserve, "close");
-    reserve.close();
-    await released;
     const reverse = await f.desktop<ForwardRule>(save, { ...draft, name: "remote fixture", mode: "remote", listenPort: remotePort });
     const invoke = await externalTool(f, entry);
     const peer = await externalTool(f, "mcp");
@@ -1790,6 +1787,10 @@ test.each(["cli", "mcp"] as const)("%s owns fixed, dynamic and acknowledged remo
       }
     }
     expect(await startRule(occupied)).toMatchObject({ ok: false, error: { code: "NAME_CONFLICT" } });
+    // Hold the port until startup so other listeners cannot claim it during setup.
+    const released = once(reserve, "close");
+    reserve.close();
+    await released;
     const starting = startRule(reverse);
     try {
       await vi.waitFor(async () => expect((await f.desktop<ForwardRun[]>(list)).find(({ ruleId }) => ruleId === reverse.id)).toMatchObject({ state: "starting" }));
@@ -1837,6 +1838,7 @@ test.each(["cli", "mcp"] as const)("%s owns fixed, dynamic and acknowledged remo
       try {
         await f.close();
       } finally {
+        if (reserve.listening) await new Promise<void>((resolve) => reserve.close(() => resolve()));
         if (echo.listening) await new Promise<void>((resolve, reject) => echo.close((error) => (error ? reject(error) : resolve())));
       }
     }
