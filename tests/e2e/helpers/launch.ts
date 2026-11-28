@@ -1,5 +1,5 @@
 import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
-import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -29,7 +29,7 @@ let historyRoot: string | undefined;
 /**
  * Empty per-worker native history profiles. Without them the Engine scans the developer's real
  * ~/.codex, ~/.claude and ~/.pi history, which makes history and dashboard timing depend on the host.
- * An explicit environment value or test override still wins.
+ * They override the inherited environment (a runner started from Codex exports CODEX_HOME); a test override still wins.
  */
 function isolatedHistory(): Record<string, string> {
   historyRoot ??= mkdtempSync(path.join(tmpdir(), "huhu-e2e-history-"));
@@ -54,6 +54,7 @@ export async function openApp(extraEnv: Record<string, string> = {}, prepareVaul
   let page: Page;
   try {
     prepareVault?.(vault);
+    clearProfileZoom();
     app = await electron.launch({ args: [applicationRoot, "--no-sandbox", USER_DATA_ARG], env: { ...testEnv(), HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
     page = await app.firstWindow();
   } catch (error) {
@@ -76,5 +77,22 @@ export async function openApp(extraEnv: Record<string, string> = {}, prepareVaul
   };
 }
 
+/**
+ * Chromium 把每个来源的缩放级别存进共享 userData 的 Preferences；放大过的用例会让后面的用例以 1.5× 打开、
+ * 布局断点随之改变。每次启动前清掉保存的缩放，需要缩放的用例自己设置。
+ */
+export function clearProfileZoom(): void {
+  const preferences = path.join(USER_DATA_DIR, "Preferences");
+  try {
+    const profile = JSON.parse(readFileSync(preferences, "utf8")) as { partition?: { per_host_zoom_levels?: unknown } };
+    if (!profile.partition?.per_host_zoom_levels) return;
+    delete profile.partition.per_host_zoom_levels;
+    writeFileSync(preferences, JSON.stringify(profile));
+  } catch {
+    /* 还没有 Preferences（首次启动）就没有可清的缩放 */
+  }
+}
+
 /** 本进程内共享的独立 userData 参数（relaunch 同一用例仍共享状态，与默认行为一致；不同 worktree / 进程互不抢单实例锁）。 */
-export const USER_DATA_ARG = `--user-data-dir=${path.join(tmpdir(), `huhu-ud-${process.pid}`)}`;
+const USER_DATA_DIR = path.join(tmpdir(), `huhu-ud-${process.pid}`);
+export const USER_DATA_ARG = `--user-data-dir=${USER_DATA_DIR}`;

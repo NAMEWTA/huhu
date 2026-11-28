@@ -12,7 +12,7 @@ import { machineId } from "../../packages/vault/src/vault.js";
 import { startCodexResponsesFixture } from "../../plugins/agent-cli/test/fixtures/codex-responses.js";
 import type { RecentTaskRun } from "../../plugins/tasks/src/engine/dispatch-store.js";
 import { candidateEnvironment } from "./helpers/candidate-package.js";
-import { rmTree, testEnv, USER_DATA_ARG } from "./helpers/launch.js";
+import { clearProfileZoom, rmTree, testEnv, USER_DATA_ARG } from "./helpers/launch.js";
 import { treeFolder, treeItem, treeMenu, treeRename } from "./helpers/tree.js";
 import { call, engineReady } from "./knowledge/session-slow-bridge.js";
 
@@ -21,6 +21,7 @@ const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 
 async function launch(vault: string, extraEnv: Record<string, string> = {}, appRoot = root): Promise<ElectronApplication> {
+  clearProfileZoom();
   return electron.launch({ args: [appRoot, "--no-sandbox", USER_DATA_ARG], env: { ...testEnv(), HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
 }
 
@@ -29,6 +30,7 @@ async function launch(vault: string, extraEnv: Record<string, string> = {}, appR
 const APP_VERSION = (JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as { version: string }).version;
 
 async function launchBare(): Promise<ElectronApplication> {
+  clearProfileZoom();
   const env = { ...testEnv(), ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}) } as Record<string, string>;
   delete env["HUHU_VAULT"];
   return electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env });
