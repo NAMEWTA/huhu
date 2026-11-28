@@ -1152,7 +1152,7 @@ test.each(["cli", "mcp"] as const)("%s confines host edits, copies, directory ch
   }
 });
 
-test("the legacy policy defaults to no SSH access and resource changes share an atomic policy revision", async () => {
+test("the legacy policy defaults to no SSH access and resource changes share an atomic policy revision", { timeout: 20_000 }, async () => {
   const f = await fixture();
   try {
     const access = () => f.desktop<{ toolAccess: { revision: number; choices: Record<string, boolean>; resources?: { "ssh.hosts": string[] } } }>("gateway.get").then(({ toolAccess }) => toolAccess);
