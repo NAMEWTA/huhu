@@ -347,6 +347,60 @@ async function stopTerminalPerfCore(vault: string, runtime: string, coreStarted:
     .toEqual({ pids: [], sockets: [] });
 }
 
+type TerminalPerfCloseTiming = {
+  closeStartedAt: number | null;
+  closeSettledAt: number | null;
+  closeDeadlineAt: number | null;
+  closeError: string | null;
+  closeLateSettledAt: number | null;
+};
+
+async function closeTerminalPerfDesktop(launch: Promise<ElectronApplication>, vault: string, timing: TerminalPerfCloseTiming | undefined) {
+  if (timing) {
+    let stoppedWaiting = false;
+    // Give observer setup its own budget so it cannot use time reserved for close.
+    await withFixtureDeadline(1_000, async () => {
+      const app = await launch;
+      if (!stoppedWaiting) await observeTaskQuit(app, vault);
+    }).catch(() => {
+      stoppedWaiting = true;
+      console.error("[huhu-task-quit] " + JSON.stringify({ event: "main-observers-wait-skipped", at: Date.now() }));
+    });
+  }
+
+  let operationSettled = false;
+  try {
+    await withFixtureDeadline(12_000, async () => {
+      let lateError: string | null = null;
+      try {
+        const app = await launch;
+        if (timing) timing.closeStartedAt = Date.now();
+        await app.close();
+      } catch (error) {
+        if (timing && timing.closeDeadlineAt !== null) lateError = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        operationSettled = true;
+        if (timing && timing.closeStartedAt !== null) {
+          const at = Date.now();
+          if (timing.closeDeadlineAt === null) {
+            timing.closeSettledAt = at;
+          } else {
+            timing.closeLateSettledAt = at;
+            console.error("[huhu-task-quit] " + JSON.stringify({ event: "app.close-late-settled", at, closeError: lateError }));
+          }
+        }
+      }
+    });
+  } catch (error) {
+    if (timing) {
+      if (!operationSettled) timing.closeDeadlineAt = Date.now();
+      timing.closeError = error instanceof Error ? error.message : String(error);
+    }
+    throw error;
+  }
+}
+
 type TerminalPerfFixture = {
   vault: string;
   signal: AbortSignal;
@@ -364,6 +418,9 @@ const terminalPerfTest = test.extend<{ terminalPerf: TerminalPerfFixture }>({
       const vault = path.join(directory, "vault");
       const runtime = path.join(directory, "runtime");
       const teardown = new AbortController();
+      const collectDiagnostics = process.env["HUHU_PERF_DIAGNOSTICS"] === "1";
+      // Quit observation starts only after the measurement, so it stays on to localize the intermittent CI close stall.
+      const closeTiming: TerminalPerfCloseTiming = { closeStartedAt: null, closeSettledAt: null, closeDeadlineAt: null, closeError: null, closeLateSettledAt: null };
       let launch: Promise<ElectronApplication> | undefined;
       let desktopClosed = false;
       let coreStopped = false;
@@ -381,7 +438,7 @@ const terminalPerfTest = test.extend<{ terminalPerf: TerminalPerfFixture }>({
           });
           const app = await launch;
           teardown.signal.throwIfAborted();
-          if (process.env["HUHU_PERF_DIAGNOSTICS"] === "1") fixture.bridge = observeTerminalFloodBridge(app);
+          if (collectDiagnostics) fixture.bridge = observeTerminalFloodBridge(app);
           return app;
         },
       };
@@ -394,13 +451,7 @@ const terminalPerfTest = test.extend<{ terminalPerf: TerminalPerfFixture }>({
           `关闭终端性能夹具的 Electron（${directory}）`,
           async () => {
             teardown.abort();
-            const launched = launch;
-            if (launched) {
-              await withFixtureDeadline(12_000, async () => {
-                const app = await launched;
-                await app.close();
-              });
-            }
+            if (launch) await closeTerminalPerfDesktop(launch, vault, closeTiming);
             desktopClosed = true;
           },
         ],
@@ -424,7 +475,7 @@ const terminalPerfTest = test.extend<{ terminalPerf: TerminalPerfFixture }>({
           () =>
             withFixtureDeadline(2_000, () =>
               info.attach("terminal-flood-cleanup.json", {
-                body: JSON.stringify({ directory, testStatus: info.status, desktopLaunchAttempted: launch !== undefined, desktopClosed, coreStarted: fixture.coreStarted, coreStopped, directoryRemoved }),
+                body: JSON.stringify({ directory, testStatus: info.status, desktopLaunchAttempted: launch !== undefined, desktopClosed, coreStarted: fixture.coreStarted, coreStopped, directoryRemoved, ...closeTiming }),
                 contentType: "application/json",
               }),
             ),
@@ -441,7 +492,7 @@ const terminalPerfTest = test.extend<{ terminalPerf: TerminalPerfFixture }>({
         ],
       ]);
     },
-    // Allow the 12 s close, 8 s Core RPC, 8 s poll, and cleanup evidence after the test times out.
+    // Allow the 1 s observer setup, 12 s close, 8 s Core RPC, 8 s poll, and cleanup evidence after the test times out.
     { timeout: 45_000 },
   ],
 });
