@@ -64,6 +64,12 @@ jobs:
           curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-x86_64-unknown-linux-musl.tar.gz | tar -xz -C "$dir"
           echo "880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971  $dir/codex-x86_64-unknown-linux-musl" | sha256sum -c -
           codex="$dir/codex-x86_64-unknown-linux-musl"
+          # Codex 的 Linux 沙箱需要 bwrap；runner 没有系统 bwrap，使用同一 release 附带的版本（放在 codex-resources/）。
+          mkdir -p "$dir/codex-resources"
+          curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.170.0/bwrap-x86_64-unknown-linux-musl.tar.gz | tar -xz -C "$dir"
+          echo "15fd5f2673d2e1c2f80e34e5108462fd014f5e8bbc7b0731f1ab23d1ff1ac140  $dir/bwrap-x86_64-unknown-linux-musl" | sha256sum -c -
+          mv "$dir/bwrap-x86_64-unknown-linux-musl" "$dir/codex-resources/bwrap"
+          chmod +x "$dir/codex-resources/bwrap"
           # Codex 的 workspace-write 沙箱依赖非特权用户命名空间；记录 runner 设置，便于归因写入失败。
           userns="$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo n/a)"
           if unshare -Ur true 2>/dev/null; then probe=ok; else probe=blocked; fi

@@ -118,7 +118,11 @@ function untranslatedLabels(result: Record<string, string[]>): string[] {
 }
 
 async function openSlash(page: Page, prose: Locator) {
-  await prose.focus();
+  // Keys must reach the editor. If focus stays on the mode tab, Enter re-activates the tab and is lost.
+  await expect(async () => {
+    await prose.focus();
+    expect(await prose.evaluate((root) => root.contains(document.activeElement))).toBe(true);
+  }).toPass();
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.press("Enter");
   await page.keyboard.insertText("/");

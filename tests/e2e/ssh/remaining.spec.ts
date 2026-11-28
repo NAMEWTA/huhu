@@ -458,6 +458,11 @@ test("H5.3 回放已停止的录制，可暂停并按时间定位，切换 Shell
     await play.click();
     await sessions.selectOption(rightShell);
     await page.getByRole("button", { name: /已停止/ }).click();
+    // The other recording loads asynchronously; advance the paused clock until its viewer exists.
+    await expect(async () => {
+      await page.clock.runFor(50);
+      await expect(output).toBeAttached({ timeout: 250 });
+    }).toPass();
     await page.clock.runFor(leftContent.timeline.durationMs + 50);
     await expect(output).toContainText("乙侧独立输出");
     await expect(output).not.toContainText("第一段🙂");
