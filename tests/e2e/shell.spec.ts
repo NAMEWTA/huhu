@@ -12,7 +12,7 @@ import { machineId } from "../../packages/vault/src/vault.js";
 import { startCodexResponsesFixture } from "../../plugins/agent-cli/test/fixtures/codex-responses.js";
 import type { RecentTaskRun } from "../../plugins/tasks/src/engine/dispatch-store.js";
 import { candidateEnvironment } from "./helpers/candidate-package.js";
-import { rmTree, USER_DATA_ARG } from "./helpers/launch.js";
+import { rmTree, testEnv, USER_DATA_ARG } from "./helpers/launch.js";
 import { treeFolder, treeItem, treeMenu, treeRename } from "./helpers/tree.js";
 import { call, engineReady } from "./knowledge/session-slow-bridge.js";
 
@@ -21,7 +21,7 @@ const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 
 async function launch(vault: string, extraEnv: Record<string, string> = {}, appRoot = root): Promise<ElectronApplication> {
-  return electron.launch({ args: [appRoot, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
+  return electron.launch({ args: [appRoot, "--no-sandbox", USER_DATA_ARG], env: { ...testEnv(), HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
 }
 
 /** 不指定 HUHU_VAULT 启动：显示启动页。目录选择框用主进程里的桩替换（原生对话框无法被 Playwright 驱动）。 */
@@ -29,7 +29,7 @@ async function launch(vault: string, extraEnv: Record<string, string> = {}, appR
 const APP_VERSION = (JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as { version: string }).version;
 
 async function launchBare(): Promise<ElectronApplication> {
-  const env = { ...process.env, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}) } as Record<string, string>;
+  const env = { ...testEnv(), ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}) } as Record<string, string>;
   delete env["HUHU_VAULT"];
   return electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env });
 }

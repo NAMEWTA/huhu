@@ -38,7 +38,13 @@ function isolatedHistory(): Record<string, string> {
     mkdirSync(target, { recursive: true });
     return target;
   };
-  return { CLAUDE_CONFIG_DIR: dir("claude"), CODEX_HOME: dir("codex"), PI_CODING_AGENT_DIR: dir("pi") };
+  const pi = dir("pi");
+  return { CLAUDE_CONFIG_DIR: dir("claude"), CODEX_HOME: dir("codex"), PI_CODING_AGENT_DIR: pi, PI_CODING_AGENT_SESSION_DIR: path.join(pi, "sessions") };
+}
+
+/** 继承的环境之上覆盖隔离的 Agent 历史目录：运行者自己的 CODEX_HOME 等不得让应用扫描真实历史。用例需要的目录经 extraEnv 再覆盖。 */
+export function testEnv(): Record<string, string | undefined> {
+  return { ...process.env, ...isolatedHistory() };
 }
 
 /** 以临时 Vault 启动桌面应用；返回应用、首个窗口与清理函数。 */
@@ -48,7 +54,7 @@ export async function openApp(extraEnv: Record<string, string> = {}, prepareVaul
   let page: Page;
   try {
     prepareVault?.(vault);
-    app = await electron.launch({ args: [applicationRoot, "--no-sandbox", USER_DATA_ARG], env: { ...isolatedHistory(), ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
+    app = await electron.launch({ args: [applicationRoot, "--no-sandbox", USER_DATA_ARG], env: { ...testEnv(), HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
     page = await app.firstWindow();
   } catch (error) {
     await app?.close().catch(() => {});
