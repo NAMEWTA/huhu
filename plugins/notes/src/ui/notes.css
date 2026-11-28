@@ -1,4 +1,7 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
+@layer vendor {
+  @layer ok-theme, ok-base, ok-components, ok-utilities, ok-rules, ok-host;
+}
 @layer modules {
   .notes-home-widget-list {
     display: grid;
@@ -312,19 +315,11 @@
     block-size: 100%;
     background: var(--bg);
   }
-  .notes-editor-surface .tiptap-editor {
-    /* The 28px comment marker can move to the left gutter with a 6px inset. */
-    --note-gutter: clamp(36px, 4cqi, 3.75rem);
-    grid-template-columns:
-      [full-start] minmax(var(--note-gutter), 1fr)
-      [content-start] minmax(0, min(var(--content-max-width), calc(100% - var(--note-gutter) - var(--note-gutter))))
-      [content-end] minmax(var(--note-gutter), 1fr)
-      [full-end];
-  }
-  .notes-editor-surface :is([class~="tiptap-editor-portal-content"] > .ProseMirror, [class~="source-editor"] .cm-content):focus {
+  /* 编辑正文（ProseMirror / CodeMirror 的可编辑区）不画宿主焦点环，焦点由左上角标记指示；须在 modules 层才压过全局焦点环。 */
+  .notes-editor-surface [contenteditable="true"]:focus {
     outline: none;
   }
-  .notes-editor-body:has([class~="tiptap-editor-portal-content"] > .ProseMirror:focus-visible, [class~="source-editor"] .cm-content:focus-visible)::before {
+  .notes-editor-body:has(.notes-editor-surface [contenteditable="true"]:focus-visible)::before {
     content: "";
     position: absolute;
     z-index: 1;
@@ -333,15 +328,6 @@
     inline-size: 2rem;
     border-block-start: 2px solid var(--focus);
     pointer-events: none;
-  }
-  .notes-editor-surface [class~="tiptap-editor-portal-content"] > .ProseMirror[contenteditable="false"] {
-    --ok-trailing-zone: 0px;
-  }
-  .notes-editor-surface [class~="tiptap-editor-portal-content"] > .ProseMirror {
-    overflow-wrap: anywhere;
-  }
-  .notes-editor-surface [class~="tiptap-editor-portal-content"] > .ProseMirror pre {
-    overflow-wrap: normal;
   }
   .notes-reading-pane {
     flex: 1;
@@ -1615,5 +1601,27 @@
     padding: 12px;
     color: var(--faint);
     font-size: 12px;
+  }
+}
+
+/* OK 编辑器自身的类（tiptap-editor、ProseMirror、cm-content…）只在宿主适配层调整，以笔记编辑区的 data-editor-mode 为锚点，不与 modules 层的 Huhu 类互相污染（check:ok-css 的 A/C 类）。 */
+@layer vendor.ok-host {
+  [data-editor-mode] .tiptap-editor:where(.ok-root *) {
+    /* The 28px comment marker can move to the left gutter with a 6px inset. */
+    --note-gutter: clamp(36px, 4cqi, 3.75rem);
+    grid-template-columns:
+      [full-start] minmax(var(--note-gutter), 1fr)
+      [content-start] minmax(0, min(var(--content-max-width), calc(100% - var(--note-gutter) - var(--note-gutter))))
+      [content-end] minmax(var(--note-gutter), 1fr)
+      [full-end];
+  }
+  [data-editor-mode] [class~="tiptap-editor-portal-content"] > .ProseMirror:where(.ok-root *)[contenteditable="false"] {
+    --ok-trailing-zone: 0px;
+  }
+  [data-editor-mode] [class~="tiptap-editor-portal-content"] > .ProseMirror:where(.ok-root *) {
+    overflow-wrap: anywhere;
+  }
+  [data-editor-mode] [class~="tiptap-editor-portal-content"] > .ProseMirror:where(.ok-root *) pre {
+    overflow-wrap: normal;
   }
 }
