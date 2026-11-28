@@ -145,6 +145,15 @@ test("chart months fill empty periods, isolate currencies and reconcile loan and
     ["2026-04", "0", "0"],
     ["2026-05", "0", "1000"],
   ]);
+  // Month-bucketed periods carry that month's category totals (keyed by month, not by business day).
+  expect(cny.charts?.periods.map(({ from, categories }) => [from.slice(0, 7), categories.map(({ kind, amountMinor }) => [kind, amountMinor])])).toEqual([
+    ["2025-12", []],
+    ["2026-01", []],
+    ["2026-02", []],
+    ["2026-03", [["income", "2000"]]],
+    ["2026-04", []],
+    ["2026-05", [["expense", "1000"]]],
+  ]);
   expect(cny.charts?.netWorth.find(({ date }) => date === "2026-03-31")).toMatchObject({ liabilitiesMinor: "5000" });
   expect(cny.charts?.netWorth.at(-1)).toEqual({ date: scope.to, assetsMinor: "9007199254744993", liabilitiesMinor: "11000", amountMinor: "9007199254733993" });
   expect(cny.charts?.accounts.find(({ id }) => id === credit.id)?.points.at(-1)?.amountMinor).toBe("-5000");

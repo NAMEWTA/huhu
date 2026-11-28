@@ -82,18 +82,18 @@ export function report(state: BookState, { from, to, currency, includeOffset, ch
     for (const { currency: code, amount, column, accountId } of legs(row)) {
       const group = groups.get(code);
       if (!group) continue;
-      const daily = at(group.days, day, bucket);
+      const dayTotals = at(group.days, day, bucket);
       const account = at(group.accounts, accountId, bucket);
       const monthly = chartDetail ? at(group.monthTotals, day.slice(0, 7), bucket) : undefined;
       if (!counted.has(code)) {
         group.aggregate.count++;
-        daily.count++;
+        dayTotals.count++;
         if (monthly) monthly.count++;
         counted.add(code);
       }
       account.count++;
       group.aggregate[column] += amount;
-      daily[column] += amount;
+      dayTotals[column] += amount;
       account[column] += amount;
       if (monthly) monthly[column] += amount;
       if (row.type !== "transfer") {

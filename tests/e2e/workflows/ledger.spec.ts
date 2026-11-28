@@ -492,16 +492,17 @@ for (const host of ["桌面", "独立 Web"] as const) {
           window.webContents.setZoomFactor(1.5);
         });
       } else {
-        await page.setViewportSize({ width: 520, height: 780 });
-        await page.locator("html").evaluate((root) => {
-          root.style.zoom = "1.5";
-        });
+        // Browser zoom 1.5× in a 660×780 window, as on desktop: a 440×520 CSS viewport at device scale 1.5.
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Emulation.setDeviceMetricsOverride", { width: 440, height: 520, deviceScaleFactor: 1.5, mobile: false });
       }
       await expectCanvas("category-expense");
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       await expect.poll(() => ledger.locator(".ledger-content").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 
       await page.getByTestId("ledger-nav-budgets").click();
+      // Below 700 CSS px the module sidebar overlays the content until the user collapses it.
+      await page.getByRole("button", { name: "收起导航", exact: true }).click();
       await ledger.getByTestId(`ledger-budget-${budget!.id}`).getByRole("button", { name: "查看 交通预算 明细" }).click();
       const detail = page.getByRole("dialog", { name: "预算明细 · 交通预算" });
       await expectCanvas("budget-trend");
