@@ -28,6 +28,8 @@ export interface WaitingWatcherDeps {
  */
 export class WaitingWatcher {
   private sub: EventSubscription | null = null;
+  /** 订阅正在建立：期间的 poke 不再另开一条连接，否则两条订阅都会存活、重复处理事件，且旧连接不会被 stop 关闭。 */
+  private connecting = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private reconcileTimer: ReturnType<typeof setTimeout> | null = null;
@@ -66,7 +68,7 @@ export class WaitingWatcher {
 
   /** 立刻重试（刚启动了第一个会话、Core 刚出现时由调用方触发）。 */
   poke(): void {
-    if (this.stopped || this.sub) return;
+    if (this.stopped || this.sub || this.connecting) return;
     if (this.timer) clearTimeout(this.timer);
     this.attempt();
   }
@@ -79,9 +81,10 @@ export class WaitingWatcher {
 
   private attempt(): void {
     this.timer = null;
-    if (this.stopped) return;
+    if (this.stopped || this.connecting) return;
     // Core 还没启动（没有人开过终端）：不替用户启动它，稍后再看
     if (process.platform !== "win32" && !existsSync(this.d.endpoint)) return this.schedule();
+    this.connecting = true;
     subscribeEvents(this.d.endpoint, {
       // 固定 Core 0.1.19 只向未按终端标签筛选的阅者发文档事件。
       ...(!this.d.document && { labels: { "huhu.vault": this.d.vaultId } }),
@@ -92,6 +95,7 @@ export class WaitingWatcher {
       },
     }).then(
       async (sub) => {
+        this.connecting = false;
         if (this.stopped) return sub.close();
         this.sub = sub;
         this.delay = this.range.min;
@@ -99,7 +103,10 @@ export class WaitingWatcher {
         await this.reconcile(sub.snapshot.terminals as TerminalRecord[]); // 订阅之后读快照：断线期间发生的 blocked 在这里补上
         this.reconcileSessions();
       },
-      () => this.schedule(),
+      () => {
+        this.connecting = false;
+        this.schedule();
+      },
     );
   }
 
