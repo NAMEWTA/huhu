@@ -71,6 +71,23 @@ describe("目录变化（A05）", () => {
 });
 
 describe("原生监听", () => {
+  test("原生监听已被内核移除时仍能关闭，且重复关闭不会再次退订", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "huhu-wt-"));
+    dirs.push(root);
+    const unsubscribe = vi.fn<() => Promise<void>>().mockResolvedValue(undefined).mockRejectedValueOnce(new Error("Unable to remove watcher: Invalid argument"));
+    const backend = vi.spyOn(parcelWatcher, "subscribe").mockResolvedValueOnce({ unsubscribe });
+    try {
+      const w = new VaultWatcher({ root, receipts: new ReceiptLog(), onChanges: () => {} });
+      watchers.push(w);
+      await expect(w.start()).resolves.toBeUndefined();
+      await expect(w.close()).resolves.toBeUndefined();
+      await expect(w.close()).resolves.toBeUndefined();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    } finally {
+      backend.mockRestore();
+    }
+  });
+
   test("暂扣创建后轮询发现改名时，只用仍存在的新名配对删除记录", async () => {
     const backend = vi.spyOn(parcelWatcher, "subscribe").mockResolvedValue({ unsubscribe: async () => {} });
     vi.useFakeTimers();

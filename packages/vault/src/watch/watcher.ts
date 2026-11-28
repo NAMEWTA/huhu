@@ -231,6 +231,13 @@ export class VaultWatcher {
     if (this.holdTimer) clearTimeout(this.holdTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
     await this.refreshingSubscription;
-    await this.subscription?.unsubscribe();
+    const subscription = this.subscription;
+    this.subscription = null;
+    try {
+      await subscription?.unsubscribe();
+    } catch (error) {
+      // The kernel can remove an inotify watch before Parcel processes the removal.
+      if (!(error instanceof Error) || !error.message.startsWith("Unable to remove watcher")) throw error;
+    }
   }
 }
