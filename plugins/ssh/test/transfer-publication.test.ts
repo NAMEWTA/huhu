@@ -10,7 +10,7 @@ import { TransferRecovery } from "../src/engine/transfer-recovery.js";
 import type { TransferJob } from "../src/shared/transfers.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 
-async function fixture(trackRecovery = false) {
+async function fixture(trackRecovery = false, reconcileOnRemoval = false) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "huhu-transfer-publication-")));
   const hosts = ownedHosts();
   const servers: Awaited<ReturnType<typeof startFakeSsh>>[] = [];
@@ -21,6 +21,9 @@ async function fixture(trackRecovery = false) {
     now: () => new Date(),
     withManagedAuth: (_host, connect) => connect({ password: "pw" }),
     decisionTimeoutMs: 2500,
+    onConnectionRemoved: () => {
+      if (reconcileOnRemoval) queue.reconcileLostConnections();
+    },
     publish: (type, payload) => {
       if (type !== "ssh.hostKeyPrompt") return;
       const { attemptId } = payload as { attemptId: string };
@@ -29,7 +32,8 @@ async function fixture(trackRecovery = false) {
   });
   const sessions = new FileSessions(manager);
   const recovery = new TransferRecovery(path.join(root, "recovery.json"), "fixture-vault");
-  const makeQueue = (track: boolean) => new Transfers(sessions, manager, () => {}, undefined, false, track ? recovery : undefined);
+  const changed = vi.fn<(id: string) => void>();
+  const makeQueue = (track: boolean) => new Transfers(sessions, manager, changed, undefined, false, track ? recovery : undefined);
   const queue = makeQueue(trackRecovery);
   async function endpoint(options: FakeSshOptions = {}) {
     const server = await startFakeSsh(options);
@@ -52,6 +56,8 @@ async function fixture(trackRecovery = false) {
   return {
     manager,
     queue,
+    recovery,
+    changed,
     reopenQueue: () => makeQueue(true),
     endpoint,
     find,
@@ -174,6 +180,96 @@ test.each(["changed target", "replaced connection"] as const)(
   },
   12000,
 );
+
+test.each(["connection removal", "list refresh"] as const)(
+  "a full waiting queue reconciles a lost original connection once on %s",
+  async (trigger) => {
+    const reconcileOnRemoval = trigger === "connection removal";
+    const f = await fixture(true, reconcileOnRemoval);
+    try {
+      const input = await f.endpoint();
+      const output = await f.endpoint();
+      input.server.fs.files.set(source, fresh);
+      output.server.fs.files.set(target, original);
+      const { liveLimit } = f.queue.list(false);
+      const ids = Array.from({ length: liveLimit }, () => f.queue.start({ source: input.file(source), target: output.file(target) }).transferId);
+      const active = Reflect.get(f.queue, "active") as ReadonlySet<unknown>;
+      await vi.waitFor(
+        () => {
+          expect(f.queue.list(false).jobs.filter(({ state }) => state === "waiting")).toHaveLength(liveLimit);
+          expect(active.size).toBe(0);
+        },
+        { timeout: 10000, interval: 12 },
+      );
+      const cancelled = ids[0]!;
+      expect(f.queue.cancel(cancelled).state).toBe("cancelled");
+
+      const save = vi.spyOn(f.recovery, "save");
+      f.changed.mockClear();
+      const counts = () => ({ saves: save.mock.calls.length, notifications: f.changed.mock.calls.length });
+      f.manager.disconnect(input.host.id);
+      const afterDisconnect = f.queue.list(false);
+      const disconnectCounts = counts();
+      const afterFirstList = f.queue.list();
+      const transitionCounts = { saves: 1, notifications: 1 };
+      expect(counts()).toEqual(transitionCounts);
+      expect(f.changed).toHaveBeenCalledWith("history");
+      expect(disconnectCounts).toEqual(reconcileOnRemoval ? transitionCounts : { saves: 0, notifications: 0 });
+      if (reconcileOnRemoval) expect(afterDisconnect).toEqual(afterFirstList);
+      expect(f.queue.list()).toEqual(afterFirstList);
+      expect(counts()).toEqual(transitionCounts);
+
+      const expected = ids
+        .toReversed()
+        .map((transferId) => expect.objectContaining(transferId === cancelled ? { transferId, state: "cancelled" } : { transferId, state: "failed", errorCode: "SSH_DISCONNECTED", bytesPerSecond: 0, message: "文件会话的原连接已断开" }));
+      expect(afterFirstList.jobs).toEqual(expected);
+      const reopened = f.reopenQueue().list(false).jobs;
+      expect(reopened).toHaveLength(ids.length);
+      expect(reopened).toEqual(expect.arrayContaining(expected));
+      expect(output.server.fs.files.get(target)).toEqual(original);
+    } finally {
+      await f.close();
+    }
+  },
+  15000,
+);
+
+test("disconnect settles queued conflicts while the active source stream is still held", async () => {
+  const f = await fixture(false, true);
+  const gate = readGate();
+  const activeTarget = "/home/test/active-destination";
+  let runningId: string | undefined;
+  try {
+    const input = await f.endpoint({
+      waitReadFile(file) {
+        if (file !== source || !runningId || f.queue.find(runningId)?.state !== "running") return;
+        gate.entered.resolve();
+        return gate.released.promise;
+      },
+    });
+    const output = await f.endpoint();
+    input.server.fs.files.set(source, fresh);
+    output.server.fs.files.set(target, original);
+    runningId = f.queue.start({ source: input.file(source), target: output.file(activeTarget) }).transferId;
+    await gate.entered.promise;
+    const queued = Array.from({ length: 2 }, () => f.queue.start({ source: input.file(source), target: output.file(target) }).transferId);
+    const queuedJobs = queued.toReversed().map((transferId) => expect.objectContaining({ transferId, state: "queued" }));
+    const runningJob = expect.objectContaining({ transferId: runningId, state: "running" });
+    expect(f.queue.list(false).jobs).toEqual([...queuedJobs, runningJob]);
+
+    f.manager.disconnect(input.host.id);
+    const failedJobs = queued.toReversed().map((transferId) => expect.objectContaining({ transferId, state: "failed", errorCode: "SSH_DISCONNECTED" }));
+    expect(f.queue.list(false).jobs).toEqual([...failedJobs, runningJob]);
+    expect(f.queue.list().jobs).toEqual([...failedJobs, runningJob]);
+    await f.state(runningId, "failed");
+    expect(output.server.fs.files.has(activeTarget)).toBe(false);
+    expect(output.server.fs.files.get(target)).toEqual(original);
+    expect(temporary(output.server.fs.files)).toEqual([]);
+  } finally {
+    gate.released.resolve();
+    await f.close();
+  }
+}, 12000);
 
 test("a second pause during the last SFTP target digest holds publication until another resume", async () => {
   const f = await fixture();

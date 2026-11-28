@@ -100,6 +100,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
     connectionPreferences: () => preferences.runtime().connection,
+    onConnectionRemoved: () => transfers.reconcileLostConnections(),
     ...(deviceProxies && {
       deviceProxy: {
         commands: deviceProxies,

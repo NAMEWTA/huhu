@@ -60,6 +60,7 @@ export interface SshDeps {
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   now(): Date;
   connectionPreferences?(): ConnectionPreferences;
+  onConnectionRemoved?(): void;
   outbound?: {
     resolve(host: ManagedHost): EffectiveProxy;
     dial(profile: NonNullable<EffectiveProxy["profile"]>, target: { host: string; port: number }, signal: AbortSignal, assertCurrent: () => void): Promise<Duplex>;
@@ -1330,6 +1331,7 @@ export class SshManager {
     }
     const { hostId, attemptId } = connection;
     if (this.statuses.get(slot)?.attemptId === attemptId) this.update({ hostId, attemptId, state: "disconnected" }, slot);
+    if (!this.disposed) this.d.onConnectionRemoved?.();
   }
 
   newPaneSlot(hostId: string): string {

@@ -90,12 +90,26 @@ export class Transfers {
     this.pump();
   }
 
-  list(refresh = true): TransferQueue {
-    for (const rec of refresh ? this.records.values() : []) {
-      if (terminal.has(rec.job.state) || rec.job.state === "uncertain" || this.active.has(rec)) continue;
-      const lost = [rec.job.source, rec.job.target].some((origin) => origin.kind === "remote" && !this.sessions.hasOriginalConnection(origin.session));
-      if (lost) this.finish(rec, "failed", "文件会话的原连接已断开", "SSH_DISCONNECTED");
+  reconcileLostConnections(): void {
+    if (this.disposed) return;
+    let changed = false;
+    for (const rec of this.records.values()) {
+      const { job } = rec;
+      if (terminal.has(job.state) || job.state === "uncertain" || this.active.has(rec)) continue;
+      const lost = [job.source, job.target].some((origin) => origin.kind === "remote" && !this.sessions.hasOriginalConnection(origin.session));
+      if (!lost) continue;
+      Object.assign(job, { state: "failed", message: "文件会话的原连接已断开", errorCode: "SSH_DISCONNECTED", bytesPerSecond: 0 });
+      changed = true;
     }
+    if (changed) {
+      this.trimHistory();
+      this.saveRecovery();
+      this.changed("history");
+    }
+  }
+
+  list(refresh = true): TransferQueue {
+    if (refresh) this.reconcileLostConnections();
     return {
       jobs: [...this.records.values()].map(({ job }) => ({ ...job })).reverse(),
       batches: [...this.batches.values()].map((batch) => this.batchView(batch)).reverse(),
