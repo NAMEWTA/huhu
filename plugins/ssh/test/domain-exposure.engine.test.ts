@@ -42,7 +42,7 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
     const desktop = (capability: string, input: unknown = {}) => engine!.dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
     const success = async (capability: string, input?: unknown) => {
       const result = await desktop(capability, input);
-      if (!result.ok) throw Error(`${capability}: ${result.error.code}`);
+      if (!result.ok) throw Error(`${capability}: ${result.error.code} ${result.error.message}`);
       return result.data;
     };
     await success("gateway.mcp.update", { enabled: true });

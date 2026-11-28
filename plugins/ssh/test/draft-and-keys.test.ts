@@ -1,9 +1,10 @@
+import { createPrivateKey, createPublicKey, type ED25519KeyPairOptions, type KeyPairSyncResult } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import ssh2 from "ssh2";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterAll, afterEach, expect, test, vi } from "vitest";
 import { Vault } from "../../../packages/vault/src/index.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { ConfigureHost } from "../src/engine/auth-profile.js";
@@ -14,6 +15,58 @@ import { KnownHosts } from "../src/engine/known-hosts.js";
 import { SshManager } from "../src/engine/manager.js";
 import { appendPane, MAX_WORKSPACE_PANES, paneCount, removePaneAt, WorkspaceLayout, type SplitTree } from "../src/shared/workspace.js";
 import { genHostKey, startFakeSsh } from "./fake-server.js";
+
+// ssh2 captures the Node crypto functions when its CommonJS module loads.
+const { generateKeyPair, generateKeyPairSync } = await vi.hoisted(async () => {
+  const { default: crypto } = await import("node:crypto");
+  type DerOptions = ED25519KeyPairOptions<"der", "der">;
+  type DerKey = Buffer<ArrayBuffer>;
+  const generators: {
+    generateKeyPair(type: "ed25519", options: DerOptions, callback: (error: Error | null, publicKey: DerKey, privateKey: DerKey) => void): void;
+    generateKeyPairSync(type: "ed25519", options: DerOptions): KeyPairSyncResult<DerKey, DerKey>;
+  } = crypto;
+  return { generateKeyPair: vi.spyOn(generators, "generateKeyPair"), generateKeyPairSync: vi.spyOn(generators, "generateKeyPairSync") };
+});
+afterAll(() => {
+  generateKeyPair.mockRestore();
+  generateKeyPairSync.mockRestore();
+});
+
+function ed25519DerPair(counter: number) {
+  const seed = Buffer.alloc(32);
+  seed.writeUInt32BE(counter, 28);
+  const privateKey = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]);
+  const publicKey = createPublicKey(createPrivateKey({ key: privateKey, format: "der", type: "pkcs8" })).export({ format: "der", type: "spki" });
+  return { privateKey, publicKey };
+}
+
+function expectEd25519PublicBlob(publicKey: string, expectedBytes: Buffer) {
+  const [type, encoded] = publicKey.split(" ");
+  expect(type).toBe("ssh-ed25519");
+  const blob = Buffer.from(encoded!, "base64");
+  expect(blob).toHaveLength(51);
+  expect(blob.readUInt32BE(15)).toBe(32);
+  expect(blob.subarray(19)).toEqual(expectedBytes);
+  return blob;
+}
+
+test.each([
+  [218, "001f93fa"],
+  [36, "00001f8b"],
+  [0, "3b6a27bc"],
+])("ssh2 保留 Ed25519 公钥的全部 32 字节，种子计数 %i，公钥前缀 %s", (counter, prefix) => {
+  const der = ed25519DerPair(counter);
+  const expectedBytes = der.publicKey.subarray(-32);
+  expect(expectedBytes.subarray(0, 4).toString("hex")).toBe(prefix);
+  generateKeyPairSync.mockReturnValueOnce(der);
+
+  const pair = ssh2.utils.generateKeyPairSync("ed25519");
+  const blob = expectEd25519PublicBlob(pair.public, expectedBytes);
+  const parsed = ssh2.utils.parseKey(pair.private);
+  if (parsed instanceof Error) throw parsed;
+  expect(parsed.isPrivateKey()).toBe(true);
+  expect(parsed.getPublicSSH()).toEqual(blob);
+});
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -48,8 +101,11 @@ test("密钥库只列公开摘要，引用的加密 Ed25519 密钥可认证且�
   const { hosts, vault, manager, run, remember } = await setup();
   const signal = new AbortController().signal;
   const passphrase = "synthetic test passphrase";
+  const der = ed25519DerPair(218);
+  generateKeyPair.mockImplementationOnce((_type, _options, callback) => queueMicrotask(() => callback(null, der.publicKey, der.privateKey)));
   const key = await hosts.addKey({ action: "generate", name: "loopback key", passphrase }, signal);
   expect(key).toMatchObject({ keyType: "ssh-ed25519", encrypted: true, available: true, referenced: false });
+  expectEd25519PublicBlob(key.publicKey, der.publicKey.subarray(-32));
   const hostKey = genHostKey();
   const server = await startFakeSsh({ hostKey, publicKey: key.publicKey });
   cleanups.push(server.close);

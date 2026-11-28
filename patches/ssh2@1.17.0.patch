@@ -62,6 +62,25 @@ index 7291c2c..abc80b0 100644
              break;
            case 'hostbased':
              nextAuth = {
+diff --git a/lib/keygen.js b/lib/keygen.js
+--- a/lib/keygen.js
++++ b/lib/keygen.js
+@@ -290,8 +290,10 @@ function parseDERs(keyType, pub, priv) {
+       let pubBin = reader.readString(Ber.BitString, true);
+       {
+-        // Remove leading zero bytes
+-        let i = 0;
+-        for (; i < pubBin.length && pubBin[i] === 0x00; ++i);
+-        if (i > 0)
+-          pubBin = pubBin.slice(i);
++        // The BIT STRING content is exactly one "unused bits" count byte
++        // (always 0x00 here, since an ED25519 key is byte-aligned) followed
++        // by the raw 32-byte public key. Strip exactly that one byte --
++        // NOT a variable-length run of zero bytes (the raw key itself can
++        // legitimately start with 0x00).
++        if (pubBin.length > 0 && pubBin[0] === 0x00)
++          pubBin = pubBin.slice(1);
+       }
 diff --git a/lib/protocol/Protocol.js b/lib/protocol/Protocol.js
 index 7302488..0bb6fd5 100644
 --- a/lib/protocol/Protocol.js
