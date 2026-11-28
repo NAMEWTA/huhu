@@ -796,8 +796,10 @@ test("旧提醒候选取消，评论效果中断后按原发生核实", async ()
     const { occurrenceId } = (await readPlan(page, plan.planId))!.lastOccurrence!;
     const filename = path.join(vault, ".huhu", "automations", "reminder-deliveries", `${occurrenceId}.json`);
     const record = JSON.parse(readFileSync(filename, "utf8")) as object;
-    // Reproduce a lost checkpoint after the visible comment has committed.
-    writeFileSync(filename, JSON.stringify({ ...record, comment: "writing", finishedAt: null }) + "\n");
+    // Reproduce a recovery that could not confirm the committed comment: the occurrence finished with
+    // its checkpoint still "writing". Periodic recovery resumes only unfinished records, so only an
+    // explicit verification settles this one.
+    writeFileSync(filename, JSON.stringify({ ...record, comment: "writing" }) + "\n");
     expect(await changePlan(page, (await readPlan(page, plan.planId))!, { change: "set-intent", intent: "paused" })).toMatchObject({ outcome: "completed" });
     browser = await chromium.launch();
     const web = await invitePlans(page, browser);
