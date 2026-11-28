@@ -447,14 +447,15 @@ const terminalPerfTest = test.extend<{ terminalPerf: TerminalPerfFixture }>({
 });
 
 terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms", async ({ terminalPerf }) => {
+  test.setTimeout(120_000);
   const { vault, signal } = terminalPerf;
   const app = await terminalPerf.launch();
   // The runner may stop waiting at the test timeout while an already issued Playwright call is still settling.
   signal.throwIfAborted();
   const page = await app.firstWindow();
   const diagnostics = process.env["HUHU_PERF_DIAGNOSTICS"] === "1";
-  const tail = "FLOOD-DONE-42-10485760";
-  const traffic = diagnostics ? observeTerminalFlood(page, tail) : undefined;
+  const tailOf = (round: number) => `FLOOD-DONE-42-10485760-R${round}`;
+  const traffic = diagnostics ? observeTerminalFlood(page, tailOf(1)) : undefined;
   signal.throwIfAborted();
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
   signal.throwIfAborted();
@@ -477,14 +478,19 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
   await expect(search).toBeVisible();
   const gate = path.join(vault, ".huhu", "perf-flood-start");
   const quotedGate = `'${gate.replaceAll("'", "'\"'\"'")}'`;
-  type KeySample = { key: string; at: number; phase: "before" | "during" | "after"; valueBefore: number; inputAt?: number; valueAfter?: number; firstFrameAt?: number; latency?: number };
+  type KeySample = { round: number; key: string; at: number; phase: "before" | "during" | "after"; valueBefore: number; inputAt?: number; valueAfter?: number; firstFrameAt?: number; latency?: number };
+  type RoundWindow = { round: number; releasedAt: number; deadline: number; signaledAt: number | null; firstOutputAt: number | null; tailAt: number | null; tailShown: boolean };
   type RowObservation = { originalDetachedAt: number | null; replacements: number; firstReplacementAt: number | null; originalRowsAtSnapshot: boolean; visibleTailAtSnapshot: boolean };
   type FloodWindow = Window & {
     __huhuFloodDone: () => Promise<void>;
+    __huhuFloodRound: (round: number, pattern: string, tail: string) => void;
     __huhuFinishFloodRows?: () => void;
     __flood: { focusedAt: number; firstOutputAt: number | null; tailAt: number | null; pending: number; keys: KeySample[]; rows?: RowObservation };
   };
   let signaledAt: number | undefined;
+  const resetSignal = () => {
+    signaledAt = undefined;
+  };
   signal.throwIfAborted();
   await page.exposeFunction("__huhuFloodDone", () => {
     signaledAt = Date.now();
@@ -493,31 +499,41 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
   await page.locator(".xterm-helper-textarea").focus();
   // 等待只发生在生产者启动前。放行后仍使用原来的满速 10 MiB 管道。
   signal.throwIfAborted();
-  await page.keyboard.type(`while [ ! -f ${quotedGate} ]; do sleep 0.01; done; count=$(yes 0123456789abcdef | head -c 10485760 | tee /dev/tty | wc -c); echo FLOOD-DONE-$((6*7))-$count`);
+  await page.keyboard.type(
+    `for r in 1 2 3 4; do while [ ! -f ${quotedGate}.$r ]; do [ ! -f ${quotedGate}.stop ] || break 2; sleep 0.01; done; count=$(yes R\${r}23456789abcdef | head -c 10485760 | tee /dev/tty | wc -c); echo FLOOD-DONE-$((6*7))-$count-R$r; done`,
+  );
   signal.throwIfAborted();
   await page.keyboard.press("Enter");
   signal.throwIfAborted();
   await search.focus();
   signal.throwIfAborted();
-  await search.evaluate(
-    (input, { tail, diagnostics, sessionId }) => {
+  const focusedAt = await search.evaluate(
+    (input, { diagnostics, sessionId }) => {
       if (!(input instanceof HTMLInputElement) || input.type !== "search" || document.activeElement !== input) throw new Error("真实会话搜索框未获得焦点");
       const w = window as unknown as FloodWindow;
       const now = () => performance.timeOrigin + performance.now();
       const probe: FloodWindow["__flood"] = { focusedAt: now(), firstOutputAt: null, tailAt: null, pending: 0, keys: [] };
       w.__flood = probe;
-      const rows = document.querySelector('[data-testid="terminal-view"] .xterm-rows');
-      if (!rows) throw new Error("终端输出行未挂载");
-      const observer = new MutationObserver(() => {
-        const text = rows.textContent ?? "";
-        if (probe.firstOutputAt === null && (text.match(/0123456789abcdef/gu)?.length ?? 0) >= 3) probe.firstOutputAt = now();
-        if (!text.includes(tail)) return;
-        probe.tailAt = now();
-        observer.disconnect();
-        void w.__huhuFloodDone();
-      });
-      observer.observe(rows, { subtree: true, childList: true, characterData: true });
-      if (diagnostics) {
+      let activeRound = 0;
+      let outputObserver: MutationObserver | undefined;
+      w.__huhuFloodRound = (round, pattern, tail) => {
+        outputObserver?.disconnect();
+        const rows = document.querySelector('[data-testid="terminal-view"] .xterm-rows');
+        if (!rows) throw new Error("终端输出行未挂载");
+        activeRound = round;
+        probe.firstOutputAt = null;
+        probe.tailAt = null;
+        const observer = new MutationObserver(() => {
+          const text = rows.textContent ?? "";
+          if (probe.firstOutputAt === null && text.split(pattern, 4).length === 4) probe.firstOutputAt = now();
+          if (!text.includes(tail)) return;
+          probe.tailAt = now();
+          observer.disconnect();
+          void w.__huhuFloodDone();
+        });
+        observer.observe(rows, { subtree: true, childList: true, characterData: true });
+        outputObserver = observer;
+        if (round !== 1 || !diagnostics) return;
         const state: RowObservation = { originalDetachedAt: null, replacements: 0, firstReplacementAt: null, originalRowsAtSnapshot: false, visibleTailAtSnapshot: false };
         probe.rows = state;
         const scope = sessionId ? `[data-session-id="${CSS.escape(sessionId)}"] ` : "";
@@ -539,14 +555,14 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
           state.originalRowsAtSnapshot = current === rows;
           state.visibleTailAtSnapshot = current?.textContent?.includes(tail) ?? false;
         };
-      }
+      };
       input.addEventListener(
         "keydown",
         (event) => {
           if (!event.isTrusted || event.target !== input || (event.key !== "a" && event.key !== "Backspace")) return;
           const start = performance.now();
           const phase = probe.tailAt !== null ? "after" : probe.firstOutputAt !== null ? "during" : "before";
-          const sample: KeySample = { key: event.key, at: performance.timeOrigin + start, phase, valueBefore: input.value.length };
+          const sample: KeySample = { round: activeRound, key: event.key, at: performance.timeOrigin + start, phase, valueBefore: input.value.length };
           probe.keys.push(sample);
           if (phase !== "during") return;
           probe.pending++;
@@ -570,86 +586,107 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
         },
         true,
       );
+      return probe.focusedAt;
     },
-    { tail, diagnostics, sessionId },
+    { diagnostics, sessionId },
   );
-  signal.throwIfAborted();
-  const releasedAt = Date.now();
-  const deadline = releasedAt + 20_000;
-  if (sessionId) traffic?.start(sessionId, deadline);
-  terminalPerf.bridge?.start(releasedAt, deadline);
-  writeFileSync(gate, "");
+  const rows = terminal.locator(".xterm-rows");
+  const windows: RoundWindow[] = [];
+  const minimumSamples = 10;
+  let keys: KeySample[] = [];
   let dispatched = 0;
-  for (; signaledAt === undefined && Date.now() < deadline; dispatched++) {
+  // A fast machine drains one 10 MiB flood in a few key round trips.
+  for (let round = 1; round <= 4; round++) {
     signal.throwIfAborted();
-    await page.keyboard.press(dispatched % 2 === 0 ? "a" : "Backspace");
-  }
-  // 窗口结束后仍等待窗内按键的两帧回调，保留慢样本。
-  signal.throwIfAborted();
-  await page.waitForFunction(() => (window as unknown as FloodWindow).__flood.pending === 0, null, { timeout: 10_000 });
-  signal.throwIfAborted();
-  const probe = await page.evaluate(() => {
-    const w = window as unknown as FloodWindow;
-    w.__huhuFinishFloodRows?.();
-    return w.__flood;
-  });
-  signal.throwIfAborted();
-  if (traffic) {
-    const webSocketSnapshotAt = Date.now();
-    const sockets = traffic.finish(sessionId);
-    const coreReadStartedAt = Date.now();
-    const core = sessionId === null ? { status: "no-session" } : await withFixtureDeadline(4_000, () => readTerminalFloodTail(page, sessionId, tail)).catch(() => ({ status: "unavailable" }));
+    const tail = tailOf(round);
+    await page.evaluate(({ round, pattern, tail }) => (window as unknown as FloodWindow).__huhuFloodRound(round, pattern, tail), { round, pattern: `R${round}23456789abcdef`, tail });
     signal.throwIfAborted();
-    const coreReadFinishedAt = Date.now();
-    await withFixtureDeadline(2_000, () =>
-      test.info().attach("terminal-flood-stages.json", {
-        body: JSON.stringify({ sessionId, releasedAt, deadline, webSocketSnapshotAt, sockets, dom: probe.rows, coreReadStartedAt, coreReadFinishedAt, core, bridge: terminalPerf.bridge?.snapshot() }),
-        contentType: "application/json",
-      }),
-    ).catch(() => console.error("[perf-diagnostics] terminal stage attachment incomplete"));
-    signal.throwIfAborted();
-  }
-  const during = probe.keys.filter(({ phase }) => phase === "during");
-  const thirds = [0, 0, 0];
-  if (probe.firstOutputAt !== null && probe.tailAt !== null && probe.tailAt > probe.firstOutputAt) {
-    const start = probe.firstOutputAt;
-    const span = probe.tailAt - start;
-    for (const { at } of during) {
-      const index = Math.min(2, Math.floor(((at - start) * 3) / span));
-      thirds[index] = thirds[index]! + 1;
+    resetSignal();
+    const releasedAt = Date.now();
+    const deadline = releasedAt + 20_000;
+    if (round === 1) {
+      if (sessionId) traffic?.start(sessionId, deadline);
+      terminalPerf.bridge?.start(releasedAt, deadline);
     }
+    writeFileSync(`${gate}.${round}`, "");
+    for (; signaledAt === undefined && Date.now() < deadline; dispatched++) {
+      signal.throwIfAborted();
+      await page.keyboard.press(dispatched % 2 === 0 ? "a" : "Backspace");
+    }
+    // 窗口结束后仍等待窗内按键的两帧回调，保留慢样本。
+    signal.throwIfAborted();
+    await page.waitForFunction(() => (window as unknown as FloodWindow).__flood.pending === 0, null, { timeout: 10_000 });
+    signal.throwIfAborted();
+    const probe = await page.evaluate((round) => {
+      const w = window as unknown as FloodWindow;
+      if (round === 1) w.__huhuFinishFloodRows?.();
+      return w.__flood;
+    }, round);
+    signal.throwIfAborted();
+    const tailShown = await expect(rows)
+      .toContainText(tail)
+      .then(
+        () => true,
+        () => false,
+      );
+    signal.throwIfAborted();
+    const { firstOutputAt, tailAt } = probe;
+    keys = probe.keys;
+    windows.push({ round, releasedAt, deadline, signaledAt: signaledAt ?? null, firstOutputAt, tailAt, tailShown });
+    if (round === 1 && traffic) {
+      const webSocketSnapshotAt = Date.now();
+      const sockets = traffic.finish(sessionId);
+      const coreReadStartedAt = Date.now();
+      const core = sessionId === null ? { status: "no-session" } : await withFixtureDeadline(4_000, () => readTerminalFloodTail(page, sessionId, tail)).catch(() => ({ status: "unavailable" }));
+      signal.throwIfAborted();
+      const coreReadFinishedAt = Date.now();
+      await withFixtureDeadline(2_000, () =>
+        test.info().attach("terminal-flood-stages.json", {
+          body: JSON.stringify({ sessionId, releasedAt, deadline, webSocketSnapshotAt, sockets, dom: probe.rows, coreReadStartedAt, coreReadFinishedAt, core, bridge: terminalPerf.bridge?.snapshot() }),
+          contentType: "application/json",
+        }),
+      ).catch(() => console.error("[perf-diagnostics] terminal stage attachment incomplete"));
+      signal.throwIfAborted();
+    }
+    if (tailAt === null || tailAt > deadline || firstOutputAt === null || !tailShown) break;
+    if (keys.filter(({ phase }) => phase === "during").length >= minimumSamples) break;
   }
-  note(
-    "终端洪流采样窗口",
-    JSON.stringify({
-      releasedAt,
-      signaledAt,
-      focusedAt: probe.focusedAt,
-      firstOutputAt: probe.firstOutputAt,
-      tailAt: probe.tailAt,
-      dispatched,
-      before: probe.keys.filter(({ phase }) => phase === "before").length,
-      during: during.length,
-      after: probe.keys.filter(({ phase }) => phase === "after").length,
-      thirds,
-    }),
-  );
+  writeFileSync(`${gate}.stop`, "");
+  const during = keys.filter(({ phase }) => phase === "during");
+  const thirds = [0, 0, 0];
+  for (const { round, at } of during) {
+    const { firstOutputAt, tailAt } = windows[round - 1]!;
+    if (firstOutputAt === null || tailAt === null || tailAt <= firstOutputAt) continue;
+    const index = Math.min(2, Math.floor(((at - firstOutputAt) * 3) / (tailAt - firstOutputAt)));
+    thirds[index] = thirds[index]! + 1;
+  }
+  const evidence = {
+    windows,
+    focusedAt,
+    dispatched,
+    before: keys.filter(({ phase }) => phase === "before").length,
+    during: during.length,
+    after: keys.filter(({ phase }) => phase === "after").length,
+    thirds,
+  };
+  note("终端洪流采样窗口", JSON.stringify(evidence));
   await test.info().attach("terminal-flood-keys.json", {
-    body: JSON.stringify({ releasedAt, signaledAt, dispatched, thirds, ...probe }, null, 2),
+    body: JSON.stringify({ ...evidence, keys }, null, 2),
     contentType: "application/json",
   });
   signal.throwIfAborted();
   // The browser records the tail before notifying Node. A tail seen during frame drain can be too late.
-  expect(probe.tailAt !== null && probe.tailAt <= deadline, "必须在放行后 20 秒内观察到实际洪流尾标").toBe(true);
-  expect(probe.firstOutputAt, "必须观察到实际终端输出开始").not.toBeNull();
-  await expect(page.getByTestId("terminal-view").locator(".xterm-rows")).toContainText(tail);
-  signal.throwIfAborted();
-  const lat = during.map(({ latency }) => latency!);
+  for (const { round, tailAt, deadline, firstOutputAt, tailShown } of windows) {
+    expect(tailAt !== null && tailAt <= deadline, `第 ${round} 轮必须在放行后 20 秒内观察到实际洪流尾标`).toBe(true);
+    expect(firstOutputAt, `第 ${round} 轮必须观察到实际终端输出开始`).not.toBeNull();
+    expect(tailShown, `第 ${round} 轮必须显示实际洪流尾标`).toBe(true);
+  }
   expect(
     during.every(({ inputAt, valueBefore, valueAfter, key }) => typeof inputAt === "number" && valueAfter === (key === "a" ? valueBefore + 1 : Math.max(0, valueBefore - 1))),
     "窗内按键必须产生真实输入事件并修改搜索框内容",
   ).toBe(true);
-  expect(lat.length, "洪流期间的按键样本太少（洪流过快结束或没有输出）").toBeGreaterThanOrEqual(10);
+  expect(during.length, `${windows.length} 轮洪流期间的按键样本仍太少`).toBeGreaterThanOrEqual(minimumSamples);
+  const lat = during.map(({ latency }) => latency!);
   const v = p95(lat);
   note("终端 10 MiB 输出期间输入响应", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 ≤ 100）`);
   atMost(v, 100);
