@@ -975,6 +975,8 @@ test("首页看板：概览读取失败由卡片重试，近期笔记、专注�
     await expect(summary.getByTestId("automation-widget-plan-count")).toHaveText(`已启用 ${plans.plans.filter(({ intent }) => intent === "enabled").length} 条计划`);
     if (plans.plans.every(({ nextAt }) => nextAt === null)) await expect(summary.getByText("暂无待执行的计划")).toBeVisible();
     const board = path.join(vault, ".huhu", "home", "widgets.json");
+    // The card renders from the saved board before the engine has flushed it to disk.
+    await expect.poll(() => existsSync(board)).toBe(true);
     const saved = readFileSync(board);
     expect((await call("automations.runs.list")).data).toEqual(before);
     await summary.getByRole("button", { name: "打开自动化" }).click();
