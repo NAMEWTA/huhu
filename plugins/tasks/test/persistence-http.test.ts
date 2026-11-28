@@ -747,11 +747,21 @@ test("持久收件后无需扫描定时器即可投递结果，重复收件仅�
   const ack = { ok: true, data: { stage: "tasks_consumed", receipt: executionReceiptIdentity(receipt) } };
   const delivered = [{ run: run.runId, session: execution.sessionBinding.sessionId, body: receipt.payload.message }];
 
-  const replay = vi.spyOn(TaskReceiptInbox.prototype, "replay");
+  // The ACK must not wait for an inbox replay. A replay may already start (the receipt wake or a file watcher),
+  // so hold every replay until the ACK has arrived instead of asserting none began.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = TaskReceiptInbox.prototype.replay;
+  const replay = vi.spyOn(TaskReceiptInbox.prototype, "replay").mockImplementation(async function (this: TaskReceiptInbox, ...args) {
+    await gate;
+    return original.apply(this, args);
+  });
   try {
     expect(await submitReceipt(engine, receipt)).toMatchObject(ack);
-    expect(replay).not.toHaveBeenCalled();
   } finally {
+    release();
     replay.mockRestore();
   }
   await vi.waitFor(
