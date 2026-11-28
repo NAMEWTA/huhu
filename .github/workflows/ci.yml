@@ -64,6 +64,9 @@ jobs:
           curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-x86_64-unknown-linux-musl.tar.gz | tar -xz -C "$dir"
           echo "880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971  $dir/codex-x86_64-unknown-linux-musl" | sha256sum -c -
           codex="$dir/codex-x86_64-unknown-linux-musl"
+          # Codex 的 workspace-write 沙箱依赖非特权用户命名空间；记录 runner 设置，便于归因写入失败。
+          sysctl kernel.unprivileged_userns_clone kernel.apparmor_restrict_unprivileged_userns user.max_user_namespaces 2>&1 || true
+          unshare -Ur true && echo "unprivileged userns: ok" || echo "unprivileged userns: blocked"
           {
             echo "HUHU_AGENT_PTY_HOST=$PWD/native/agent-pty/bin/huhu-agent-pty"
             echo "HUHU_AGENT_LAUNCH_TEST_BIN=$HUHU_HERDR_BIN"

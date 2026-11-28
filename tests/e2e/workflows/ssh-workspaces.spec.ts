@@ -1359,9 +1359,10 @@ test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保
       .poll(async () => {
         const list = await sshCall<TransferQueue>(page, "ssh.transfers.list");
         const original = list.data.jobs.filter(({ transferId }) => jobs.includes(transferId));
-        return original.length === jobs.length && original.every(({ state }) => state === "failed" || state === "cancelled");
+        // Report the unfinished states, not just false, when a transfer outlives its connection.
+        return { missing: jobs.length - original.length, unfinished: original.map(({ state }) => state).filter((state) => state !== "failed" && state !== "cancelled") };
       })
-      .toBe(true);
+      .toEqual({ missing: 0, unfinished: [] });
     expect(destination.fs.files.get(bad)?.toString()).toBe("错误前缀");
   } finally {
     ended.resolve();

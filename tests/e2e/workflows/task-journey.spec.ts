@@ -1,7 +1,7 @@
 import { _electron as electron, chromium, expect, test, type Browser, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -1505,6 +1505,9 @@ test("同一受控任务写授权文件、调用内置与外部工具并按原�
         const detail = await openTask(page, task.title);
         await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
         await expect.poll(() => responses.requests.length, { timeout: 45_000 }).toBe(4);
+        // Codex reports a sandbox or shell failure back to the model; show it instead of a bare ENOENT.
+        const shellOutput = JSON.stringify(responses.requests[1]?.input.filter(({ type }) => type === "function_call_output"));
+        expect(existsSync(path.join(workspace, "proof.txt")), shellOutput).toBe(true);
         expect(await readFile(path.join(workspace, "proof.txt"), "utf8")).toBe("task-workspace");
         expect(upstream.calls).toEqual([{ name: "echo", input: { value: "workspace" } }]);
         const [run] = await listDispatches(call, task.id);
