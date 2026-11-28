@@ -47,7 +47,35 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - if: runner.os == 'Linux'
-        run: xvfb-run -a pnpm e2e --reporter=list,json
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: native/agent-pty/go.mod
+          cache: false
+      - if: runner.os == 'Linux'
+        name: Linux 旅程前置（Playwright Chromium、原生 PTY helper、固定 Codex、Secret Service）
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends gnome-keyring
+          native/agent-pty/build.sh
+          dir="$RUNNER_TEMP/codex-0.170.0"
+          mkdir -p "$dir"
+          curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-x86_64-unknown-linux-musl.tar.gz | tar -xz -C "$dir"
+          echo "880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971  $dir/codex-x86_64-unknown-linux-musl" | sha256sum -c -
+          codex="$dir/codex-x86_64-unknown-linux-musl"
+          {
+            echo "HUHU_AGENT_PTY_HOST=$PWD/native/agent-pty/bin/huhu-agent-pty"
+            echo "HUHU_AGENT_LAUNCH_TEST_BIN=$HUHU_HERDR_BIN"
+            echo "HUHU_CODEX_DISPATCH_BIN=$codex"
+            echo "HUHU_CODEX_NATIVE_TEST_BIN=$codex"
+            echo "HUHU_P6_CODEX_BIN=$codex"
+            if [ -x /usr/sbin/sshd ]; then echo "HUHU_TEST_OPENSSH_SSHD=/usr/sbin/sshd"; fi
+            echo "HUHU_MCP_KEYRING_ACCEPTANCE=1"
+          } >> "$GITHUB_ENV"
+      - if: runner.os == 'Linux'
+        # 凭据走 Secret Service：在独立 D-Bus 会话里解锁一个临时 login 钥匙串，随会话退出。
+        run: dbus-run-session -- bash -c 'printf ci | gnome-keyring-daemon --unlock --components=secrets > /dev/null && exec xvfb-run -a pnpm e2e --reporter=list,json'
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/journeys.json
       - if: runner.os != 'Linux'
