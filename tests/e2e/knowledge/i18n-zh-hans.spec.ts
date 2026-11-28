@@ -215,7 +215,10 @@ test("H03：实际应用每个斜杠命令后扫描块、占位与属性", async
       await page.keyboard.insertText("起始");
       await expect(source).toHaveText("起始");
       await page.getByRole("tab", { name: "实时预览", exact: true }).click();
-      await expect(prose).toHaveText("起始");
+      // Matching text alone can still be the previous document (an empty footnote definition has no text).
+      // Wait until the preview holds only the reset paragraph, or Enter lands in the old document.
+      // Ignore an empty trailing paragraph; every other block must be gone.
+      await expect.poll(() => prose.evaluate((root) => [...root.children].map((block) => `${block.tagName}:${block.textContent}`).filter((block) => block !== "P:"))).toEqual(["P:起始"]);
       const slash = await openSlash(page, prose);
       const option = slash.locator(`[data-slash-command="${command}"]`);
       if (command === "component-File") {
