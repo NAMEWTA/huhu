@@ -133,7 +133,9 @@ type Fixture = Awaited<ReturnType<typeof fixture>>;
 
 function businessState(root: string, includeHistory = false): Record<string, string> {
   const state: Record<string, string> = {};
-  const excluded = new Set([".huhu/runtime", ".huhu/gateway", ".huhu/writer.lock", ".huhu/cache", ".huhu/logs", ".huhu/ui"]);
+  // The pending journal holds the watcher's observations of fixture edits until they are committed to history Git.
+  // It appears and drains on the watcher's schedule, not as an effect of the capability under test.
+  const excluded = new Set([".huhu/runtime", ".huhu/gateway", ".huhu/writer.lock", ".huhu/cache", ".huhu/logs", ".huhu/ui", ".huhu/history/pending"]);
   // The file watcher may record earlier fixture edits while unrelated rows are running.
   if (!includeHistory) excluded.add(".huhu/history");
   function visit(dir: string) {
